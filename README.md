@@ -78,5 +78,6 @@ For full functionality, PULS relies on external services and libraries being ava
 
 *   **`q` or `Esc`:** Quit the application.
 *   **`Tab` / `Backtab`:** Cycle through the different tabs.
+*   **`1` - `7`:** Directly switch to a specific tab (1=Dashboard, 2=Process, etc.).
 *   **`↑` / `↓`:** Select a process in the Dashboard view.
 *   **`Enter`:** View detailed information for the selected process.
