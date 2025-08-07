@@ -41,12 +41,23 @@ The final executable will be located at `target/release/puls`.
 
 ### Installation
 
-You can install PULS system-wide to run it from anywhere by simply typing `puls`.
+You can install PULS system-wide to run it from anywhere by simply typing `puls/puls-linux`.
 
-**Prerequisites:**
-*   You have built the release binary as described above.
+**Installation Command for Releases(Linux / macOS):**
 
-**Installation Command (Linux / macOS):**
+This command will copy the optimized binary to `/usr/local/bin`, a standard location for user-installed executables. It will ask for your password as it requires administrator privileges.
+
+```bash
+wget https://github.com/word-sys/puls/releases/download/0.1.0/puls-linux
+chmod +x puls-linux
+sudo install puls-linux /usr/local/bin/
+```
+After installing, open a new terminal session and run the application:
+```bash
+puls-linux
+```
+
+**Installation Command for Building from Source(Linux / macOS):**
 
 This command will copy the optimized binary to `/usr/local/bin`, a standard location for user-installed executables. It will ask for your password as it requires administrator privileges.
 
