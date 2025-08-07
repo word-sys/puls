@@ -1,44 +1,38 @@
-# PULS - A Modern Terminal System Monitor
+# PULS - A Modern Terminal Process Monitor
 
-PULS is a responsive and feature-rich system monitoring dashboard that runs in your terminal. Built with Rust, it provides a comprehensive overview of your system's key metrics, including CPU, memory, network, disk I/O, processes, and container status.
+PULS is a responsive and feature-rich system monitoring dashboard that runs in your terminal. Its primary goal is to provide a clear, comprehensive, and interactive view of system processes, complemented by a high-level overview of hardware statistics.
 
-A key feature of PULS is its **Safe Mode**, a low-resource diagnostic mode that disables I/O-heavy features like Docker and GPU monitoring. This allows PULS to run reliably on systems that are under heavy load or failing, making it a valuable tool for real-world problem-solving.
+Built with Rust, PULS allows you to quickly identify resource-intensive applications on the dashboard, and then instantly dive into a **Detailed Process View** to inspect the full command, user, environment variables, and more.
+
+For reliability, PULS also features a **Safe Mode** (`--safe`), a lightweight diagnostic mode that ensures you can still analyze processes even when your system is under heavy load.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 ---
 
 ### Features
 
-*   **Dual-Mode Operation:**
-    *   **Full Mode:** A rich, multi-threaded dashboard with live sparkline graphs, Docker/Podman integration, and NVIDIA GPU monitoring.
-    *   **Safe Mode (`--safe`):** A lightweight, single-threaded diagnostic mode that prioritizes stability on low-resource systems.
-*   **Global Summary Bar:** A graphical dashboard showing real-time usage for CPU, Memory, GPU, Network, and Disk I/O.
-*   **Process Monitoring:** A sortable list of running processes with details on PID, CPU, memory, and disk activity.
-*   **Detailed Process View:** Select any process to see its full command, user, status, start time, and environment variables.
-*   **Optimized for Size:** Uses modern compiler features like LTO and symbol stripping to reduce binary size.
+*   **Interactive Process List:** View a sortable list of running processes with details on PID, CPU usage, memory consumption, and disk activity.
+*   **Detailed Process View:** Instantly inspect any selected process for its full command path, user, status, parent PID, start time, and all environment variables.
+*   **Global Summary Bar:** An at-a-glance dashboard with live sparkline graphs for Network and Disk I/O, and gauges for overall CPU and Memory usage.
+*   **Container & GPU Support:** Out-of-the-box monitoring for Docker/Podman containers and NVIDIA GPUs in its default mode.
+*   **Safe Mode for Diagnostics:** A low-resource mode that disables I/O-heavy features to ensure stability during system emergencies.
 
 ---
 
 ## Installation (Linux)
 
-The easiest way to install PULS is by downloading the latest pre-compiled binary.
+The recommended way to install PULS is by downloading the latest pre-compiled binary using `wget`.
 
-**1. Download the Latest Release:**
-Go to the [**Releases Page**](https://github.com/word-sys/puls/releases/latest) on GitHub and download the `puls-linux` binary.
+**1. Download & Install with one command:**
+This command will download the latest `puls-linux` binary, make it executable, and move it to `/usr/local/bin/puls` so it can be run from anywhere. It may ask for your password for the final step.
 
-**2. Install the Binary:**
-Open your terminal, navigate to your `Downloads` folder, and run the following commands.
-
-First, make the binary executable:
 ```bash
-chmod +x puls-linux ```
-
-Next, move it to a standard system-wide location. This command renames the file to just `puls` and places it where it can be run from anywhere. It may ask for your password.
-```bash
+wget -O puls-linux https://github.com/word-sys/puls/releases/latest/download/puls-linux && \
+chmod +x puls-linux && \
 sudo mv puls-linux /usr/local/bin/puls
 ```
 
-**3. Run the Application:**
+**2. Run the Application:**
 Now, open a new terminal and run the application in its two modes:
 
 *   **Full-featured mode:**
@@ -68,7 +62,7 @@ cd puls
 ```bash
 cargo build --release
 ```
-The final executable will be located at `target/release/puls`. You can then install it using the same `mv` command described in the Installation section above.
+The final executable will be located at `target/release/puls`. You can then install it using the `mv` command described in the Installation section above.
 
 ---
 
@@ -77,7 +71,7 @@ The final executable will be located at `target/release/puls`. You can then inst
 For full functionality, the default mode of PULS relies on external services. These are not required for Safe Mode.
 
 *   **Docker/Podman:** The Docker daemon must be running and accessible for container monitoring to function.
-*   **NVIDIA GPU Support:** The official NVIDIA drivers must be installed, providing the `libnvidia-ml.so` library. If not found, the GPU sections will show "N/A".
+*   **NVIDIA GPU Support:** The official NVIDIA drivers must be installed, providing the `libnvidia-ml.so` library. If not found, the GPU sections will correctly show "N/A".
 
 ---
 
