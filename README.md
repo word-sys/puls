@@ -1,6 +1,6 @@
 # PULS - A Modern Terminal System Monitor
 
-PULS is a fast, lightweight, and modern system monitoring tool that runs in your terminal. It is built with Rust and provides a comprehensive, at-a-glance overview of your system's key metrics, including CPU, memory, network, disk I/O, and processes.
+PULS is a fast, lightweight, and modern system monitoring tool that runs in your terminal. It is built with Rust and provides a comprehensive, at-a-glance overview of your system's key metrics, including CPU, GPU, memory, network, disk I/O, and processes.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 ---
