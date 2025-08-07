@@ -1,0 +1,15 @@
+[package]
+name = "puls"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+crossterm = "0.27"
+ratatui = { version = "0.26", features = ["all-widgets"] }
+sysinfo = "0.29.11"
+tokio = { version = "1", features = ["full"] }
+bollard = "0.15"
+futures-util = "0.3"
+nvml-wrapper = "0.10"
+users = "0.11"
+chrono = "0.4"
