@@ -1,6 +1,6 @@
 # PULS - A Modern Terminal System Monitor
 
-PULS is a modern high-level system monitoring tool that runs in your terminal. It is built with Rust and provides a comprehensive, at-a-glance overview of your system's key metrics, including CPU, GPU, memory, network, disk I/O, and processes.
+PULS is a responsive and feature-rich system monitoring dashboard that runs in your terminal. It is built with Rust and provides a comprehensive overview of your system's key metrics, including CPU, memory, network, disk I/O, processes, and container status.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 ---
@@ -10,15 +10,59 @@ PULS is a modern high-level system monitoring tool that runs in your terminal. I
 *   **Global Summary Bar:** A graphical dashboard showing real-time usage for CPU, Memory, GPU, Network, and Disk I/O.
 *   **Process Monitoring:** View a sortable list of running processes with details on PID, CPU usage, memory consumption, and disk activity.
 *   **Detailed Process View:** Select any process to see its full command, user, status, start time, and environment variables.
-*   **Container Support:** Automatically detects and displays statistics for running Docker/Podman containers, including CPU, memory, network, and disk usage.
-*   **Hardware Details:** Individual tabs for viewing per-core CPU usage, disk partitions, network interface statistics, and detailed NVIDIA GPU stats (if available).
-*   **Responsive UI:** Built with `ratatui` for a smooth and responsive terminal interface.
+*   **Container Support:** Automatically detects and displays statistics for running Docker/Podman containers.
+*   **Hardware Details:** Individual tabs for viewing per-core CPU usage, disk partitions, network interface statistics, and detailed NVIDIA GPU stats.
+*   **Cross-Platform:** Provides pre-compiled binaries for Linux, macOS, and Windows.
 
 ---
 
-### Building from Source
+## Installation (Recommended)
 
-You can build PULS yourself if you have the Rust toolchain installed.
+The easiest way to install PULS is by downloading the latest pre-compiled binary for your operating system.
+
+**1. Download the Latest Release:**
+Go to the [**Releases Page**](https://github.com/word-sys/puls/releases/latest) on GitHub.
+
+Download the appropriate binary for your system (e.g., `puls-linux`, `puls-macos`, or `puls-windows.exe`).
+
+**2. Install the Binary:**
+
+#### For Linux & macOS
+
+Open your terminal, navigate to the directory where you downloaded the file, and run the following commands.
+
+First, make the binary executable:
+```bash
+chmod +x puls-linux 
+# Or chmod +x puls-macos on a Mac
+```
+
+Next, move it to a location in your system's `PATH`. The recommended location is `/usr/local/bin`. This command will copy it there and may ask for your password.
+```bash
+sudo mv puls-linux /usr/local/bin/puls
+# Or sudo mv puls-macos /usr/local/bin/puls on a Mac
+```
+*(Note: We rename it to just `puls` during the move for easier use.)*
+
+#### For Windows
+
+1.  Download the `puls-windows.exe` file.
+2.  Move it to a folder of your choice (e.g., `C:\Program Files\puls\`).
+3.  Add this folder to your system's `PATH` environment variable so you can run it from any command prompt.
+
+**3. Run the Application:**
+Now, open a new terminal session and run the application:
+```bash
+puls
+```
+---
+
+## Building from Source
+
+If you are a developer and prefer to compile the project yourself, you can build PULS from source.
+
+**Prerequisites:**
+*   [Rust Toolchain](https://www.rust-lang.org/tools/install) (rustc and cargo)
 
 **1. Clone the repository:**
 ```bash
@@ -27,49 +71,22 @@ cd puls
 ```
 
 **2. Build the project:**
-For a regular debug build, run:
-```bash
-cargo build
-```
-For an optimized release build (recommended for installation), run:
+For an optimized release build, run:
 ```bash
 cargo build --release
 ```
-The final executable will be located at `target/release/puls`.
+The final executable will be located at `target/release/puls`. You can then install it using the same steps outlined in the Installation section above.
 
 ---
 
-### Installation
+### Optional Dependencies
 
-You can install PULS system-wide to run it from anywhere by simply typing `puls/puls-linux`.
+For full functionality, PULS relies on external services and libraries being available on your system.
 
-**Installation Command for Releases(Linux / macOS):**
+*   **Docker/Podman:** For container monitoring to function, the Docker daemon must be running and accessible to the user running PULS.
+*   **NVIDIA GPU Support:** For GPU monitoring, the official NVIDIA drivers must be installed, which provide the `libnvidia-ml.so` library on Linux or `nvml.dll` on Windows. If these are not found, the GPU sections will correctly show "N/A".
 
-This command will copy the optimized binary to `/usr/local/bin`, a standard location for user-installed executables. It will ask for your password as it requires administrator privileges.
-
-```bash
-wget https://github.com/word-sys/puls/releases/download/0.1.0/puls-linux
-chmod +x puls-linux
-sudo install puls-linux /usr/local/bin/
-```
-After installing, open a new terminal session and run the application:
-```bash
-puls-linux
-```
-
-**Installation Command for Building from Source(Linux / macOS):**
-
-This command will copy the optimized binary to `/usr/local/bin`, a standard location for user-installed executables. It will ask for your password as it requires administrator privileges.
-
-```bash
-# Run from the root of the project directory
-sudo install target/release/puls /usr/local/bin/
-```
-
-After installing, open a new terminal session and run the application:
-```bash
-puls
-```
+---
 
 ### Usage
 
