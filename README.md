@@ -27,34 +27,20 @@ Download the appropriate binary for your system (e.g., `puls-linux`, `puls-macos
 
 **2. Install the Binary:**
 
-#### For Linux & macOS
+#### For Linux
 
 Open your terminal, navigate to the directory where you downloaded the file, and run the following commands.
 
 First, make the binary executable:
 ```bash
 chmod +x puls-linux 
-# Or chmod +x puls-macos on a Mac
 ```
 
 Next, move it to a location in your system's `PATH`. The recommended location is `/usr/local/bin`. This command will copy it there and may ask for your password.
 ```bash
 sudo mv puls-linux /usr/local/bin/puls
-# Or sudo mv puls-macos /usr/local/bin/puls on a Mac
 ```
 *(Note: We rename it to just `puls` during the move for easier use.)*
-
-#### For Windows
-
-1.  Download the `puls-windows.exe` file.
-2.  Move it to a folder of your choice (e.g., `C:\Program Files\puls\`).
-3.  Add this folder to your system's `PATH` environment variable so you can run it from any command prompt.
-
-**3. Run the Application:**
-Now, open a new terminal session and run the application:
-```bash
-puls
-```
 ---
 
 ## Building from Source
