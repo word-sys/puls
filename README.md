@@ -4,7 +4,7 @@ PULS is a responsive and feature-rich system monitoring dashboard that runs in y
 
 Built with Rust, PULS allows you to quickly identify resource-intensive applications on the dashboard, and then instantly dive into a **Detailed Process View** to inspect the full command, user, environment variables, and more.
 
-For reliability, PULS also features a **Safe Mode** (`--safe`), a lightweight diagnostic mode that ensures you can still analyze processes even when your system is under heavy load.
+For reliability, PULS also features a **Safe Mode** (`--safe`), a lightweight diagnostic mode that ensures you can still analyze processes even when your system is under heavy load or if you have a low-end system.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 ---
