@@ -36,11 +36,11 @@ First, make the binary executable:
 chmod +x puls-linux 
 ```
 
-Next, move it to a location in your system's `PATH`. The recommended location is `/usr/local/bin`. This command will copy it there and may ask for your password.
+Next, move it to a location in your system's `PATH`. The recommended location is `/usr/local/bin`. This command will install it to your system.
 ```bash
-sudo mv puls-linux /usr/local/bin/puls
+sudo install puls-linux /usr/local/bin/
 ```
-*(Note: We rename it to just `puls` during the move for easier use.)*
+*(Note: Rename it to just `puls` during the move for easier use.)*
 ---
 
 ## Building from Source
