@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::{self, stdout},
     process,
     sync::{Arc, Mutex},
@@ -9,6 +9,7 @@ use std::{
 
 use bollard::{container::StatsOptions, Docker};
 use chrono::prelude::*;
+use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -18,12 +19,19 @@ use futures_util::{future, stream::StreamExt};
 use nvml_wrapper::Nvml;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Table, TableState, Tabs},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, TableState, Tabs},
 };
 use sysinfo::{CpuExt, DiskExt, DiskUsage, NetworkExt, NetworksExt, Pid, PidExt, ProcessExt, System, SystemExt};
 use tokio::runtime::Runtime;
 use tokio::time::{Instant, timeout};
 use users::{Users, UsersCache};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, default_value_t = false)]
+    safe: bool,
+}
 
 #[derive(Clone, Default)]
 struct NetworkStats { rx: u64, tx: u64 }
@@ -44,16 +52,39 @@ struct DetailedDiskInfo { name: String, fs: String, total: u64, free: u64 }
 #[derive(Clone, Debug, Default)]
 struct DetailedNetInfo { name: String, down_rate: u64, up_rate: u64, total_down: u64, total_up: u64 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct GlobalUsage {
     cpu: f32,
     mem_used: u64,
     mem_total: u64,
-    gpu_util: u32,
+    gpu_util: Option<u32>,
     net_down: u64,
     net_up: u64,
     disk_read: u64,
     disk_write: u64,
+    net_down_history: VecDeque<u64>,
+    net_up_history: VecDeque<u64>,
+    disk_read_history: VecDeque<u64>,
+    disk_write_history: VecDeque<u64>,
+}
+
+impl Default for GlobalUsage {
+    fn default() -> Self {
+        Self {
+            cpu: 0.0,
+            mem_used: 0,
+            mem_total: 0,
+            gpu_util: None,
+            net_down: 0,
+            net_up: 0,
+            disk_read: 0,
+            disk_write: 0,
+            net_down_history: VecDeque::from(vec![0; 60]),
+            net_up_history: VecDeque::from(vec![0; 60]),
+            disk_read_history: VecDeque::from(vec![0; 60]),
+            disk_write_history: VecDeque::from(vec![0; 60]),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -93,8 +124,7 @@ struct AppState {
 }
 
 fn main() -> io::Result<()> {
-    let rt = Runtime::new()?;
-    let _guard = rt.enter();
+    let cli = Cli::parse();
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -119,27 +149,66 @@ fn main() -> io::Result<()> {
         ];
     }
 
-    let app_state_clone = app_state.clone();
-    thread::spawn(move || {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async move {
-            let mut sys = System::new_all();
-            let docker = Docker::connect_with_local_defaults().ok();
-            let nvml = Nvml::init();
+    if !cli.safe {
+        let app_state_clone = app_state.clone();
+        thread::spawn(move || {
+            let rt = Runtime::new().unwrap();
+            rt.block_on(async move {
+                let mut sys = System::new_all();
+                let docker = Docker::connect_with_local_defaults().ok();
+                let nvml = Nvml::init();
 
+                let mut prev_disk_usage: HashMap<Pid, DiskUsage> = HashMap::new();
+                let mut prev_net_usage: HashMap<String, NetworkStats> = HashMap::new();
+                let mut prev_container_stats: HashMap<String, ContainerIoStats> = HashMap::new();
+                let mut last_update = Instant::now();
+                let mut prev_global_usage = GlobalUsage::default();
+
+                loop {
+                    let selected_pid = app_state_clone.lock().unwrap().selected_pid;
+
+                    let new_data = update_dynamic_data(
+                        &mut sys, &docker, &nvml,
+                        &mut prev_disk_usage, &mut prev_net_usage, &mut prev_container_stats,
+                        selected_pid, &mut last_update, prev_global_usage.clone()
+                    ).await;
+
+                    prev_global_usage = new_data.global_usage.clone();
+
+                    let mut state = app_state_clone.lock().unwrap();
+                    state.dynamic_data = new_data;
+
+                    if state.process_table_state.selected().is_none() && !state.dynamic_data.processes.is_empty() {
+                        state.process_table_state.select(Some(0));
+                    }
+
+                    thread::sleep(Duration::from_millis(300));
+                }
+            });
+        });
+    } else {
+        let app_state_clone = app_state.clone();
+        thread::spawn(move || {
+            let mut sys = System::new_all();
             let mut prev_disk_usage: HashMap<Pid, DiskUsage> = HashMap::new();
-            let mut prev_net_usage: HashMap<String, NetworkStats> = HashMap::new();
-            let mut prev_container_stats: HashMap<String, ContainerIoStats> = HashMap::new();
             let mut last_update = Instant::now();
+            let mut prev_global_usage = GlobalUsage::default();
+            
+            {
+                let mut state = app_state_clone.lock().unwrap();
+                state.system_info.push(("Mode".into(), "Safe Mode (Docker/GPU disabled)".into()));
+            }
 
             loop {
                 let selected_pid = app_state_clone.lock().unwrap().selected_pid;
 
-                let new_data = update_dynamic_data(
-                    &mut sys, &docker, &nvml,
-                    &mut prev_disk_usage, &mut prev_net_usage, &mut prev_container_stats,
-                    selected_pid, &mut last_update
-                ).await;
+                let new_data = update_basic_data(
+                    &mut sys,
+                    &mut prev_disk_usage,
+                    &mut last_update,
+                    &mut prev_global_usage,
+                    selected_pid,
+                );
 
                 let mut state = app_state_clone.lock().unwrap();
                 state.dynamic_data = new_data;
@@ -147,16 +216,17 @@ fn main() -> io::Result<()> {
                 if state.process_table_state.selected().is_none() && !state.dynamic_data.processes.is_empty() {
                     state.process_table_state.select(Some(0));
                 }
-
-                thread::sleep(Duration::from_secs(1));
+                
+                thread::sleep(Duration::from_millis(300));
             }
         });
-    });
+    }
 
     loop {
         {
             let mut current_state = app_state.lock().unwrap();
-            terminal.draw(|f| ui(f, &mut current_state))?;
+            // MODIFIED: Pass the safe flag to the ui function
+            terminal.draw(|f| ui(f, &mut current_state, cli.safe))?;
         }
 
         if event::poll(Duration::from_millis(100))? {
@@ -166,6 +236,13 @@ fn main() -> io::Result<()> {
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break,
                     KeyCode::Tab => current_state.active_tab = (current_state.active_tab + 1) % 7,
                     KeyCode::BackTab => current_state.active_tab = (current_state.active_tab + 6) % 7,
+                    KeyCode::Char('1') => current_state.active_tab = 0,
+                    KeyCode::Char('2') => current_state.active_tab = 1,
+                    KeyCode::Char('3') => current_state.active_tab = 2,
+                    KeyCode::Char('4') => current_state.active_tab = 3,
+                    KeyCode::Char('5') => current_state.active_tab = 4,
+                    KeyCode::Char('6') => current_state.active_tab = 5,
+                    KeyCode::Char('7') => current_state.active_tab = 6,
                     KeyCode::Down if current_state.active_tab == 0 => {
                         let processes = &current_state.dynamic_data.processes;
                         if !processes.is_empty() {
@@ -208,6 +285,103 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+fn update_basic_data(
+    sys: &mut System,
+    prev_disk_usage: &mut HashMap<Pid, DiskUsage>,
+    last_update: &mut Instant,
+    prev_global_usage: &mut GlobalUsage,
+    selected_pid: Option<Pid>,
+) -> DynamicData {
+    let now = Instant::now();
+    let elapsed_secs = now.duration_since(*last_update).as_secs_f64().max(0.1);
+    *last_update = now;
+
+    sys.refresh_all();
+
+    let self_pid = process::id();
+    let user_cache = UsersCache::new();
+
+    let mut total_disk_read = 0;
+    let mut total_disk_write = 0;
+
+    let mut current_disk_usage = HashMap::new();
+    let mut processes = sys.processes().iter()
+        .filter(|(pid, _)| pid.as_u32() != self_pid)
+        .map(|(pid, process)| {
+            let disk_usage = process.disk_usage();
+            let (read_rate, write_rate) = if let Some(prev) = prev_disk_usage.get(pid) {
+                let read_bytes = (disk_usage.total_read_bytes.saturating_sub(prev.total_read_bytes) as f64 / elapsed_secs) as u64;
+                let written_bytes = (disk_usage.total_written_bytes.saturating_sub(prev.total_written_bytes) as f64 / elapsed_secs) as u64;
+                (read_bytes, written_bytes)
+            } else { (0, 0) };
+            total_disk_read += read_rate;
+            total_disk_write += write_rate;
+            current_disk_usage.insert(*pid, disk_usage);
+            ProcessInfo {
+                pid: pid.to_string(),
+                name: process.name().to_string(),
+                cpu: format!("{:.2}", process.cpu_usage()),
+                mem: format_size(process.memory()),
+                disk_read: format_rate(read_rate),
+                disk_write: format_rate(write_rate),
+            }
+        })
+        .collect::<Vec<_>>();
+    processes.sort_by(|a, b| b.cpu.parse::<f32>().unwrap_or(0.0).partial_cmp(&a.cpu.parse::<f32>().unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal));
+    *prev_disk_usage = current_disk_usage;
+
+    let detailed_process = if let Some(pid) = selected_pid {
+        sys.process(pid).map(|process| DetailedProcessInfo {
+            pid: process.pid().to_string(), name: process.name().to_string(),
+            user: process.user_id().and_then(|uid| user_cache.get_user_by_uid(**uid)).map_or("N/A".to_string(), |u| u.name().to_string_lossy().into_owned()),
+            status: process.status().to_string(), cpu_usage: process.cpu_usage(),
+            memory_rss: process.memory(), memory_vms: process.virtual_memory(),
+            command: process.cmd().join(" "),
+            start_time: if let chrono::LocalResult::Single(dt) = Utc.timestamp_opt(process.start_time() as i64, 0) {
+                dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()
+            } else { "Invalid time".to_string() },
+            parent: process.parent().map(|p| p.to_string()),
+            environ: process.environ().to_vec(),
+        })
+    } else { None };
+
+    let cores = sys.cpus().iter().map(|c| CoreInfo { usage: c.cpu_usage(), freq: c.frequency() }).collect();
+    let disks = sys.disks().iter().map(|d| DetailedDiskInfo { name: d.mount_point().to_string_lossy().into_owned(), fs: String::from_utf8_lossy(d.file_system()).into_owned(), total: d.total_space(), free: d.available_space() }).collect();
+
+    let networks = Vec::new();
+    let containers = Vec::new();
+    let gpus = Err("Disabled in Safe Mode".to_string());
+    
+    prev_global_usage.disk_read_history.push_back(total_disk_read);
+    prev_global_usage.disk_write_history.push_back(total_disk_write);
+    while prev_global_usage.disk_read_history.len() > 60 { prev_global_usage.disk_read_history.pop_front(); }
+    while prev_global_usage.disk_write_history.len() > 60 { prev_global_usage.disk_write_history.pop_front(); }
+
+    let global_usage = GlobalUsage {
+        cpu: sys.global_cpu_info().cpu_usage(),
+        mem_used: sys.used_memory(),
+        mem_total: sys.total_memory(),
+        gpu_util: None,
+        net_down: 0,
+        net_up: 0,
+        disk_read: total_disk_read,
+        disk_write: total_disk_write,
+        ..prev_global_usage.clone()
+    };
+
+    DynamicData {
+        processes,
+        cores,
+        disks,
+        networks,
+        containers,
+        gpus,
+        global_usage,
+        detailed_process,
+    }
+}
+
+
 async fn update_dynamic_data(
     sys: &mut System,
     docker: &Option<Docker>,
@@ -216,10 +390,11 @@ async fn update_dynamic_data(
     prev_net_usage: &mut HashMap<String, NetworkStats>,
     prev_container_stats: &mut HashMap<String, ContainerIoStats>,
     selected_pid: Option<Pid>,
-    last_update: &mut Instant
+    last_update: &mut Instant,
+    mut prev_global_usage: GlobalUsage,
 ) -> DynamicData {
     let now = Instant::now();
-    let elapsed_secs = now.duration_since(*last_update).as_secs_f64().max(1.0);
+    let elapsed_secs = now.duration_since(*last_update).as_secs_f64().max(0.1);
     *last_update = now;
 
     sys.refresh_all();
@@ -387,9 +562,20 @@ async fn update_dynamic_data(
         Err(e) => Err(format!("NVML Error: {}", e)),
     };
 
-    let gpu_util = if let Ok(gpu_data) = &gpus {
-        gpu_data.first().map_or(0, |gpu| gpu.utilization)
-    } else { 0 };
+    let gpu_util = match &gpus {
+        Ok(gpu_data) => gpu_data.first().map(|gpu| gpu.utilization),
+        Err(_) => None,
+    };
+
+    prev_global_usage.net_down_history.push_back(total_net_down);
+    prev_global_usage.net_up_history.push_back(total_net_up);
+    prev_global_usage.disk_read_history.push_back(total_disk_read);
+    prev_global_usage.disk_write_history.push_back(total_disk_write);
+
+    while prev_global_usage.net_down_history.len() > 60 { prev_global_usage.net_down_history.pop_front(); }
+    while prev_global_usage.net_up_history.len() > 60 { prev_global_usage.net_up_history.pop_front(); }
+    while prev_global_usage.disk_read_history.len() > 60 { prev_global_usage.disk_read_history.pop_front(); }
+    while prev_global_usage.disk_write_history.len() > 60 { prev_global_usage.disk_write_history.pop_front(); }
 
     let global_usage = GlobalUsage {
         cpu: sys.global_cpu_info().cpu_usage(),
@@ -400,25 +586,40 @@ async fn update_dynamic_data(
         net_up: total_net_up,
         disk_read: total_disk_read,
         disk_write: total_disk_write,
+        net_down_history: prev_global_usage.net_down_history,
+        net_up_history: prev_global_usage.net_up_history,
+        disk_read_history: prev_global_usage.disk_read_history,
+        disk_write_history: prev_global_usage.disk_write_history,
     };
 
     DynamicData { processes, detailed_process, cores, disks, networks, containers, gpus, global_usage }
 }
 
 
-fn ui(f: &mut Frame, state: &mut AppState) {
-    let tab_titles = ["Dashboard", "Process", "CPU Cores", "Disks", "Network", "GPU Details", "System"];
+fn ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool) {
+    let tab_titles: Vec<Line> = ["1:Dash", "2:Proc", "3:Cores", "4:Disks", "5:Net", "6:GPU", "7:Sys"]
+        .iter()
+        .enumerate()
+        .map(|(i, &title)| {
+            let style = if is_safe_mode && (i == 4 || i == 5) {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            Line::from(Span::styled(title, style))
+        })
+        .collect();
+
     let main_layout = Layout::default().direction(Direction::Vertical).constraints([
-        Constraint::Length(3), // Title
-        Constraint::Length(3), // Summary Bar
-        Constraint::Min(0),    // Main content
-        Constraint::Length(1)  // Footer
+        Constraint::Length(3),
+        Constraint::Length(4),
+        Constraint::Min(0),
+        Constraint::Length(1)
     ]).split(f.size());
 
-    let tabs = Tabs::new(tab_titles.iter().cloned().map(Line::from).collect::<Vec<_>>())
+    let tabs = Tabs::new(tab_titles)
         .block(Block::default().title("PULS").borders(Borders::ALL))
         .select(state.active_tab)
-        .style(Style::default().fg(Color::Gray))
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     f.render_widget(tabs, main_layout[0]);
 
@@ -430,32 +631,30 @@ fn ui(f: &mut Frame, state: &mut AppState) {
         1 => draw_detailed_process_tab(f, state, inner_area),
         2 => draw_cpu_cores_tab(f, state, inner_area),
         3 => draw_disks_tab(f, state, inner_area),
-        4 => draw_network_tab(f, state, inner_area),
-        5 => draw_gpu_tab(f, state, inner_area),
+        4 => draw_network_tab(f, state, inner_area, is_safe_mode),
+        5 => draw_gpu_tab(f, state, inner_area, is_safe_mode),
         6 => draw_system_info_tab(f, state, inner_area),
         _ => {}
     }
-    let footer_text = Paragraph::new("Quit: q | Tabs: Tab/Backtab | Select: ↓↑ | Details: Enter").style(Style::default().fg(Color::DarkGray)).alignment(Alignment::Center);
+    let footer_text = Paragraph::new("Quit: q | Tabs: 1-7, Tab/Backtab | Select: ↓↑ | Details: Enter").style(Style::default().fg(Color::DarkGray)).alignment(Alignment::Center);
     f.render_widget(footer_text, main_layout[3]);
 }
 
 fn draw_summary_bar(f: &mut Frame, state: &mut AppState, area: Rect) {
     let usage = &state.dynamic_data.global_usage;
-    let layout = Layout::default()
+    let summary_layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(20), Constraint::Percentage(30), Constraint::Percentage(15), Constraint::Percentage(17), Constraint::Percentage(18)])
         .split(area);
     
-    // CPU Usage
     let cpu_percent = usage.cpu;
     let cpu_gauge = Gauge::default()
         .block(Block::default().title("CPU Usage").borders(Borders::ALL))
         .gauge_style(Style::default().fg(Color::Cyan).bg(Color::Black))
         .percent(cpu_percent as u16)
         .label(format!("{:.1}%", cpu_percent));
-    f.render_widget(cpu_gauge, layout[0]);
+    f.render_widget(cpu_gauge, summary_layout[0]);
 
-    // Memory Usage
     let mem_percent = if usage.mem_total > 0 { (usage.mem_used as f64 / usage.mem_total as f64) * 100.0 } else { 0.0 };
     let mem_label = format!("{} / {}", format_size(usage.mem_used), format_size(usage.mem_total));
     let mem_gauge = Gauge::default()
@@ -463,30 +662,54 @@ fn draw_summary_bar(f: &mut Frame, state: &mut AppState, area: Rect) {
         .gauge_style(Style::default().fg(Color::Green).bg(Color::Black))
         .percent(mem_percent as u16)
         .label(mem_label);
-    f.render_widget(mem_gauge, layout[1]);
+    f.render_widget(mem_gauge, summary_layout[1]);
 
-    // GPU Usage
-    let gpu_percent = usage.gpu_util;
-    let gpu_gauge = Gauge::default()
-        .block(Block::default().title("GPU Usage").borders(Borders::ALL))
-        .gauge_style(Style::default().fg(Color::Magenta).bg(Color::Black))
-        .percent(gpu_percent as u16)
-        .label(format!("{}%", gpu_percent));
-    f.render_widget(gpu_gauge, layout[2]);
+    let gpu_block = Block::default().title("GPU Usage").borders(Borders::ALL);
+    if let Some(gpu_percent) = usage.gpu_util {
+        let gpu_gauge = Gauge::default()
+            .block(gpu_block)
+            .gauge_style(Style::default().fg(Color::Magenta).bg(Color::Black))
+            .percent(gpu_percent as u16)
+            .label(format!("{}%", gpu_percent));
+        f.render_widget(gpu_gauge, summary_layout[2]);
+    } else {
+        let gpu_paragraph = Paragraph::new("N/A").alignment(Alignment::Center).block(gpu_block);
+        f.render_widget(gpu_paragraph, summary_layout[2]);
+    }
 
-    // Network Usage
-    let net_text = format!("▼ {}\n▲ {}", format_rate(usage.net_down), format_rate(usage.net_up));
-    let net_paragraph = Paragraph::new(net_text)
-        .block(Block::default().title("Network").borders(Borders::ALL))
-        .alignment(Alignment::Center);
-    f.render_widget(net_paragraph, layout[3]);
+    let net_block = Block::default().title("Network").borders(Borders::ALL);
+    let net_area = net_block.inner(summary_layout[3]);
+    f.render_widget(net_block, summary_layout[3]);
+    let net_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(net_area);
 
-    // Disk I/O
-    let disk_text = format!("▼ {}\n▲ {}", format_rate(usage.disk_read), format_rate(usage.disk_write));
-    let disk_paragraph = Paragraph::new(disk_text)
-        .block(Block::default().title("Disk I/O").borders(Borders::ALL))
-        .alignment(Alignment::Center);
-    f.render_widget(disk_paragraph, layout[4]);
+    let net_text = format!("▼{} ▲{}", format_rate(usage.net_down), format_rate(usage.net_up));
+    f.render_widget(Paragraph::new(net_text).alignment(Alignment::Center), net_chunks[0]);
+
+    let net_data: Vec<u64> = usage.net_down_history.iter().chain(usage.net_up_history.iter()).cloned().collect();
+    let sparkline = Sparkline::default()
+        .data(&net_data)
+        .style(Style::default().fg(Color::Yellow));
+    f.render_widget(sparkline, net_chunks[1]);
+
+    let disk_block = Block::default().title("Disk I/O").borders(Borders::ALL);
+    let disk_area = disk_block.inner(summary_layout[4]);
+    f.render_widget(disk_block, summary_layout[4]);
+    let disk_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(disk_area);
+    
+    let disk_text = format!("▼{} ▲{}", format_rate(usage.disk_read), format_rate(usage.disk_write));
+    f.render_widget(Paragraph::new(disk_text).alignment(Alignment::Center), disk_chunks[0]);
+
+    let disk_data: Vec<u64> = usage.disk_read_history.iter().chain(usage.disk_write_history.iter()).cloned().collect();
+    let sparkline = Sparkline::default()
+        .data(&disk_data)
+        .style(Style::default().fg(Color::LightRed));
+    f.render_widget(sparkline, disk_chunks[1]);
 }
 
 fn draw_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
@@ -497,7 +720,7 @@ fn draw_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     let process_rows = processes.iter().map(|p| Row::new(vec![p.pid.clone(), p.name.clone(), p.cpu.clone(), p.mem.clone(), p.disk_read.clone(), p.disk_write.clone()]));
     let process_table = Table::new(process_rows, [Constraint::Length(8), Constraint::Min(15), Constraint::Length(8), Constraint::Length(10), Constraint::Length(12), Constraint::Length(12)])
         .header(Row::new(process_headers).style(Style::new().fg(Color::Cyan)).bottom_margin(1))
-        .block(Block::default().title("Processes").borders(Borders::ALL))
+        .block(Block::default().title("1: Dashboard").borders(Borders::ALL))
         .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
         .highlight_symbol(">> ");
     f.render_stateful_widget(process_table, main_layout[0], &mut state.process_table_state);
@@ -506,16 +729,16 @@ fn draw_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     let container_headers = ["ID", "Name", "Status", "CPU %", "Memory", "Down/s", "Up/s", "Disk R/s", "Disk W/s"];
     let container_rows = containers.iter().map(|c| Row::new(vec![c.id.clone(), c.name.clone(), c.status.clone(), c.cpu.clone(), c.mem.clone(), c.net_down.clone(), c.net_up.clone(), c.disk_r.clone(), c.disk_w.clone()]));
     let container_table = Table::new(
-        container_rows, 
+        container_rows,
         [Constraint::Length(14), Constraint::Min(15), Constraint::Min(10), Constraint::Length(8), Constraint::Length(10), Constraint::Length(12), Constraint::Length(12), Constraint::Length(12), Constraint::Length(12)]
     )
         .header(Row::new(container_headers).style(Style::new().fg(Color::Cyan)))
-        .block(Block::default().title("Containers (Docker/Podman)").borders(Borders::ALL));
+        .block(Block::default().title("Containers").borders(Borders::ALL));
     f.render_widget(container_table, main_layout[1]);
 }
 
 fn draw_detailed_process_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
-    let block = Block::default().title("Detailed Process Information").borders(Borders::ALL);
+    let block = Block::default().title("2: Detailed Process Information").borders(Borders::ALL);
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
@@ -547,7 +770,7 @@ fn draw_detailed_process_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
 }
 
 fn draw_cpu_cores_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
-    let block = Block::default().title("CPU Core Usage").borders(Borders::ALL);
+    let block = Block::default().title("3: CPU Core Usage").borders(Borders::ALL);
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
@@ -577,11 +800,20 @@ fn draw_disks_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     ]));
     let table = Table::new(rows, [Constraint::Min(15), Constraint::Length(8), Constraint::Length(10), Constraint::Length(10)])
         .header(Row::new(headers).style(Style::new().fg(Color::Cyan)))
-        .block(Block::default().title("Disk Usage").borders(Borders::ALL));
+        .block(Block::default().title("4: Disk Usage").borders(Borders::ALL));
     f.render_widget(table, area);
 }
 
-fn draw_network_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
+fn draw_network_tab(f: &mut Frame, state: &mut AppState, area: Rect, is_safe_mode: bool) {
+    if is_safe_mode {
+        let message = Paragraph::new("Network monitoring is disabled in safe mode.")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+            .block(Block::default().title("5: Network Interfaces").borders(Borders::ALL));
+        f.render_widget(message, area);
+        return;
+    }
+
     let networks = &state.dynamic_data.networks;
     let headers = ["Interface", "Download/s", "Upload/s", "Total Down", "Total Up"];
     let rows = networks.iter().map(|n| Row::new(vec![
@@ -590,25 +822,33 @@ fn draw_network_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     ]));
     let table = Table::new(rows, [Constraint::Min(15), Constraint::Length(12), Constraint::Length(12), Constraint::Length(12), Constraint::Length(12)])
         .header(Row::new(headers).style(Style::new().fg(Color::Cyan)))
-        .block(Block::default().title("Network Interfaces").borders(Borders::ALL));
+        .block(Block::default().title("5: Network Interfaces").borders(Borders::ALL));
     f.render_widget(table, area);
 }
 
 fn draw_system_info_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     let rows = state.system_info.iter().map(|(key, val)| Row::new(vec![key.clone(), val.clone()]));
     let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(30)])
-        .header(Row::new(vec!["Component", "Information"]).style(Style::new().fg(Color::Cyan)))
-        .block(Block::default().title("System Information").borders(Borders::ALL));
+        .block(Block::default().title("7: System Information").borders(Borders::ALL));
     f.render_widget(table, area);
 }
 
-fn draw_gpu_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
-    let gpu_block = Block::default().title("GPU Details").borders(Borders::ALL);
+fn draw_gpu_tab(f: &mut Frame, state: &mut AppState, area: Rect, is_safe_mode: bool) {
+    if is_safe_mode {
+        let message = Paragraph::new("GPU monitoring is disabled in safe mode.")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+            .block(Block::default().title("6: GPU Details").borders(Borders::ALL));
+        f.render_widget(message, area);
+        return;
+    }
+
+    let gpu_block = Block::default().title("6: GPU Details").borders(Borders::ALL);
     let inner_area = gpu_block.inner(area);
     f.render_widget(gpu_block, area);
 
     match &state.dynamic_data.gpus {
-        Ok(gpus) if gpus.is_empty() => { f.render_widget(Paragraph::new("No NVIDIA GPU found or NVML failed to initialize.").alignment(Alignment::Center), inner_area); }
+        Ok(gpus) if gpus.is_empty() => { f.render_widget(Paragraph::new("No NVIDIA GPU found.").alignment(Alignment::Center), inner_area); }
         Ok(gpus) => {
             let num_gpus = gpus.len();
             if num_gpus == 0 { return; }
@@ -629,7 +869,7 @@ fn draw_gpu_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
                     .ratio((gpu.utilization as f64) / 100.0);
                 f.render_widget(util_gauge, block_layout[0]);
 
-                let mem_line = format!("{:.2} GB / {:.2} GB", gpu.memory_used as f64 / 1_073_741_824.0, gpu.memory_total as f64 / 1_073_741_824.0);
+                let mem_line = format!("{} / {}", format_size(gpu.memory_used), format_size(gpu.memory_total));
                 let details_text: Vec<Line> = vec![
                     Line::from(vec![Span::styled("Memory:         ", Style::default().fg(Color::Yellow)), Span::raw(mem_line)]),
                     Line::from(vec![Span::styled("Power Usage:    ", Style::default().fg(Color::Yellow)), Span::raw(format!("{} W", gpu.power_usage / 1000))]),
@@ -639,7 +879,7 @@ fn draw_gpu_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
                 f.render_widget(Paragraph::new(details_text), block_layout[1]);
             }
         }
-        Err(e) => { f.render_widget(Paragraph::new(e.as_str()).alignment(Alignment::Center), inner_area); }
+        Err(e) => { f.render_widget(Paragraph::new(format!("NVML Error: {}", e)).alignment(Alignment::Center), inner_area); }
     }
 }
 
