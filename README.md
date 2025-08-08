@@ -24,6 +24,23 @@ For reliability, PULS also features a **Safe Mode** (`--safe`), a lightweight di
 
 ---
 
+### To Do List
+
+- [x] NVIDIA GPU Support
+- [ ] AMD GPU Support
+- [ ] INTEL GPU Support
+- [ ] Detailed GPU Monitoring Feature
+- [x] Detailed Info Per Process Feature
+- [ ] Detailed CPU Monitoring Feature
+- [ ] Detailed Disk Monitoring Feature (HDD/SSD)
+- [ ] Easy Install Feature
+- [ ] Better UI
+- [x] Safe Mode for Diagnostics
+- [ ] Diagnostics Tool Kit
+- [x] Optimizations
+
+---
+
 ## Installation (Linux)
 
 The recommended way to install PULS is by downloading the latest pre-compiled binary using `wget`.
