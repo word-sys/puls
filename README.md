@@ -8,6 +8,7 @@ For reliability, PULS also features a **Safe Mode** (`--safe`), a lightweight di
 
 > [!CAUTION]
 > This project on high-level development right now. Major bugs is present, use it with knowing that, they will be fixed in next updates
+> 
 > BUGS: CPU Usage is incorrect per process, thats happens because program gets all 12 cores CPU usages and combine them, result ends in %56 percent of CPU usage from Steam as you can see on screenshot.png, it will be fixed in v0.3.0
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
