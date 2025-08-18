@@ -1,23 +1,59 @@
 [package]
 name = "puls"
-version = "0.2.0"
-edition = "2024"
+version = "0.3.0"
+edition = "2021"
+authors = ["PULS Contributors"]
+description = "A comprehensive system monitoring tool with TUI"
+license = "GPL-3.0"
+repository = "https://github.com/word-sys/puls"
+
+[[bin]]
+name = "puls"
+path = "src/main.rs"
 
 [dependencies]
-crossterm = "0.27"
-ratatui = { version = "0.26", features = ["all-widgets"] }
-sysinfo = "0.29.11"
-tokio = { version = "1", features = ["full"] }
-bollard = "0.15"
-futures-util = "0.3"
-nvml-wrapper = "0.10"
+sysinfo = "0.31"  
 users = "0.11"
-chrono = "0.4"
-clap = { version = "4.4", features = ["derive"] }
+
+bollard = { version = "0.17", optional = true }
+
+nvml-wrapper = { version = "0.10", optional = true }
+# AMD GPU support (placeholder for future implementation)
+# libdrm-sys = { version = "0.4", optional = true }
+
+ratatui = "0.26"
+crossterm = "0.28"
+
+tokio = { version = "1.0", features = ["full"] }
+futures-util = "0.3"
+
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.0", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+dashmap = "6.0"
+parking_lot = "0.12"
+
+atty = "0.2"
+env_logger = "0.11"
+log = "0.4"
+signal-hook = "0.3"
+
+[features]
+default = ["docker", "nvidia-gpu"]
+docker = ["dep:bollard"]
+nvidia-gpu = ["dep:nvml-wrapper"]
+amd-gpu = []
+full = ["docker", "nvidia-gpu"]
 
 [profile.release]
-opt-level = 'z'     
-lto = true          
-codegen-units = 1   
-panic = 'abort'     
-strip = true        
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
