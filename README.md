@@ -150,7 +150,6 @@ puls --verbose
 - **NVIDIA**: Full GPU monitoring (utilization, memory, temperature, power)
 - **AMD**: Future support planned
 - **Intel**: Future support planned
-- Multiple GPU support
 
 ### 7. System Info
 - OS and kernel information
