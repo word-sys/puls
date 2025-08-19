@@ -52,7 +52,6 @@ impl GpuMonitor {
     pub fn get_gpu_info(&mut self) -> Result<Vec<GpuInfo>, String> {
         let mut gpus = Vec::new();
         
-        // Try NVIDIA first
         #[cfg(feature = "nvidia-gpu")]
         if let Ok(ref nvml) = self.nvml {
             match self.get_nvidia_gpus(nvml) {
@@ -61,7 +60,6 @@ impl GpuMonitor {
             }
         }
         
-        // Try AMD GPUs
         #[cfg(feature = "amd-gpu")]
         if self.amd_initialized {
             match self.get_amd_gpus() {
@@ -70,7 +68,6 @@ impl GpuMonitor {
             }
         }
         
-        // Try Intel GPUs (future implementation)
         // Intel GPUs would be added here
         
         if gpus.is_empty() {
@@ -93,21 +90,17 @@ impl GpuMonitor {
         for i in 0..device_count {
             let device = nvml.device_by_index(i).map_err(|e| e.to_string())?;
             
-            // Get basic info
             let name = device.name().map_err(|e| e.to_string())?;
             let memory_info = device.memory_info().map_err(|e| e.to_string())?;
             let utilization = device.utilization_rates()
                 .map_err(|e| e.to_string())?;
             
-            // Get temperature
             let temperature = device.temperature(
                 nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu
             ).map_err(|e| e.to_string())?;
             
-            // Get power usage
             let power_usage = device.power_usage().map_err(|e| e.to_string())?;
             
-            // Get clock speeds
             let graphics_clock = device.clock_info(
                 nvml_wrapper::enum_wrappers::device::Clock::Graphics
             ).map_err(|e| e.to_string())?;
@@ -116,10 +109,8 @@ impl GpuMonitor {
                 nvml_wrapper::enum_wrappers::device::Clock::Memory
             ).map_err(|e| e.to_string())?;
             
-            // Get fan speed (if available)
             let fan_speed = device.fan_speed(0).ok();
             
-            // Get driver version
             let driver_version = nvml.sys_driver_version()
                 .unwrap_or_else(|_| "Unknown".to_string());
             
@@ -149,14 +140,12 @@ impl GpuMonitor {
     #[cfg(feature = "amd-gpu")]
     fn get_amd_gpus(&self) -> Result<Vec<GpuInfo>, String> {
         // TODO: Implement AMD GPU monitoring
-        // This would involve:
         // 1. Reading from /sys/class/drm/cardX/device/
         // 2. Parsing GPU usage, memory, temperature
         // 3. Using libdrm for more detailed info
         
         let mut gpus = Vec::new();
         
-        // Example implementation (simplified):
         // - Read from sysfs: /sys/class/drm/card*/device/gpu_busy_percent
         // - Read memory info from: /sys/class/drm/card*/device/mem_info_vram_*
         // - Read temperature from: /sys/class/hwmon/hwmon*/temp*_input
@@ -173,7 +162,7 @@ impl GpuMonitor {
                 let device_path = card_dir.path().join("device");
                 
                 if let Ok(vendor) = fs::read_to_string(device_path.join("vendor")) {
-                    // AMD vendor ID is 0x1002
+                    // vendor ID 0x1002
                     if vendor.trim() == "0x1002" {
                         // This is an AMD GPU
                         let gpu_info = self.parse_amd_gpu_info(&device_path, &card_name_str)?;
@@ -194,29 +183,24 @@ impl GpuMonitor {
     fn parse_amd_gpu_info(&self, device_path: &Path, card_name: &str) -> Result<GpuInfo, String> {
         use std::fs;
         
-        // Read GPU name
         let name = fs::read_to_string(device_path.join("product_name"))
             .or_else(|_| fs::read_to_string(device_path.join("device")))
             .unwrap_or_else(|_| format!("AMD GPU ({})", card_name))
             .trim()
             .to_string();
         
-        // Read GPU utilization (if available)
         let utilization = fs::read_to_string(device_path.join("gpu_busy_percent"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
             .unwrap_or(0);
         
-        // Read memory info (simplified - actual implementation would be more complex)
         let (memory_used, memory_total) = self.read_amd_memory_info(device_path);
         
-        // Read temperature
         let temperature = self.read_amd_temperature(device_path).unwrap_or(0);
         
-        // Read power usage (if available)
         let power_usage = fs::read_to_string(device_path.join("power_dpm_force_performance_level"))
             .ok()
-            .and_then(|_| Some(0)) // Simplified - would need actual power reading
+            .and_then(|_| Some(0))
             .unwrap_or(0);
         
         Ok(GpuInfo {
@@ -227,10 +211,10 @@ impl GpuMonitor {
             memory_total,
             temperature,
             power_usage,
-            graphics_clock: 0, // Would need to read from pp_dpm_sclk
-            memory_clock: 0,   // Would need to read from pp_dpm_mclk
-            fan_speed: None,   // Would need to read from pwm1
-            driver_version: "amdgpu".to_string(), // Simplified
+            graphics_clock: 0,
+            memory_clock: 0,   
+            fan_speed: None,   
+            driver_version: "amdgpu".to_string(), 
         })
     }
     
@@ -238,7 +222,6 @@ impl GpuMonitor {
     fn read_amd_memory_info(&self, device_path: &Path) -> (u64, u64) {
         use std::fs;
         
-        // Try to read VRAM info
         if let Ok(vram_total) = fs::read_to_string(device_path.join("mem_info_vram_total")) {
             if let Ok(total) = vram_total.trim().parse::<u64>() {
                 let used = fs::read_to_string(device_path.join("mem_info_vram_used"))
@@ -256,13 +239,12 @@ impl GpuMonitor {
     fn read_amd_temperature(&self, device_path: &Path) -> Option<u32> {
         use std::fs;
         
-        // Look for hwmon temperature sensors
         if let Ok(hwmon_dir) = device_path.join("hwmon").read_dir() {
             for hwmon_entry in hwmon_dir.flatten() {
                 let temp_path = hwmon_entry.path().join("temp1_input");
                 if let Ok(temp_str) = fs::read_to_string(&temp_path) {
                     if let Ok(temp_millic) = temp_str.trim().parse::<u32>() {
-                        return Some(temp_millic / 1000); // Convert from millicelsius
+                        return Some(temp_millic / 1000); 
                     }
                 }
             }
@@ -276,17 +258,14 @@ impl GpuMonitor {
         Err("AMD GPU support not compiled".to_string())
     }
     
-    /// Get the best GPU utilization for global display
     pub fn get_primary_gpu_utilization(&self, gpus: &[GpuInfo]) -> Option<u32> {
         if gpus.is_empty() {
             None
         } else {
-            // Return the highest utilization among all GPUs
             Some(gpus.iter().map(|g| g.utilization).max().unwrap_or(0))
         }
     }
     
-    /// Update GPU history for sparkline graphs
     pub fn update_gpu_history(&mut self, gpus: &[GpuInfo], max_history: usize) {
         let utilizations: Vec<u32> = gpus.iter().map(|g| g.utilization).collect();
         
@@ -296,7 +275,6 @@ impl GpuMonitor {
         }
     }
     
-    /// Get flattened GPU history for sparkline
     pub fn get_gpu_history_flat(&self) -> Vec<u64> {
         self.gpu_history
             .iter()
@@ -304,7 +282,6 @@ impl GpuMonitor {
             .collect()
     }
     
-    /// Check if any GPU monitoring is available
     pub fn is_available(&self) -> bool {
         #[cfg(feature = "nvidia-gpu")]
         if self.nvml.is_ok() {

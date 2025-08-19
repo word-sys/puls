@@ -10,7 +10,6 @@ PULS is a responsive and feature-rich system monitoring dashboard that runs in y
 - **Better Memory Management**: Reduced memory footprint and eliminated memory leaks
 
 ### 🚀 Enhanced Features
-- **AMD GPU Support**: Added support for AMD GPUs (in addition to NVIDIA)
 - **Advanced Process Details**: More comprehensive process information
 - **Better Safe Mode**: Improved diagnostics and low-resource operation
 - **Enhanced UI**: Smoother animations, better color schemes, responsive design
@@ -46,7 +45,6 @@ PULS is a responsive and feature-rich system monitoring dashboard that runs in y
 ### Optional Dependencies
 - **Docker**: For container monitoring
 - **NVIDIA Drivers**: For NVIDIA GPU monitoring (libnvidia-ml.so)
-- **AMD GPU**: For AMD GPU monitoring (sysfs access)
 
 ## 🚀 Installation
 
@@ -150,7 +148,7 @@ puls --verbose
 
 ### 6. GPU
 - **NVIDIA**: Full GPU monitoring (utilization, memory, temperature, power)
-- **AMD**: Basic monitoring (utilization, memory, temperature)
+- **AMD**: Future support planned
 - **Intel**: Future support planned
 - Multiple GPU support
 
@@ -210,7 +208,6 @@ Color-coded indicators:
 
 **GPU monitoring not working**:
 - **NVIDIA**: Install official drivers and verify `nvidia-smi` works
-- **AMD**: Check if `/sys/class/drm/card*/device/` is accessible
 - Run with `--verbose` for detailed error messages
 
 **High CPU usage**:
@@ -257,16 +254,6 @@ puls --refresh 250 --history 120 --show-system
 - **Data Collection Thread**: System monitoring (1 Hz)  
 - **Async Tasks**: Container and GPU monitoring with timeouts
 
-## 🤝 Contributing
-
-We welcome contributions! Areas for improvement:
-- Intel GPU support
-- Podman container support  
-- Additional system metrics
-- UI themes and customization
-- Performance optimizations
-- Platform-specific features
-
 ## 📝 License
 
 GPL-3.0 License - see LICENSE file for details.
@@ -275,7 +262,6 @@ GPL-3.0 License - see LICENSE file for details.
 
 ### v0.3.0 (Current)
 - Fixed CPU usage calculation bug
-- Added AMD GPU support framework
 - Improved UI with 60 FPS rendering
 - Enhanced process details and filtering
 - Better error handling and diagnostics

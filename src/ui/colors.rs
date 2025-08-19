@@ -1,6 +1,5 @@
 use ratatui::style::Color;
 
-/// Color scheme for the application
 #[derive(Debug, Clone)]
 pub struct ColorScheme {
     pub primary: Color,
@@ -18,7 +17,6 @@ pub struct ColorScheme {
 }
 
 impl ColorScheme {
-    /// Default dark theme
     pub fn dark() -> Self {
         Self {
             primary: Color::Cyan,
@@ -36,7 +34,6 @@ impl ColorScheme {
         }
     }
     
-    /// Light theme variant
     pub fn light() -> Self {
         Self {
             primary: Color::Blue,
@@ -54,7 +51,6 @@ impl ColorScheme {
         }
     }
     
-    /// Matrix-style green theme
     pub fn matrix() -> Self {
         Self {
             primary: Color::Green,
@@ -72,7 +68,6 @@ impl ColorScheme {
         }
     }
     
-    /// High contrast theme for accessibility
     pub fn high_contrast() -> Self {
         Self {
             primary: Color::White,
@@ -90,7 +85,6 @@ impl ColorScheme {
         }
     }
     
-    /// Solarized dark theme
     pub fn solarized_dark() -> Self {
         Self {
             primary: Color::Rgb(131, 148, 150),   // base0
@@ -109,7 +103,6 @@ impl ColorScheme {
     }
 }
 
-/// Get color for CPU usage based on percentage
 pub fn cpu_usage_color(usage: f32) -> Color {
     match usage {
         x if x >= 90.0 => Color::Red,
@@ -120,7 +113,6 @@ pub fn cpu_usage_color(usage: f32) -> Color {
     }
 }
 
-/// Get color for memory usage based on percentage
 pub fn memory_usage_color(usage: f32) -> Color {
     match usage {
         x if x >= 95.0 => Color::Red,
@@ -131,7 +123,6 @@ pub fn memory_usage_color(usage: f32) -> Color {
     }
 }
 
-/// Get color for disk usage based on percentage
 pub fn disk_usage_color(usage: f32) -> Color {
     match usage {
         x if x >= 95.0 => Color::Red,
@@ -142,7 +133,6 @@ pub fn disk_usage_color(usage: f32) -> Color {
     }
 }
 
-/// Get color for temperature based on Celsius
 pub fn temperature_color(temp: f32) -> Color {
     match temp {
         x if x >= 80.0 => Color::Red,
@@ -153,7 +143,6 @@ pub fn temperature_color(temp: f32) -> Color {
     }
 }
 
-/// Get color for network activity (based on activity level)
 pub fn network_activity_color(rate_mbps: f64) -> Color {
     match rate_mbps {
         x if x >= 100.0 => Color::Red,
@@ -164,7 +153,6 @@ pub fn network_activity_color(rate_mbps: f64) -> Color {
     }
 }
 
-/// Get color for process status
 pub fn process_status_color(status: &str) -> Color {
     match status.to_lowercase().as_str() {
         "running" | "r" => Color::Green,
@@ -178,7 +166,6 @@ pub fn process_status_color(status: &str) -> Color {
     }
 }
 
-/// Get color for container status
 pub fn container_status_color(status: &str) -> Color {
     if status.to_lowercase().contains("up") || status.to_lowercase().contains("running") {
         Color::Green
@@ -193,11 +180,9 @@ pub fn container_status_color(status: &str) -> Color {
     }
 }
 
-/// Color gradients for sparklines and charts
 pub struct ColorGradient;
 
 impl ColorGradient {
-    /// Get a color from a gradient based on value (0.0 to 1.0)
     pub fn heat_map(value: f32) -> Color {
         let value = value.clamp(0.0, 1.0);
         match value {
@@ -209,7 +194,6 @@ impl ColorGradient {
         }
     }
     
-    /// Rainbow gradient
     pub fn rainbow(value: f32) -> Color {
         let value = value.clamp(0.0, 1.0);
         match value {
@@ -222,7 +206,6 @@ impl ColorGradient {
         }
     }
     
-    /// Blue to red gradient
     pub fn blue_to_red(value: f32) -> Color {
         let value = value.clamp(0.0, 1.0);
         let red = (255.0 * value) as u8;
@@ -230,7 +213,6 @@ impl ColorGradient {
         Color::Rgb(red, 0, blue)
     }
     
-    /// Green to red gradient (good to bad)
     pub fn green_to_red(value: f32) -> Color {
         let value = value.clamp(0.0, 1.0);
         match value {
@@ -243,7 +225,6 @@ impl ColorGradient {
     }
 }
 
-/// Theme manager for switching between themes
 pub struct ThemeManager {
     current_theme: ColorScheme,
 }
@@ -263,14 +244,10 @@ impl ThemeManager {
         &self.current_theme
     }
     
-    /// Cycle to next theme
     pub fn next_theme(&mut self) {
-        // This is a simplified implementation
-        // In a real app, you'd track which theme is current
         self.current_theme = ColorScheme::matrix();
     }
     
-    /// Apply theme-aware colors
     pub fn usage_color(&self, usage: f32, metric_type: &str) -> Color {
         match metric_type {
             "cpu" => cpu_usage_color(usage),
@@ -295,11 +272,9 @@ impl Default for ThemeManager {
     }
 }
 
-/// Utility functions for color manipulation
 pub mod utils {
     use super::*;
     
-    /// Darken a color by a factor (0.0 = black, 1.0 = original)
     pub fn darken_color(color: Color, factor: f32) -> Color {
         let factor = factor.clamp(0.0, 1.0);
         match color {
@@ -310,7 +285,6 @@ pub mod utils {
                     (b as f32 * factor) as u8,
                 )
             }
-            // For named colors, approximate with RGB
             Color::Red => Color::Rgb((255.0 * factor) as u8, 0, 0),
             Color::Green => Color::Rgb(0, (255.0 * factor) as u8, 0),
             Color::Blue => Color::Rgb(0, 0, (255.0 * factor) as u8),
@@ -318,12 +292,10 @@ pub mod utils {
             Color::Cyan => Color::Rgb(0, (255.0 * factor) as u8, (255.0 * factor) as u8),
             Color::Magenta => Color::Rgb((255.0 * factor) as u8, 0, (255.0 * factor) as u8),
             Color::White => Color::Rgb((255.0 * factor) as u8, (255.0 * factor) as u8, (255.0 * factor) as u8),
-            // For other colors, return as-is
             _ => color,
         }
     }
     
-    /// Lighten a color by a factor (1.0 = original, 2.0 = white)
     pub fn lighten_color(color: Color, factor: f32) -> Color {
         let factor = factor.clamp(1.0, 2.0);
         match color {
@@ -333,17 +305,15 @@ pub mod utils {
                 let new_b = ((b as f32) + (255.0 - b as f32) * (factor - 1.0)).min(255.0) as u8;
                 Color::Rgb(new_r, new_g, new_b)
             }
-            _ => color, // Return as-is for named colors
+            _ => color,
         }
     }
     
-    /// Get contrasting color for text on given background
     pub fn contrasting_text_color(background: Color) -> Color {
         match background {
             Color::Black | Color::DarkGray | Color::Blue | Color::Red | Color::Magenta => Color::White,
             Color::White | Color::Gray | Color::Yellow | Color::Cyan | Color::Green => Color::Black,
             Color::Rgb(r, g, b) => {
-                // Calculate luminance
                 let luminance = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32) / 255.0;
                 if luminance > 0.5 {
                     Color::Black
@@ -351,7 +321,7 @@ pub mod utils {
                     Color::White
                 }
             }
-            _ => Color::White, // Default to white for other colors
+            _ => Color::White,
         }
     }
 }

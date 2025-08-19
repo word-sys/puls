@@ -122,7 +122,7 @@ pub struct SystemTemperatures {
     pub motherboard_temp: Option<f32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GlobalUsage {
     pub cpu: f32,
     pub mem_used: u64,

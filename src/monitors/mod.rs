@@ -13,7 +13,6 @@ use tokio::time::{Duration, Instant};
 use crate::types::{DynamicData, AppConfig, GlobalUsage};
 use crate::utils::update_history;
 
-/// Main data collection coordinator
 pub struct DataCollector {
     system_monitor: SystemMonitor,
     gpu_monitor: GpuMonitor,
@@ -33,7 +32,6 @@ impl DataCollector {
         }
     }
     
-    /// Collect all system data with proper error handling and timeouts
     pub async fn collect_data(
         &mut self,
         selected_pid: Option<sysinfo::Pid>,
@@ -44,45 +42,36 @@ impl DataCollector {
         let now = Instant::now();
         let collection_start = now;
         
-        // Update processes (always available)
         let mut processes = self.system_monitor.update_processes(
             show_system_processes,
             filter
         );
         
-        // Sort processes by CPU usage (descending)
         crate::monitors::system_monitor::sort_processes(
             &mut processes,
             &crate::types::ProcessSortBy::Cpu,
             false
         );
         
-        // Get detailed process info if selected
         let detailed_process = selected_pid
             .and_then(|pid| self.system_monitor.get_detailed_process(pid));
         
-        // Get core information
         let cores = self.system_monitor.get_cores();
         
-        // Get disk information
         let disks = self.system_monitor.get_disks();
         
-        // Get network information (if enabled)
         let networks = if self.config.enable_network_monitoring {
             self.system_monitor.get_networks()
         } else {
             Vec::new()
         };
         
-        // Calculate network totals
         let (total_net_down, total_net_up) = self.system_monitor
             .calculate_total_network_io(&networks);
         
-        // Calculate disk I/O totals
         let (total_disk_read, total_disk_write) = self.system_monitor
             .calculate_total_disk_io(&processes);
         
-        // Get container information (if enabled and available)
         let containers = if self.config.enable_docker && self.container_monitor.is_available() {
             match tokio::time::timeout(
                 self.config.get_operation_timeout(),
@@ -98,7 +87,6 @@ impl DataCollector {
             Vec::new()
         };
         
-        // Get GPU information (if enabled and available)
         let gpus = if self.config.enable_gpu_monitoring && self.gpu_monitor.is_available() {
             self.gpu_monitor.get_gpu_info()
         } else {
@@ -110,15 +98,12 @@ impl DataCollector {
             Err(_) => None,
         };
         
-        // Update GPU history
         if let Ok(ref gpu_list) = gpus {
             self.gpu_monitor.update_gpu_history(gpu_list, self.config.history_length);
         }
         
-        // Get system temperatures
         let temperatures = self.system_monitor.get_temperatures();
         
-        // Build global usage with updated history
         let mut global_usage = self.system_monitor.get_global_usage(
             total_net_down,
             total_net_up,
@@ -127,7 +112,6 @@ impl DataCollector {
             gpu_util,
         );
         
-        // Update history data
         update_history(&mut prev_global_usage.cpu_history, global_usage.cpu, self.config.history_length);
         update_history(&mut prev_global_usage.mem_history, 
             (global_usage.mem_used as f64 / global_usage.mem_total as f64 * 100.0) as f32, 
@@ -141,7 +125,6 @@ impl DataCollector {
             update_history(&mut prev_global_usage.gpu_history, gpu_util_val, self.config.history_length);
         }
         
-        // Copy updated histories back
         global_usage.cpu_history = prev_global_usage.cpu_history;
         global_usage.mem_history = prev_global_usage.mem_history;
         global_usage.net_down_history = prev_global_usage.net_down_history;
@@ -153,7 +136,6 @@ impl DataCollector {
         let collection_end = Instant::now();
         let collection_duration = collection_end.duration_since(collection_start);
         
-        // Log performance if collection is slow
         if collection_duration > Duration::from_millis(self.config.refresh_rate_ms / 2) {
             eprintln!("Slow data collection: {:?}", collection_duration);
         }
@@ -172,16 +154,13 @@ impl DataCollector {
         }
     }
     
-    /// Get system information (static data)
     pub fn get_system_info(&self) -> Vec<(String, String)> {
         let mut info = self.system_monitor.get_system_info();
         
-        // Add configuration info
         if self.config.safe_mode {
             info.push(("Mode".to_string(), "Safe Mode".to_string()));
         }
         
-        // Add feature info
         let mut features = Vec::new();
         if self.config.enable_docker && self.container_monitor.is_available() {
             features.push("Docker");
@@ -200,7 +179,6 @@ impl DataCollector {
         info
     }
     
-    /// Check health of all monitoring components
     pub async fn health_check(&self) -> Vec<(String, bool)> {
         let mut health = Vec::new();
         
@@ -223,5 +201,4 @@ impl DataCollector {
     }
 }
 
-/// Shared data collector that can be used across threads
 pub type SharedDataCollector = Arc<Mutex<DataCollector>>;

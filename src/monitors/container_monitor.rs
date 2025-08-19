@@ -58,7 +58,6 @@ impl ContainerMonitor {
         }
         
         // TODO: Add Podman support here
-        // This would involve connecting to Podman's REST API or socket
         
         Vec::new()
     }
@@ -69,12 +68,10 @@ impl ContainerMonitor {
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         self.last_update = now;
         
-        // Check if Docker daemon is accessible
         if timeout(Duration::from_millis(timeout_ms / 4), docker.ping()).await.is_err() {
             return Err("Docker daemon not accessible".into());
         }
         
-        // Get container list
         let containers_list = timeout(
             Duration::from_millis(timeout_ms / 2),
             docker.list_containers::<String>(None)
@@ -84,7 +81,6 @@ impl ContainerMonitor {
             return Ok(Vec::new());
         }
         
-        // Get stats for all containers concurrently
         let stats_futures = containers_list.iter()
             .filter_map(|container| container.id.as_ref())
             .map(|id| {
@@ -107,7 +103,6 @@ impl ContainerMonitor {
         
         let stats_results = future::join_all(stats_futures).await;
         
-        // Process results into a map
         let mut stats_map = HashMap::new();
         for (id, stats_result) in stats_results {
             match stats_result {
@@ -126,7 +121,6 @@ impl ContainerMonitor {
             }
         }
         
-        // Build container info list
         let mut container_infos = Vec::new();
         let mut current_container_stats = HashMap::new();
         
@@ -152,7 +146,6 @@ impl ContainerMonitor {
             
             let ports = self.format_ports(&container.ports);
             
-            // Get stats and calculate metrics
             let (cpu, mem, net_down, net_up, disk_r, disk_w) = 
                 if let Some(stats) = stats_map.get(&id_full) {
                     self.calculate_container_metrics(
@@ -206,15 +199,12 @@ impl ContainerMonitor {
         
         let mut container_io_stats = ContainerIoStats::default();
         
-        // Calculate CPU usage
         let cpu_usage = self.calculate_cpu_usage(stats);
         let cpu_display = format!("{:.2}%", cpu_usage);
         
-        // Calculate memory usage
         let memory_usage = stats.memory_stats.usage.unwrap_or(0);
         let memory_display = format_size(memory_usage);
         
-        // Calculate network I/O
         if let Some(ref networks) = stats.networks {
             for (_, net_data) in networks {
                 container_io_stats.net_rx += net_data.rx_bytes;
@@ -236,7 +226,6 @@ impl ContainerMonitor {
         let net_down_display = format_rate(net_rx_rate);
         let net_up_display = format_rate(net_tx_rate);
         
-        // Calculate disk I/O
         if let Some(ref blkio_stats) = stats.blkio_stats.io_service_bytes_recursive {
             for entry in blkio_stats {
                 match entry.op.as_str() {
@@ -297,13 +286,10 @@ impl ContainerMonitor {
             let port_strings: Vec<String> = ports
                 .iter()
                 .filter_map(|port| {
-                    if let (private_port, Some(public_port)) = 
-                        (port.private_port, port.public_port) {
-                        Some(format!("{}:{}", public_port, private_port))
-                    } else if let Some(private_port) = port.private_port {
-                        Some(format!("{}", private_port))
+                    if let Some(public_port) = port.public_port {
+                        Some(format!("{}:{}", public_port, port.private_port))
                     } else {
-                        let private_port = port.private_port;
+                        Some(format!("{}", port.private_port))
                     }
                 })
                 .collect();
@@ -331,7 +317,6 @@ impl ContainerMonitor {
         false
     }
     
-    /// Check if Docker daemon is running
     pub async fn health_check(&self, timeout_ms: u64) -> bool {
         #[cfg(feature = "docker")]
         if let Some(ref docker) = self.docker {
@@ -344,7 +329,6 @@ impl ContainerMonitor {
         false
     }
     
-    /// Get container runtime info (Docker version, etc.)
     pub async fn get_runtime_info(&self) -> Option<String> {
         #[cfg(feature = "docker")]
         if let Some(ref docker) = self.docker {

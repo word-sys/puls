@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
-use sysinfo::{DiskUsage, Networks, Pid, Process, System};
+use sysinfo::{DiskUsage, Networks, Pid, System};
 use users::{Users, UsersCache};
-use std::collections::VecDeque;
 use chrono::prelude::*;
 
 use crate::types::*;
@@ -68,7 +67,6 @@ impl SystemMonitor {
         ]
     }
     
-    /// Update system information and get processes
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
         let now = Instant::now();
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
@@ -77,22 +75,19 @@ impl SystemMonitor {
         self.system.refresh_all();
         
         let mut current_disk_usage = HashMap::new();
-        let mut processes: Vec<ProcessInfo> = self.system.processes()
+        let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
             .filter(|(pid, process)| {
-                // Filter out self
                 if pid.as_u32() == self.self_pid {
                     return false;
                 }
                 
-                // Filter system processes if needed
-                if !show_system && is_system_process(process.name()) {
+                if !show_system && is_system_process(&process.name().to_string_lossy()) {
                     return false;
                 }
                 
-                // Apply text filter
                 if !filter.is_empty() {
-                    let search_text = format!("{} {}", process.name(), process.pid());
+                    let search_text = format!("{} {}", process.name().to_string_lossy(), process.pid());
                     if !matches_filter(&search_text, filter) {
                         return false;
                     }
@@ -126,7 +121,7 @@ impl SystemMonitor {
                 
                 ProcessInfo {
                     pid: pid.to_string(),
-                    name: process.name().to_string(),
+                    name: process.name().to_string_lossy().to_string(),
                     cpu: process.cpu_usage(),
                     cpu_display: format!("{:.2}%", process.cpu_usage()),
                     mem: process.memory(),
@@ -143,7 +138,6 @@ impl SystemMonitor {
         processes
     }
     
-    /// Get detailed information for a specific process
     pub fn get_detailed_process(&self, pid: Pid) -> Option<DetailedProcessInfo> {
         self.system.process(pid).map(|process| {
             let start_time = if let chrono::LocalResult::Single(dt) = 
@@ -159,16 +153,16 @@ impl SystemMonitor {
             
             DetailedProcessInfo {
                 pid: process.pid().to_string(),
-                name: process.name().to_string(),
+                name: process.name().to_string_lossy().to_string(),
                 user,
                 status: process.status().to_string(),
                 cpu_usage: process.cpu_usage(),
                 memory_rss: process.memory(),
                 memory_vms: process.virtual_memory(),
-                command: process.cmd().join(" "),
+                command: process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<String>>().join(" "),
                 start_time,
                 parent: process.parent().map(|p| p.to_string()),
-                environ: process.environ().to_vec(),
+                environ: process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect(),
                 threads: process.tasks().map(|t| t.len() as u32).unwrap_or(0),
                 file_descriptors: None, // TODO: Implement if available
                 cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
@@ -176,7 +170,6 @@ impl SystemMonitor {
         })
     }
     
-    /// Get CPU core information
     pub fn get_cores(&self) -> Vec<CoreInfo> {
         self.system.cpus().iter().map(|cpu| CoreInfo {
             usage: cpu.cpu_usage(),
@@ -185,7 +178,6 @@ impl SystemMonitor {
         }).collect()
     }
     
-    /// Get disk information with I/O rates
     pub fn get_disks(&self) -> Vec<DetailedDiskInfo> {
         let disks = sysinfo::Disks::new_with_refreshed_list();
         disks.iter().map(|disk| {
@@ -194,7 +186,7 @@ impl SystemMonitor {
             DetailedDiskInfo {
                 name: disk.mount_point().to_string_lossy().into_owned(),
                 device: disk.name().to_string_lossy().into_owned(),
-                fs: String::from_utf8_lossy(disk.file_system()).into_owned(),
+                fs: disk.file_system().to_string_lossy().to_string(),
                 total: disk.total_space(),
                 free: disk.available_space(),
                 used,
@@ -207,7 +199,6 @@ impl SystemMonitor {
         }).collect()
     }
     
-    /// Get network interface information with rates
     pub fn get_networks(&mut self) -> Vec<DetailedNetInfo> {
         let now = Instant::now();
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
@@ -253,7 +244,6 @@ impl SystemMonitor {
         networks
     }
     
-    /// Get global system usage statistics
     pub fn get_global_usage(&self, total_net_down: u64, total_net_up: u64, 
                            total_disk_read: u64, total_disk_write: u64,
                            gpu_util: Option<u32>) -> GlobalUsage {
@@ -273,27 +263,23 @@ impl SystemMonitor {
             load_average: (load.one, load.five, load.fifteen),
             uptime,
             boot_time,
-            ..Default::default() // Will be updated with history in the caller
+            ..Default::default()
         }
     }
     
-    /// Get system temperatures (if available)
     pub fn get_temperatures(&self) -> SystemTemperatures {
         SystemTemperatures {
             cpu_temp: None, // TODO: Implement CPU temperature reading
-            gpu_temps: Vec::new(), // Will be filled by GPU monitor
+            gpu_temps: Vec::new(),
             motherboard_temp: None, // TODO: Implement motherboard temperature
         }
     }
     
-    /// Refresh system information
     pub fn refresh(&mut self) {
         self.system.refresh_all();
     }
     
-    /// Get total disk I/O from all processes
     pub fn calculate_total_disk_io(&self, processes: &[ProcessInfo]) -> (u64, u64) {
-        // This is a simple approximation - in reality we'd need to track system-wide I/O
         let total_read = processes.iter()
             .map(|p| p.disk_read.trim_end_matches(" B/s").trim_end_matches(" KB/s").trim_end_matches(" MB/s")
                 .parse::<f64>().unwrap_or(0.0) as u64)

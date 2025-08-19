@@ -1,9 +1,8 @@
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Sparkline},
+    widgets::{Block, Gauge, Paragraph, Sparkline},
 };
 
-/// Enhanced sparkline widget with better styling and data handling
 pub struct EnhancedSparkline<'a> {
     data: &'a [u64],
     style: Style,
@@ -36,30 +35,26 @@ impl<'a> EnhancedSparkline<'a> {
         self
     }
     
-    /// Render the sparkline with enhanced features
     pub fn render(self, area: Rect, buf: &mut Buffer) {
         if self.data.is_empty() || area.width == 0 || area.height == 0 {
             return;
         }
         
-        // Use standard sparkline as base
         let sparkline = Sparkline::default()
             .data(self.data)
             .style(self.style);
         
         sparkline.render(area, buf);
         
-        // Add baseline if requested
         if self.show_baseline && area.height > 0 {
             let baseline_y = area.y + area.height - 1;
             for x in area.x..area.x + area.width {
-                buf.cell_mut(x, baseline_y).unwrap().set_char('─');
+                buf.get_mut(x, baseline_y).set_char('─');
             }
         }
     }
 }
 
-/// Multi-gauge widget for displaying multiple related metrics
 pub struct MultiGauge<'a> {
     gauges: Vec<GaugeData<'a>>,
     block: Option<Block<'a>>,
@@ -141,7 +136,6 @@ impl<'a> Widget for MultiGauge<'a> {
     }
 }
 
-/// Progress bar with custom styling and text overlay
 pub struct ProgressBar<'a> {
     progress: f64,
     label: Option<&'a str>,
@@ -195,10 +189,8 @@ impl<'a> Widget for ProgressBar<'a> {
             return;
         }
         
-        // Calculate fill width
         let fill_width = ((area.width as f64) * self.progress) as u16;
         
-        // Fill background
         for y in area.y..area.y + area.height {
             for x in area.x..area.x + area.width {
                 let cell = buf.get_mut(x, y);
@@ -212,12 +204,14 @@ impl<'a> Widget for ProgressBar<'a> {
             }
         }
         
-        // Add text overlay
         if let Some(text) = self.custom_text {
             self.render_text_overlay(area, buf, text);
-        } else if self.show_percentage {
-            let percentage_text = format!("{:.1}%", self.progress * 100.0);
+            return;
+        }
+        if self.show_percentage {
+            let percentage_text = format!("{}%", (self.progress * 100.0) as u8);
             self.render_text_overlay(area, buf, &percentage_text);
+            return;
         }
         
         if let Some(label) = self.label {
@@ -243,7 +237,6 @@ impl<'a> ProgressBar<'a> {
             
             let cell = buf.get_mut(x, text_y);
             cell.set_char(ch);
-            // Use contrasting color for text
             if x < area.x + ((area.width as f64 * self.progress) as u16) {
                 cell.set_fg(Color::Black);
             } else {
@@ -253,7 +246,6 @@ impl<'a> ProgressBar<'a> {
     }
 }
 
-/// Status indicator widget
 pub struct StatusIndicator<'a> {
     status: Status,
     label: &'a str,
@@ -331,7 +323,6 @@ impl<'a> Widget for StatusIndicator<'a> {
     }
 }
 
-/// Mini chart widget for small areas
 pub struct MiniChart<'a> {
     data: &'a [f64],
     style: Style,
@@ -391,7 +382,6 @@ impl<'a> Widget for MiniChart<'a> {
         
         for x in 0..width.min(data_len) {
             let data_index = if data_len > width {
-                // Sample data if we have more data points than width
                 (x * data_len) / width
             } else {
                 x
@@ -417,7 +407,6 @@ impl<'a> Widget for MiniChart<'a> {
     }
 }
 
-/// Scrollable text widget
 pub struct ScrollableText<'a> {
     lines: Vec<&'a str>,
     scroll_offset: usize,
@@ -490,7 +479,6 @@ impl<'a> Widget for ScrollableText<'a> {
                 self.style
             };
             
-            // Render the line, truncating if necessary
             let max_width = text_area.width as usize;
             let display_text = if line_text.len() > max_width {
                 &line_text[..max_width]

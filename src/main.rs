@@ -25,65 +25,57 @@ use crate::types::AppConfig;
 use crate::ui::render_ui;
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
-    // Parse command line arguments
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let config = AppConfig::from(cli);
     
-    // Initialize terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     
-    // Initialize application state
     let app_state = Arc::new(Mutex::new(AppState::default()));
     let data_collector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
     
-    // Get initial system information
     let system_info = {
         let collector = data_collector.lock();
         collector.get_system_info()
     };
     
-    // Set initial system info
     {
         let mut state = app_state.lock();
         state.system_info = system_info;
         
-        // Add performance mode info
         if config.safe_mode {
             state.system_info.push(("Mode".to_string(), "Safe Mode".to_string()));
         }
     }
     
-    // Spawn data collection task
-    let app_state_clone = app_state.clone();
-    let data_collector_clone = data_collector.clone();
-    let config_clone = config.clone();
-    
-    tokio::spawn(async move {
-        data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
-    });
-    
-    // Main UI loop
-    let result = ui_loop(&mut terminal, app_state, &config).await;
-    
-    // Cleanup terminal
+    let local = tokio::task::LocalSet::new();
+
+    let result = local.run_until(async {
+        let app_state_clone = app_state.clone();
+        let data_collector_clone = data_collector.clone();
+        let config_clone = config.clone();
+        tokio::task::spawn_local(async move {
+            data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
+        });
+
+        ui_loop(&mut terminal, app_state, &config).await
+    }).await;
+
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-    
-    // Print any final messages
+
     if let Err(ref e) = result {
         eprintln!("Application error: {}", e);
     }
-    
-    result
+
+    result.map_err(|e| e.into())
 }
 
-/// Main UI event loop with smooth 60 FPS rendering
 async fn ui_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app_state: Arc<Mutex<AppState>>,
@@ -95,7 +87,6 @@ async fn ui_loop(
     loop {
         let now = Instant::now();
         
-        // Handle input events (non-blocking)
         while event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
                 let should_quit = handle_key_event(key, &app_state)?;
@@ -105,7 +96,6 @@ async fn ui_loop(
             }
         }
         
-        // Render UI at target framerate
         if now.duration_since(last_render) >= ui_refresh_interval {
             {
                 let mut state = app_state.lock();
@@ -114,12 +104,10 @@ async fn ui_loop(
             last_render = now;
         }
         
-        // Small sleep to prevent excessive CPU usage
         sleep(Duration::from_millis(1)).await;
     }
 }
 
-/// Handle keyboard input events
 fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
@@ -127,17 +115,14 @@ fn handle_key_event(
     let mut state = app_state.lock();
     
     match key.code {
-        // Quit application
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
             return Ok(true);
         }
         
-        // Toggle pause
         KeyCode::Char('p') | KeyCode::Char('P') => {
             state.paused = !state.paused;
         }
         
-        // Tab navigation
         KeyCode::Tab => {
             state.active_tab = (state.active_tab + 1) % 7;
         }
@@ -145,7 +130,6 @@ fn handle_key_event(
             state.active_tab = (state.active_tab + 6) % 7;
         }
         
-        // Direct tab access
         KeyCode::Char('1') => state.active_tab = 0,
         KeyCode::Char('2') => state.active_tab = 1,
         KeyCode::Char('3') => state.active_tab = 2,
@@ -154,7 +138,6 @@ fn handle_key_event(
         KeyCode::Char('6') => state.active_tab = 5,
         KeyCode::Char('7') => state.active_tab = 6,
         
-        // Process list navigation (Dashboard tab)
         KeyCode::Down if state.active_tab == 0 => {
             handle_process_navigation(&mut state, true);
         }
@@ -162,19 +145,17 @@ fn handle_key_event(
             handle_process_navigation(&mut state, false);
         }
         
-        // Select process for detailed view
         KeyCode::Enter if state.active_tab == 0 => {
             if let Some(selected_index) = state.process_table_state.selected() {
                 if let Some(process) = state.dynamic_data.processes.get(selected_index) {
                     if let Ok(pid_val) = process.pid.parse::<usize>() {
                         state.selected_pid = Some(sysinfo::Pid::from(pid_val));
-                        state.active_tab = 1; // Switch to process detail tab
+                        state.active_tab = 1;
                     }
                 }
             }
         }
         
-        // Sorting controls (when in dashboard)
         KeyCode::Char('c') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.sort_by = ProcessSortBy::Cpu;
             state.sort_ascending = !state.sort_ascending;
@@ -188,12 +169,10 @@ fn handle_key_event(
             state.sort_ascending = !state.sort_ascending;
         }
         
-        // Toggle system processes
         KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.show_system_processes = !state.show_system_processes;
         }
         
-        // Help (could show a help popup in future)
         KeyCode::Char('h') | KeyCode::F(1) => {
             // TODO: Implement help popup
         }
@@ -204,7 +183,6 @@ fn handle_key_event(
     Ok(false)
 }
 
-/// Handle process list navigation
 fn handle_process_navigation(state: &mut AppState, down: bool) {
     let processes = &state.dynamic_data.processes;
     if processes.is_empty() {
@@ -221,7 +199,6 @@ fn handle_process_navigation(state: &mut AppState, down: bool) {
     state.process_table_state.select(Some(new_index));
 }
 
-/// Background data collection loop
 async fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: Arc<Mutex<DataCollector>>,
@@ -233,7 +210,6 @@ async fn data_collection_loop(
     loop {
         interval.tick().await;
         
-        // Skip collection if paused
         let is_paused = {
             let state = app_state.lock();
             state.paused
@@ -245,7 +221,6 @@ async fn data_collection_loop(
         
         let collection_start = Instant::now();
         
-        // Get current state for collection parameters
         let (selected_pid, show_system_processes, filter_text) = {
             let state = app_state.lock();
             (
@@ -255,7 +230,6 @@ async fn data_collection_loop(
             )
         };
         
-        // Collect data
         let new_data = {
             let mut collector = data_collector.lock();
             collector.collect_data(
@@ -268,12 +242,10 @@ async fn data_collection_loop(
         
         prev_global_usage = new_data.global_usage.clone();
         
-        // Update application state
         {
             let mut state = app_state.lock();
             state.dynamic_data = new_data;
             
-            // Ensure process table has a selection
             if state.process_table_state.selected().is_none() && !state.dynamic_data.processes.is_empty() {
                 state.process_table_state.select(Some(0));
             }
@@ -281,12 +253,10 @@ async fn data_collection_loop(
         
         let collection_duration = collection_start.elapsed();
         
-        // Log slow collections for debugging
         if collection_duration > Duration::from_millis(config.refresh_rate_ms / 2) {
             eprintln!("Slow data collection: {:?}", collection_duration);
         }
         
-        // Adaptive sleep - if collection took too long, skip sleep to maintain target rate
         let remaining_time = config.get_collection_sleep_duration().saturating_sub(collection_duration);
         if remaining_time > Duration::from_millis(10) {
             sleep(remaining_time).await;
@@ -294,7 +264,6 @@ async fn data_collection_loop(
     }
 }
 
-/// Custom error type for the application
 #[derive(Debug)]
 pub enum AppError {
     Io(io::Error),
@@ -320,7 +289,6 @@ impl From<io::Error> for AppError {
     }
 }
 
-/// Signal handler for graceful shutdown
 #[cfg(unix)]
 fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     use signal_hook::{consts::SIGTERM, iterator::Signals};
@@ -345,16 +313,13 @@ fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Check system requirements and capabilities
 fn check_system_requirements() -> Result<(), AppError> {
-    // Check if we're running in a proper terminal
     if !atty::is(atty::Stream::Stdout) {
         return Err(AppError::Config(
             "PULS requires a terminal environment".to_string()
         ));
     }
     
-    // Check minimum terminal size
     if let Ok((width, height)) = crossterm::terminal::size() {
         if width < 80 || height < 24 {
             eprintln!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
@@ -364,7 +329,6 @@ fn check_system_requirements() -> Result<(), AppError> {
     Ok(())
 }
 
-/// Initialize logging (if enabled)
 fn init_logging(verbose: bool) -> Result<(), AppError> {
     if verbose {
         env_logger::Builder::from_default_env()

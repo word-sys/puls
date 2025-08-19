@@ -4,27 +4,21 @@ pub mod layouts;
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, TableState, Tabs},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs},
 };
 
-use crate::types::{AppState, ProcessSortBy};
+use crate::types::AppState;
 use crate::utils::{format_size, format_rate, format_percentage, get_usage_color, truncate_string};
 
-pub use widgets::*;
-pub use colors::*;
 pub use layouts::*;
 
-/// Main UI rendering function
 pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool) {
     let main_layout = create_main_layout(f.size());
     
-    // Render tab bar
     render_tab_bar(f, state, main_layout.tab_area, is_safe_mode);
     
-    // Render summary bar
     render_summary_bar(f, state, main_layout.summary_area);
     
-    // Render main content based on active tab
     match state.active_tab {
         0 => render_dashboard_tab(f, state, main_layout.content_area),
         1 => render_process_detail_tab(f, state, main_layout.content_area),
@@ -36,11 +30,9 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool) {
         _ => {}
     }
     
-    // Render footer
     render_footer(f, state, main_layout.footer_area);
 }
 
-/// Render the tab navigation bar
 fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
     let tab_titles: Vec<Line> = [
         "1:Dashboard", "2:Process", "3:CPU", "4:Disks", "5:Network", "6:GPU", "7:System"
@@ -49,7 +41,6 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     .enumerate()
     .map(|(i, &title)| {
         let style = if is_safe_mode && (i == 4 || i == 5) {
-            // Disabled tabs in safe mode
             Style::default().fg(Color::DarkGray)
         } else if i == state.active_tab {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -72,7 +63,6 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     f.render_widget(tabs, area);
 }
 
-/// Render the system summary bar with gauges and sparklines
 fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect) {
     let usage = &state.dynamic_data.global_usage;
     let layout = Layout::default()
@@ -86,19 +76,14 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect) {
         ])
         .split(area);
     
-    // CPU Usage Gauge
     render_cpu_gauge(f, usage.cpu, layout[0]);
     
-    // Memory Usage Gauge
     render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1]);
     
-    // GPU Usage Gauge (or N/A)
     render_gpu_gauge(f, usage.gpu_util, layout[2]);
     
-    // Network I/O with Sparkline
     render_network_summary(f, usage, layout[3]);
     
-    // Disk I/O with Sparkline
     render_disk_summary(f, usage, layout[4]);
 }
 
@@ -172,14 +157,12 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(inner_area);
     
-    // Network rates text
     let net_text = format!("▼{} ▲{}", format_rate(usage.net_down), format_rate(usage.net_up));
     let net_paragraph = Paragraph::new(net_text)
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Yellow));
     f.render_widget(net_paragraph, layout[0]);
     
-    // Network sparkline
     if !usage.net_down_history.is_empty() || !usage.net_up_history.is_empty() {
         let combined_data: Vec<u64> = usage.net_down_history
             .iter()
@@ -210,14 +193,12 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(inner_area);
     
-    // Disk I/O rates text
     let disk_text = format!("▼{} ▲{}", format_rate(usage.disk_read), format_rate(usage.disk_write));
     let disk_paragraph = Paragraph::new(disk_text)
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::LightRed));
     f.render_widget(disk_paragraph, layout[0]);
     
-    // Disk I/O sparkline
     if !usage.disk_read_history.is_empty() || !usage.disk_write_history.is_empty() {
         let combined_data: Vec<u64> = usage.disk_read_history
             .iter()
@@ -234,17 +215,14 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     }
 }
 
-/// Render the main dashboard tab with process list and containers
 fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(area);
     
-    // Process table
     render_process_table(f, state, layout[0]);
     
-    // Container table
     render_container_table(f, state, layout[1]);
 }
 
@@ -359,7 +337,6 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(table, area);
 }
 
-/// Render detailed process information tab
 fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
     let block = Block::default()
         .title("Process Details")
@@ -375,7 +352,6 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(inner_area);
         
-        // Left panel - Basic info
         let info_lines = vec![
             Line::from(vec![
                 Span::styled("PID: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
@@ -419,16 +395,17 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
             ]),
         ];
         
-        if let Some(ref cwd) = process.cwd {
-            let final_info_lines: Vec<_> = info_lines.into_iter().chain(std::iter::once(
+        let final_info_lines: Vec<_> = if let Some(ref cwd) = process.cwd {
+            info_lines.into_iter().chain(std::iter::once(
                 Line::from(vec![
                     Span::styled("Working Dir: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::raw(cwd)
                 ])
-            )).collect::<Vec<_>>();
-        }
-        
-        let info_paragraph = Paragraph::new(final_info_lines);
+            )).collect::<Vec<_>>()
+        } else {
+            info_lines
+        };
+        let info_paragraph = Paragraph::new(final_info_lines)
             .block(
                 Block::default()
                     .title("Process Information")
@@ -438,7 +415,6 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(info_paragraph, layout[0]);
         
-        // Right panel - Command and environment
         let mut cmd_env_lines = vec![
             Line::from(Span::styled("Command:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
             Line::from(""),
@@ -448,9 +424,8 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
             Line::from(""),
         ];
         
-        // Add environment variables (limit to prevent UI overflow)
         for (i, env) in process.environ.iter().enumerate() {
-            if i >= 20 { // Limit to first 20 env vars
+            if i >= 20 {
                 cmd_env_lines.push(Line::from(Span::raw("... (truncated)")));
                 break;
             }
@@ -476,7 +451,6 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
     }
 }
 
-/// Render CPU cores tab with individual core usage
 fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
     let cores = &state.dynamic_data.cores;
     
@@ -501,7 +475,6 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
     let inner_area = block.inner(area);
     f.render_widget(block, area);
     
-    // Calculate layout for cores
     let cores_per_row = (inner_area.width / 25).max(1) as usize;
     let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
     
@@ -557,7 +530,6 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
     }
 }
 
-/// Render disks tab
 fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect) {
     let disks = &state.dynamic_data.disks;
     let headers = ["Mount Point", "Device", "FS", "Total", "Used", "Free", "Usage %"];
@@ -610,7 +582,6 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(table, area);
 }
 
-/// Render network interfaces tab
 fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
     if is_safe_mode {
         let message = Paragraph::new("Network monitoring is disabled in safe mode")
@@ -669,7 +640,6 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     f.render_widget(table, area);
 }
 
-/// Render GPU monitoring tab
 fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
     if is_safe_mode {
         let message = Paragraph::new("GPU monitoring is disabled in safe mode")
@@ -758,7 +728,6 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .constraints([Constraint::Length(1), Constraint::Min(3)])
         .split(inner_area);
     
-    // GPU utilization gauge
     let util_color = get_usage_color(gpu.utilization as f32);
     let util_gauge = Gauge::default()
         .label(format!("Utilization: {}%", gpu.utilization))
@@ -766,7 +735,6 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .ratio(gpu.utilization as f64 / 100.0);
     f.render_widget(util_gauge, layout[0]);
     
-    // GPU details
     let mem_percent = if gpu.memory_total > 0 {
         (gpu.memory_used as f64 / gpu.memory_total as f64 * 100.0) as f32
     } else {
@@ -796,20 +764,20 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         ]),
     ];
     
-    if let Some(fan_speed) = gpu.fan_speed {
-        let final_details: Vec<_> = details.into_iter().chain(std::iter::once(
+    let final_details: Vec<_> = if let Some(fan_speed) = gpu.fan_speed {
+        details.into_iter().chain(std::iter::once(
             Line::from(vec![
                 Span::styled("Fan Speed: ", Style::default().fg(Color::Yellow)),
                 Span::raw(format!("{}%", fan_speed))
             ])
-        )).collect::<Vec<_>>();
-    }
-    
+        )).collect::<Vec<_>>()
+    } else {
+        details
+    };
     let details_paragraph = Paragraph::new(final_details);
     f.render_widget(details_paragraph, layout[1]);
 }
 
-/// Render system information tab
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect) {
     let rows = state.system_info.iter().map(|(key, value)| {
         Row::new(vec![key.clone(), value.clone()])
@@ -830,7 +798,6 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(table, area);
 }
 
-/// Render footer with help text
 fn render_footer(f: &mut Frame, state: &AppState, area: Rect) {
     let help_text = if state.paused {
         "PAUSED - Press 'p' to resume | Quit: q | Tabs: 1-7 | Navigate: ↑↓ | Details: Enter"

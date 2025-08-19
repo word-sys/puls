@@ -1,9 +1,7 @@
 use ratatui::{
-    prelude::*,
     layout::{Constraint, Direction, Layout, Rect},
 };
 
-/// Main application layout structure
 #[derive(Debug, Clone)]
 pub struct MainLayout {
     pub tab_area: Rect,
@@ -12,7 +10,6 @@ pub struct MainLayout {
     pub footer_area: Rect,
 }
 
-/// Create the main application layout
 pub fn create_main_layout(area: Rect) -> MainLayout {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -32,7 +29,6 @@ pub fn create_main_layout(area: Rect) -> MainLayout {
     }
 }
 
-/// Create a two-column layout for detailed views
 pub fn create_two_column_layout(area: Rect, left_percentage: u16) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -45,7 +41,6 @@ pub fn create_two_column_layout(area: Rect, left_percentage: u16) -> (Rect, Rect
     (chunks[0], chunks[1])
 }
 
-/// Create a two-row layout
 pub fn create_two_row_layout(area: Rect, top_percentage: u16) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -58,7 +53,6 @@ pub fn create_two_row_layout(area: Rect, top_percentage: u16) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-/// Create a grid layout for multiple items
 pub fn create_grid_layout(area: Rect, rows: u16, cols: u16) -> Vec<Vec<Rect>> {
     let row_constraints: Vec<Constraint> = (0..rows)
         .map(|_| Constraint::Ratio(1, rows as u32))
@@ -85,13 +79,11 @@ pub fn create_grid_layout(area: Rect, rows: u16, cols: u16) -> Vec<Vec<Rect>> {
         .collect()
 }
 
-/// Create adaptive grid layout based on item count
 pub fn create_adaptive_grid(area: Rect, item_count: usize) -> Vec<Rect> {
     if item_count == 0 {
         return vec![];
     }
     
-    // Calculate optimal grid dimensions
     let (rows, cols) = calculate_grid_dimensions(item_count, area.width, area.height);
     
     let row_constraints: Vec<Constraint> = (0..rows)
@@ -119,7 +111,7 @@ pub fn create_adaptive_grid(area: Rect, item_count: usize) -> Vec<Rect> {
         let col_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(col_constraints)
-            .split(row_area);
+            .split(*row_area);
         
         for &cell in &col_chunks[..items_in_row] {
             cells.push(cell);
@@ -133,30 +125,27 @@ pub fn create_adaptive_grid(area: Rect, item_count: usize) -> Vec<Rect> {
     cells
 }
 
-/// Calculate optimal grid dimensions for given constraints
 fn calculate_grid_dimensions(item_count: usize, width: u16, height: u16) -> (usize, usize) {
     if item_count <= 1 {
         return (1, 1);
     }
     
-    // Prefer wider layouts for better readability
-    let aspect_ratio = width as f64 / height as f64;
-    let target_ratio = 2.0; // Prefer 2:1 aspect ratio for cells
+    let _aspect_ratio = width as f64 / height as f64;
+    let target_ratio = 2.0;
     
-    let sqrt_count = (item_count as f64).sqrt();
+    let _sqrt_count = (item_count as f64).sqrt();
     let mut best_rows = 1;
     let mut best_cols = item_count;
     let mut best_waste = item_count;
     
     for rows in 1..=item_count {
-        let cols = (item_count + rows - 1) / rows; // Ceiling division
+        let cols = (item_count + rows - 1) / rows;
         let total_cells = rows * cols;
         let waste = total_cells - item_count;
         
         let cell_ratio = (width as f64 / cols as f64) / (height as f64 / rows as f64);
         let ratio_diff = (cell_ratio - target_ratio).abs();
         
-        // Prefer layouts with less waste and better aspect ratio
         if waste <= best_waste && ratio_diff < 1.0 {
             best_rows = rows;
             best_cols = cols;
@@ -167,7 +156,6 @@ fn calculate_grid_dimensions(item_count: usize, width: u16, height: u16) -> (usi
     (best_rows, best_cols)
 }
 
-/// Create a summary layout with multiple sections
 pub fn create_summary_layout(area: Rect, sections: usize) -> Vec<Rect> {
     if sections == 0 {
         return vec![];
@@ -184,7 +172,6 @@ pub fn create_summary_layout(area: Rect, sections: usize) -> Vec<Rect> {
         .to_vec()
 }
 
-/// Create a sidebar layout
 pub struct SidebarLayout {
     pub sidebar: Rect,
     pub main: Rect,
@@ -222,7 +209,6 @@ pub fn create_sidebar_layout(area: Rect, sidebar_width: u16, left_sidebar: bool)
     }
 }
 
-/// Create a responsive layout that adapts to terminal size
 pub struct ResponsiveLayout {
     pub is_compact: bool,
     pub areas: Vec<Rect>,
@@ -232,7 +218,6 @@ pub fn create_responsive_layout(area: Rect, min_width: u16, min_height: u16) -> 
     let is_compact = area.width < min_width || area.height < min_height;
     
     if is_compact {
-        // Compact layout - single column
         let constraints = vec![
             Constraint::Length(3), // Header
             Constraint::Min(0),    // Content
@@ -248,7 +233,6 @@ pub fn create_responsive_layout(area: Rect, min_width: u16, min_height: u16) -> 
             areas: chunks.to_vec(),
         }
     } else {
-        // Full layout - multi-column
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -266,7 +250,6 @@ pub fn create_responsive_layout(area: Rect, min_width: u16, min_height: u16) -> 
     }
 }
 
-/// Create a tabbed content layout
 pub fn create_tabbed_layout(area: Rect) -> (Rect, Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -279,7 +262,6 @@ pub fn create_tabbed_layout(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-/// Create a status bar layout
 pub fn create_status_layout(area: Rect, status_items: usize) -> Vec<Rect> {
     if status_items == 0 {
         return vec![area];
@@ -293,13 +275,12 @@ pub fn create_status_layout(area: Rect, status_items: usize) -> Vec<Rect> {
         .direction(Direction::Horizontal)
         .constraints(constraints)
         .split(area)
+        .to_vec()
 }
 
-/// Utility functions for layout calculations
 pub mod utils {
     use super::*;
     
-    /// Calculate the center position for a popup
     pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         let popup_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -320,7 +301,6 @@ pub mod utils {
             .split(popup_layout[1])[1]
     }
     
-    /// Calculate minimum area needed for text
     pub fn min_area_for_text(text: &str, margin: u16) -> (u16, u16) {
         let lines: Vec<&str> = text.lines().collect();
         let max_line_width = lines.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
@@ -329,12 +309,10 @@ pub mod utils {
         (max_line_width + margin * 2, height + margin * 2)
     }
     
-    /// Check if area is too small for content
     pub fn is_area_too_small(area: Rect, min_width: u16, min_height: u16) -> bool {
         area.width < min_width || area.height < min_height
     }
     
-    /// Split area into equal parts with optional spacing
     pub fn split_evenly(area: Rect, parts: usize, direction: Direction, spacing: u16) -> Vec<Rect> {
         if parts == 0 {
             return vec![];
@@ -361,7 +339,6 @@ pub mod utils {
             .constraints(constraints)
             .split(area);
         
-        // Filter out spacing chunks
         chunks.into_iter()
             .enumerate()
             .filter(|(i, _)| spacing == 0 || i % 2 == 0)
@@ -369,7 +346,6 @@ pub mod utils {
             .collect()
     }
     
-    /// Create margin around a rect
     pub fn add_margin(area: Rect, margin: u16) -> Rect {
         Rect {
             x: area.x + margin,
