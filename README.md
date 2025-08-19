@@ -21,7 +21,7 @@ PULS provides an interactive and feature-rich system monitoring session within y
 ## Installation
 
 > [!CAUTION]
-> This project is under development. There is some minor bug(s) that will be fixed in next updates: CPU Mhz and Temps not showing, sometimes CPU Usage per process shows wrong values, I fixed this issue and tested it too but sometimes it happens, i will go deeper to find out why. I remade the hole calculation for this bug which still exists.
+> This project is under development. There is some minor bug(s) that will be fixed in next updates: CPU Mhz and Temps not showing somehow, sometimes CPU Usage per process shows wrong values, I fixed this issue and tested it too but sometimes it happens, i will go deeper to find out why. I remade the hole calculation for this bug which still exists.
 
 ```bash
 wget -O puls-linux https://github.com/word-sys/puls/releases/latest/download/puls-linux && \
