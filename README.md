@@ -1,6 +1,7 @@
 # PULS
 
 A terminal-based system monitoring dashboard built with Rust.
+![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 
 ## What is PULS?
 
