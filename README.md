@@ -29,8 +29,8 @@ sudo mv puls-linux /usr/local/bin/puls
 ## Usage
 
 ```bash
-puls           # Full-featured mode
-puls --safe    # Safe mode (low resource usage)
+puls-linux           # Full-featured mode
+puls-linux --safe    # Safe mode (low resource usage)
 ```
 
 ## Build from Source
@@ -48,6 +48,7 @@ cargo build --release
 - `↑↓` - Navigate processes
 - `Enter` - View process details
 - `1-7` - Jump to specific tab
+- `p` - Pause/Resume process tab
 
 ## Requirements
 
