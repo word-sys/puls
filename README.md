@@ -1,21 +1,22 @@
 # PULS
 
-A terminal-based system monitoring dashboard built with Rust.
+A Rust-based detailed system monitoring dashboard on TUI.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 
+
 ## What is PULS?
 
-PULS provides a responsive and feature-rich system monitoring experience in your terminal. It offers real-time process monitoring with detailed insights into CPU, memory, disk I/O, and network usage.
+PULS provides an interactive and feature-rich system monitoring session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, and network.
 
 ## Key Features
 
-- **Interactive Process List** - Sortable view of running processes with resource usage
-- **Detailed Process View** - Deep dive into process details, command lines, and environment variables  
-- **Container Monitoring** - Built-in support for Docker/Podman containers
-- **GPU Monitoring** - NVIDIA GPU support with real-time metrics
-- **Global Dashboard** - Live sparkline graphs and system overview
-- **Safe Mode** - Low-resource mode for system diagnostics
+- **Interactive Process List** - Sortable list of processes consuming resources
+- **Detailed Process View** - Detailed view of process information, command lines, and environment variables
+- **Container Monitoring** - Built-in Docker/Podman native container support
+- **GPU Monitoring** - NVIDIA GPU support with real-time stats
+- **Global Dashboard** - Live sparkline charts and system overview
+- **Safe Mode** - Low-resource safe mode for system diagnostic
 
 ## Installation
 
@@ -29,8 +30,8 @@ sudo mv puls-linux /usr/local/bin/puls
 ## Usage
 
 ```bash
-puls-linux           # Full-featured mode
-puls-linux --safe    # Safe mode (low resource usage)
+puls           # Full-featured mode
+puls --safe    # Safe mode (low resource usage)
 ```
 
 ## Build from Source
@@ -44,18 +45,18 @@ cargo build --release
 ## Controls
 
 - `q`/`Esc` - Quit
-- `Tab` - Cycle tabs  
-- `↑↓` - Navigate processes
-- `Enter` - View process details
-- `1-7` - Jump to specific tab
+- `Tab` - Toggle tabs
+- `↑↓` - Switch between processes
+- `Enter` - Display process information
+- `1-7` - Go to tab with specified number
 - `p` - Pause/Resume process tab
 
 ## Requirements
 
-- Linux system
-- Docker/Podman (optional, for container monitoring)
+- Linux environment
+- Docker/Podman (optional, for monitoring containers)
 - NVIDIA drivers (optional, for GPU monitoring)
 
 ---
 
-*PULS is actively developed. Check the [releases page](https://github.com/word-sys/puls/releases) for the latest updates.*
+*PULS is actively maintained. Go to the [releases page](https://github.com/word-sys/puls/releases) for the latest release.*
