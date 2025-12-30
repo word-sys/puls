@@ -5,7 +5,6 @@ pub struct GpuMonitor {
     #[cfg(feature = "nvidia-gpu")]
     nvml: Result<nvml_wrapper::Nvml, String>,
     
-    // AMD GPU support would go here
     #[cfg(feature = "amd-gpu")]
     amd_initialized: bool,
     
@@ -39,8 +38,6 @@ impl GpuMonitor {
     
     #[cfg(feature = "amd-gpu")]
     fn init_amd() -> bool {
-        // TODO: Initialize AMD GPU monitoring
-        // This would involve opening DRM devices and reading sysfs
         false
     }
     
@@ -67,9 +64,7 @@ impl GpuMonitor {
                 Err(e) => eprintln!("AMD GPU warning: {}", e),
             }
         }
-        
-        // Intel GPUs would be added here
-        
+                
         if gpus.is_empty() {
             #[cfg(feature = "nvidia-gpu")]
             if let Err(ref e) = self.nvml {
@@ -139,17 +134,7 @@ impl GpuMonitor {
     
     #[cfg(feature = "amd-gpu")]
     fn get_amd_gpus(&self) -> Result<Vec<GpuInfo>, String> {
-        // TODO: Implement AMD GPU monitoring
-        // 1. Reading from /sys/class/drm/cardX/device/
-        // 2. Parsing GPU usage, memory, temperature
-        // 3. Using libdrm for more detailed info
-        
-        let mut gpus = Vec::new();
-        
-        // - Read from sysfs: /sys/class/drm/card*/device/gpu_busy_percent
-        // - Read memory info from: /sys/class/drm/card*/device/mem_info_vram_*
-        // - Read temperature from: /sys/class/hwmon/hwmon*/temp*_input
-        
+        let mut gpus = Vec::new(); 
         use std::fs;
         use std::path::Path;
         
@@ -162,9 +147,7 @@ impl GpuMonitor {
                 let device_path = card_dir.path().join("device");
                 
                 if let Ok(vendor) = fs::read_to_string(device_path.join("vendor")) {
-                    // vendor ID 0x1002
                     if vendor.trim() == "0x1002" {
-                        // This is an AMD GPU
                         let gpu_info = self.parse_amd_gpu_info(&device_path, &card_name_str)?;
                         gpus.push(gpu_info);
                     }
@@ -310,7 +293,6 @@ mod tests {
     #[test]
     fn test_gpu_monitor_creation() {
         let monitor = GpuMonitor::new();
-        // Just test that it doesn't panic
         assert!(true);
     }
     

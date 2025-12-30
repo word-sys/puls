@@ -8,39 +8,45 @@ use ratatui::{
 };
 
 use crate::types::AppState;
-use crate::utils::{format_size, format_rate, format_percentage, get_usage_color, truncate_string};
+use crate::utils::{format_size, format_rate, format_percentage, format_frequency, get_usage_color, truncate_string, get_system_health, get_top_memory_consumers, get_cpu_efficiency, estimate_memory_availability};
+use crate::language::Translator;
 
 pub use layouts::*;
 
-pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool) {
+pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, translator: &Translator) {
     let main_layout = create_main_layout(f.size());
     
-    render_tab_bar(f, state, main_layout.tab_area, is_safe_mode);
+    render_tab_bar(f, state, main_layout.tab_area, is_safe_mode, translator);
     
-    render_summary_bar(f, state, main_layout.summary_area);
+    render_summary_bar(f, state, main_layout.summary_area, translator);
     
     match state.active_tab {
-        0 => render_dashboard_tab(f, state, main_layout.content_area),
-        1 => render_process_detail_tab(f, state, main_layout.content_area),
-        2 => render_cpu_cores_tab(f, state, main_layout.content_area),
-        3 => render_disks_tab(f, state, main_layout.content_area),
-        4 => render_network_tab(f, state, main_layout.content_area, is_safe_mode),
-        5 => render_gpu_tab(f, state, main_layout.content_area, is_safe_mode),
-        6 => render_system_info_tab(f, state, main_layout.content_area),
+        0 => render_dashboard_tab(f, state, main_layout.content_area, translator),
+        1 => render_process_detail_tab(f, state, main_layout.content_area, translator),
+        2 => render_cpu_cores_tab(f, state, main_layout.content_area, translator),
+        3 => render_disks_tab(f, state, main_layout.content_area, translator),
+        4 => render_network_tab(f, state, main_layout.content_area, is_safe_mode, translator),
+        5 => render_gpu_tab(f, state, main_layout.content_area, is_safe_mode, translator),
+        6 => render_system_info_tab(f, state, main_layout.content_area, translator),
+        7 => render_services_tab(f, state, main_layout.content_area, translator),
+        8 => render_logs_tab(f, state, main_layout.content_area, translator),
+        9 => render_config_tab(f, state, main_layout.content_area, translator),
         _ => {}
     }
     
-    render_footer(f, state, main_layout.footer_area);
+    render_footer(f, state, main_layout.footer_area, translator);
 }
 
-fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
-    let tab_titles: Vec<Line> = [
-        "1:Dashboard", "2:Process", "3:CPU", "4:Disks", "5:Network", "6:GPU", "7:System"
-    ]
+fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator) {
+    let tab_keys = vec![
+        "tab.dashboard", "tab.process", "tab.cpu", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config"
+    ];
+    let tab_titles: Vec<Line> = tab_keys
     .iter()
     .enumerate()
-    .map(|(i, &title)| {
-        let style = if is_safe_mode && (i == 4 || i == 5) {
+    .map(|(i, &key)| {
+        let title = translator.t(key);
+        let style = if is_safe_mode && (i == 4 || i == 5 || i == 7 || i == 8 || i == 9) {
             Style::default().fg(Color::DarkGray)
         } else if i == state.active_tab {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -53,7 +59,7 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
 
     let tabs = Tabs::new(tab_titles)
         .block(Block::default()
-            .title("PULS - System Monitor")
+            .title(translator.t("title.puls"))
             .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray)))
@@ -63,7 +69,7 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     f.render_widget(tabs, area);
 }
 
-fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
     let usage = &state.dynamic_data.global_usage;
     let layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -76,31 +82,32 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect) {
         ])
         .split(area);
     
-    render_cpu_gauge(f, usage.cpu, layout[0]);
+    render_cpu_gauge(f, usage.cpu, usage.load_average, layout[0], translator);
     
-    render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1]);
+    render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1], translator);
     
-    render_gpu_gauge(f, usage.gpu_util, layout[2]);
+    render_gpu_gauge(f, usage.gpu_util, layout[2], translator);
     
-    render_network_summary(f, usage, layout[3]);
+    render_network_summary(f, usage, layout[3], translator);
     
-    render_disk_summary(f, usage, layout[4]);
+    render_disk_summary(f, usage, layout[4], translator);
 }
 
-fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, area: Rect) {
+fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), area: Rect, translator: &Translator) {
     let color = get_usage_color(cpu_percent);
+    let label = format!("{:.1}% | Load: {:.1}", cpu_percent, load_avg.0);
     let gauge = Gauge::default()
         .block(Block::default()
-            .title("CPU Usage")
+            .title(translator.t("title.cpu"))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray)))
-        .gauge_style(Style::default().fg(color).bg(Color::Black))
+        .gauge_style(Style::default().fg(color))
         .percent(cpu_percent.clamp(0.0, 100.0) as u16)
-        .label(format!("{:.1}%", cpu_percent));
+        .label(label);
     f.render_widget(gauge, area);
 }
 
-fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect) {
+fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect, translator: &Translator) {
     let mem_percent = if mem_total > 0 {
         (mem_used as f64 / mem_total as f64) * 100.0
     } else {
@@ -108,22 +115,31 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect)
     };
     
     let color = get_usage_color(mem_percent as f32);
-    let label = format!("{} / {}", format_size(mem_used), format_size(mem_total));
+    
+    // Show memory pressure level
+    let pressure = match mem_percent {
+        x if x >= 90.0 => "health.critical",
+        x if x >= 80.0 => "health.high",
+        x if x >= 60.0 => "health.moderate",
+        _ => "health.healthy",
+    };
+    
+    let label = format!("{} ({}: {}%)", format_size(mem_used), translator.t(pressure), mem_percent as u16);
     
     let gauge = Gauge::default()
         .block(Block::default()
-            .title("Memory Usage")
+            .title(translator.t("title.memory"))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray)))
-        .gauge_style(Style::default().fg(color).bg(Color::Black))
+        .gauge_style(Style::default().fg(color))
         .percent(mem_percent.clamp(0.0, 100.0) as u16)
         .label(label);
     f.render_widget(gauge, area);
 }
 
-fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect) {
+fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect, translator: &Translator) {
     let block = Block::default()
-        .title("GPU Usage")
+        .title(translator.t("title.gpu"))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Gray));
     
@@ -131,7 +147,7 @@ fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect) {
         let color = get_usage_color(gpu_percent as f32);
         let gauge = Gauge::default()
             .block(block)
-            .gauge_style(Style::default().fg(color).bg(Color::Black))
+            .gauge_style(Style::default().fg(color))
             .percent(gpu_percent.clamp(0, 100) as u16)
             .label(format!("{}%", gpu_percent));
         f.render_widget(gauge, area);
@@ -143,9 +159,9 @@ fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect) {
     }
 }
 
-fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect) {
+fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator) {
     let block = Block::default()
-        .title("Network I/O")
+        .title(translator.t("title.network"))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Gray));
     
@@ -179,9 +195,9 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
     }
 }
 
-fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect) {
+fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator) {
     let block = Block::default()
-        .title("Disk I/O")
+        .title(translator.t("title.disk"))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Gray));
     
@@ -215,20 +231,78 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     }
 }
 
-fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect) {
+fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Length(3), Constraint::Percentage(57), Constraint::Percentage(40)])
         .split(area);
     
-    render_process_table(f, state, layout[0]);
+    render_system_status(f, state, layout[0], translator);
     
-    render_container_table(f, state, layout[1]);
+    render_process_table(f, state, layout[1], translator);
+    
+    render_container_table(f, state, layout[2], translator);
 }
 
-fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect) {
+fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+    let usage = &state.dynamic_data.global_usage;
+    let system_info = &state.system_info;
+    
+    let cpu_cores = system_info.iter()
+        .find(|(k, _)| k == "Cores")
+        .and_then(|(_, v)| v.split_whitespace().next()?.parse::<usize>().ok())
+        .unwrap_or(1);
+    
+    let (status_str, load_per_core) = get_system_health(
+        usage.load_average.0,
+        cpu_cores,
+        usage.mem_used,
+        usage.mem_total,
+    );
+    
+    let mem_percent = if usage.mem_total > 0 {
+        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    
+    let cpu_efficiency = get_cpu_efficiency(usage.cpu, usage.load_average.0);
+    let (mem_available, availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
+    
+    let status_text = format!(
+        "Status {} | CPU: {:.0}% (Eff: {}) | Load: {:.2}/core | Memory: {:.0}% ({}: {}) | Up: {} | Tasks: {}",
+        status_str,
+        usage.cpu,
+        cpu_efficiency,
+        load_per_core.parse::<f64>().unwrap_or(0.0),
+        mem_percent,
+        availability_level,
+        format_size(mem_available),
+        crate::utils::format_uptime(usage.uptime),
+        state.dynamic_data.processes.len()
+    );
+    
+    let status_paragraph = Paragraph::new(status_text)
+        .alignment(Alignment::Left)
+        .block(
+            Block::default()
+                .title(translator.t("title.system_overview"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green))
+        );
+    
+    f.render_widget(status_paragraph, area);
+}
+
+fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator) {
     let processes = &state.dynamic_data.processes;
-    let headers = ["PID", "Name", "User", "CPU %", "Memory", "Read/s", "Write/s"];
+    let header_pid = translator.t("header.pid");
+    let header_name = translator.t("header.name");
+    let header_user = translator.t("header.user");
+    let header_cpu = translator.t("header.cpu");
+    let header_memory = translator.t("header.memory");
+    let header_disk_read = translator.t("header.disk_read");
+    let header_disk_write = translator.t("header.disk_write");
     
     let rows = processes.iter().map(|p| {
         Row::new(vec![
@@ -250,18 +324,18 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect) {
             Constraint::Length(12),  // User
             Constraint::Length(8),   // CPU
             Constraint::Length(10),  // Memory
-            Constraint::Length(10),  // Read/s
-            Constraint::Length(10),  // Write/s
+            Constraint::Length(12),  // Read/s
+            Constraint::Length(12),  // Write/s
         ]
     )
     .header(
-        Row::new(headers)
+        Row::new(vec![header_pid, header_name, header_user, header_cpu, header_memory, header_disk_read, header_disk_write])
             .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
             .bottom_margin(1)
     )
     .block(
         Block::default()
-            .title("Processes (↑↓ to select, Enter for details)")
+            .title("Processes (↑↓ navigate, Enter details, s sort, f filter)")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray))
     )
@@ -271,21 +345,21 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect) {
     f.render_stateful_widget(table, area, &mut state.process_table_state);
 }
 
-fn render_container_table(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
     let containers = &state.dynamic_data.containers;
     
     if containers.is_empty() {
         let message = if state.system_info.iter().any(|(k, v)| k == "Mode" && v.contains("Safe")) {
-            "Container monitoring disabled in safe mode"
+            translator.t("msg.container_disabled")
         } else {
-            "No containers found (Docker not running?)"
+            translator.t("msg.no_containers")
         };
         
         let paragraph = Paragraph::new(message)
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title("Containers")
+                    .title(translator.t("title.containers"))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Gray))
             );
@@ -293,7 +367,25 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
     
-    let headers = ["ID", "Name", "Status", "CPU %", "Memory", "Net ↓/s", "Net ↑/s", "Disk R/s", "Disk W/s"];
+    let h_pid = translator.t("header.pid");
+    let h_name = translator.t("header.name");
+    let h_status = translator.t("status.active");
+    let h_cpu = translator.t("header.cpu");
+    let h_mem = translator.t("header.memory");
+    let h_disk_r = translator.t("header.disk_read");
+    let h_disk_w = translator.t("header.disk_write");
+    
+    let headers = vec![
+        h_pid.as_str(),
+        h_name.as_str(),
+        h_status.as_str(),
+        h_cpu.as_str(),
+        h_mem.as_str(),
+        "Net ↓/s",
+        "Net ↑/s",
+        h_disk_r.as_str(),
+        h_disk_w.as_str(),
+    ];
     
     let rows = containers.iter().map(|c| {
         Row::new(vec![
@@ -329,7 +421,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect) {
     )
     .block(
         Block::default()
-            .title("Containers")
+            .title(translator.t("title.containers"))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray))
     );
@@ -337,7 +429,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(table, area);
 }
 
-fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
     let block = Block::default()
         .title("Process Details")
         .borders(Borders::ALL)
@@ -451,7 +543,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect) {
     }
 }
 
-fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
     let cores = &state.dynamic_data.cores;
     
     if cores.is_empty() {
@@ -518,10 +610,10 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
             
             let core = &cores[actual_core_idx];
             let color = get_usage_color(core.usage);
-            let freq_mhz = core.freq as f64 / 1_000_000.0;
+            let freq_display = format_frequency(core.freq);
             
             let gauge = Gauge::default()
-                .label(format!("C{} {:.0}MHz {:.1}%", actual_core_idx, freq_mhz, core.usage))
+                .label(format!("C{} {} {:.1}%", actual_core_idx, freq_display, core.usage))
                 .gauge_style(Style::default().fg(color))
                 .ratio((core.usage / 100.0) as f64);
             
@@ -530,7 +622,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect) {
     }
 }
 
-fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
     let disks = &state.dynamic_data.disks;
     let headers = ["Mount Point", "Device", "FS", "Total", "Used", "Free", "Usage %"];
     
@@ -582,7 +674,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect) {
     f.render_widget(table, area);
 }
 
-fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
+fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator) {
     if is_safe_mode {
         let message = Paragraph::new("Network monitoring is disabled in safe mode")
             .style(Style::default().fg(Color::DarkGray))
@@ -640,7 +732,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     f.render_widget(table, area);
 }
 
-fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool) {
+fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator) {
     if is_safe_mode {
         let message = Paragraph::new("GPU monitoring is disabled in safe mode")
             .style(Style::default().fg(Color::DarkGray))
@@ -752,15 +844,15 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         ]),
         Line::from(vec![
             Span::styled("Power: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{} W", gpu.power_usage / 1000))
+            Span::raw(format!("{:.2} W", gpu.power_usage as f64 / 1000.0))
         ]),
         Line::from(vec![
             Span::styled("Graphics Clock: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{} MHz", gpu.graphics_clock))
+            Span::raw(format_frequency(gpu.graphics_clock as u64))
         ]),
         Line::from(vec![
             Span::styled("Memory Clock: ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("{} MHz", gpu.memory_clock))
+            Span::raw(format_frequency(gpu.memory_clock as u64))
         ]),
     ];
     
@@ -778,7 +870,12 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     f.render_widget(details_paragraph, layout[1]);
 }
 
-fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect) {
+fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(area);
+    
     let rows = state.system_info.iter().map(|(key, value)| {
         Row::new(vec![key.clone(), value.clone()])
     });
@@ -795,19 +892,296 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect) {
     )
     .column_spacing(2);
     
-    f.render_widget(table, area);
+    f.render_widget(table, layout[0]);
+    
+    use crate::utils::count_process_states;
+    let (running, sleeping, zombie, other) = count_process_states(&state.dynamic_data.processes);
+    
+    let stats_text = format!(
+        "Process Summary: {} Running | {} Sleeping | {} Zombie | {} Other | Total: {}",
+        running, sleeping, zombie, other,
+        state.dynamic_data.processes.len()
+    );
+    
+    let stats = Paragraph::new(stats_text)
+        .alignment(Alignment::Left)
+        .block(
+            Block::default()
+                .title("Process Statistics")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Gray))
+        );
+    
+    f.render_widget(stats, layout[1]);
 }
 
-fn render_footer(f: &mut Frame, state: &AppState, area: Rect) {
-    let help_text = if state.paused {
-        "PAUSED - Press 'p' to resume | Quit: q | Tabs: 1-7 | Navigate: ↑↓ | Details: Enter"
+fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+    let usage = &state.dynamic_data.global_usage;
+    
+    let mut alerts = Vec::new();
+    
+    if usage.cpu > 85.0 {
+        alerts.push(translator.t("alert.high_cpu"));
+    }
+    
+    let mem_percent = if usage.mem_total > 0 {
+        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
     } else {
-        "Quit: q | Tabs: 1-7, Tab/Shift+Tab | Navigate: ↑↓ | Details: Enter | Pause: p"
+        0.0
     };
     
-    let footer = Paragraph::new(help_text)
-        .style(Style::default().fg(if state.paused { Color::Red } else { Color::DarkGray }))
+    if mem_percent > 90.0 {
+        alerts.push(translator.t("alert.critical_memory"));
+    } else if mem_percent > 80.0 {
+        alerts.push(translator.t("alert.high_memory"));
+    }
+    
+    let full_disks = state.dynamic_data.disks.iter()
+        .filter(|d| d.total > 0 && (d.used as f64 / d.total as f64) > 0.95)
+        .count();
+    
+    if full_disks > 0 {
+        alerts.push(translator.t("alert.disk_critical"));
+    }
+    
+    let help_text = if state.paused {
+        translator.t("help.paused")
+    } else {
+        translator.t("help.main")
+    };
+    
+    let alert_text = if !alerts.is_empty() {
+        format!("{}: {} | {}", translator.t("alert.title"), alerts.join(" | "), help_text)
+    } else {
+        help_text
+    };
+    
+    let footer_style = if !alerts.is_empty() {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if state.paused {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    
+    let footer = Paragraph::new(alert_text)
+        .style(footer_style)
         .alignment(Alignment::Center);
     
     f.render_widget(footer, area);
+}
+
+fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+    let services = &state.services;
+    
+    if services.is_empty() {
+        let paragraph = Paragraph::new("No services available")
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .title(translator.t("title.services"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green)));
+        f.render_widget(paragraph, area);
+        return;
+    }
+    
+    let header_name = translator.t("header.name");
+    let header_status = translator.t("header.status");
+    let header_enabled = translator.t("header.enabled");
+    
+    let headers = vec![
+        header_name.as_str(),
+        header_status.as_str(),
+        header_enabled.as_str(),
+    ];
+    
+    let rows = services.iter().enumerate().map(|(i, s)| {
+        let enabled = if s.enabled { "✓" } else { "✗" };
+        let name_display = if state.has_sudo {
+            s.name.clone()
+        } else {
+            format!("{} [RO]", s.name)
+        };
+        
+        let style = if state.editing_service == Some(i) && state.has_sudo {
+            Style::default().bg(Color::DarkGray)
+        } else if !state.has_sudo {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        
+        Row::new(vec![
+            name_display,
+            s.status.clone(),
+            enabled.to_string(),
+        ]).style(style)
+    });
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(25),
+            Constraint::Length(15),
+            Constraint::Length(10),
+        ]
+    )
+    .header(
+        Row::new(headers)
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+    )
+    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .block(
+        Block::default()
+            .title(if state.has_sudo {
+                translator.t("title.services")
+            } else {
+                format!("{} (Read-Only)", translator.t("title.services"))
+            })
+            .borders(Borders::ALL)
+            .border_style(if state.has_sudo {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            })
+    );
+    
+    let mut service_state = state.services_table_state.clone();
+    f.render_stateful_widget(table, area, &mut service_state.clone());
+}
+
+fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+    let logs = &state.logs;
+    
+    if logs.is_empty() {
+        let paragraph = Paragraph::new("No logs available")
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .title(translator.t("title.logs"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Blue)));
+        f.render_widget(paragraph, area);
+        return;
+    }
+    
+    let header_timestamp = translator.t("header.timestamp");
+    let header_level = translator.t("header.level");
+    let header_message = translator.t("header.message");
+    
+    let headers = vec![
+        header_timestamp.as_str(),
+        header_level.as_str(),
+        header_message.as_str(),
+    ];
+    
+    let rows = logs.iter().map(|l| {
+        let level_color = match l.level.as_str() {
+            "ERROR" => Color::Red,
+            "WARNING" => Color::Yellow,
+            "INFO" => Color::Green,
+            "DEBUG" => Color::Gray,
+            _ => Color::White,
+        };
+        
+        Row::new(vec![
+            l.timestamp.clone(),
+            l.level.clone(),
+            l.message.clone(),
+        ]).style(Style::default().fg(level_color))
+    });
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(20),
+            Constraint::Length(10),
+            Constraint::Min(40),
+        ]
+    )
+    .header(
+        Row::new(headers)
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+    )
+    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .block(
+        Block::default()
+            .title(translator.t("title.logs"))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Blue))
+    );
+    
+    let mut logs_state = state.logs_table_state.clone();
+    f.render_stateful_widget(table, area, &mut logs_state.clone());
+}
+
+fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+    let configs = &state.config_items;
+    
+    if configs.is_empty() {
+        let paragraph = Paragraph::new("No configuration items available")
+            .alignment(Alignment::Center)
+            .block(Block::default()
+                .title(translator.t("title.config"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Magenta)));
+        f.render_widget(paragraph, area);
+        return;
+    }
+    
+    let header_key = translator.t("config.grub_timeout");
+    let header_value = translator.t("info.load");
+    let header_desc = translator.t("header.message");
+    
+    let headers = vec![
+        header_key.as_str(),
+        header_value.as_str(),
+        header_desc.as_str(),
+    ];
+    
+    let rows = configs.iter().enumerate().map(|(i, c)| {
+        let style = if state.editing_config == Some(i) && state.has_sudo {
+            Style::default().bg(Color::DarkGray)
+        } else if !state.has_sudo {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
+        
+        Row::new(vec![
+            c.key.clone(),
+            c.value.clone(),
+            c.description.clone(),
+        ]).style(style)
+    });
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(25),
+            Constraint::Length(20),
+            Constraint::Min(35),
+        ]
+    )
+    .header(
+        Row::new(headers)
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+    )
+    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .block(
+        Block::default()
+            .title(if state.has_sudo {
+                translator.t("title.config")
+            } else {
+                format!("{} (Read-Only)", translator.t("title.config"))
+            })
+            .borders(Borders::ALL)
+            .border_style(if state.has_sudo {
+                Style::default().fg(Color::Magenta)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            })
+    );
+    
+    let mut config_state = state.config_table_state.clone();
+    f.render_stateful_widget(table, area, &mut config_state.clone());
 }

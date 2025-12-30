@@ -1,5 +1,6 @@
 use clap::Parser;
 use crate::types::AppConfig;
+use crate::language::Language;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -30,12 +31,24 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub auto_scroll: bool,
     
+    #[arg(long, default_value = "en")]
+    pub lang: String,
+    
+    #[arg(long, default_value_t = false)]
+    pub tr: bool,
+    
     #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
 }
 
 impl From<Cli> for AppConfig {
     fn from(cli: Cli) -> Self {
+        let language = if cli.tr {
+            Language::Turkish
+        } else {
+            Language::from_str(&cli.lang)
+        };
+        
         Self {
             safe_mode: cli.safe,
             refresh_rate_ms: cli.refresh.max(100).min(10000), 
@@ -43,6 +56,7 @@ impl From<Cli> for AppConfig {
             enable_docker: !cli.safe && !cli.no_docker,
             enable_gpu_monitoring: !cli.safe && !cli.no_gpu,
             enable_network_monitoring: !cli.safe && !cli.no_network,
+            language,
             show_system_processes: cli.show_system,
             auto_scroll: cli.auto_scroll,
         }
@@ -87,6 +101,7 @@ impl Default for AppConfig {
             enable_network_monitoring: true,
             show_system_processes: false,
             auto_scroll: false,
+            language: Language::English,
         }
     }
 }

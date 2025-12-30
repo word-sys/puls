@@ -209,6 +209,9 @@ pub struct AppState {
     pub active_tab: usize,
     pub process_table_state: TableState,
     pub container_table_state: TableState,
+    pub services_table_state: TableState,
+    pub logs_table_state: TableState,
+    pub config_table_state: TableState,
     pub selected_pid: Option<Pid>,
     pub system_info: Vec<(String, String)>,
     pub dynamic_data: DynamicData,
@@ -217,6 +220,74 @@ pub struct AppState {
     pub filter_text: String,
     pub show_system_processes: bool,
     pub paused: bool,
+    pub services: Vec<ServiceInfo>,
+    pub logs: Vec<LogEntry>,
+    pub config_items: Vec<ConfigItem>,
+    pub editing_service: Option<usize>,
+    pub editing_config: Option<usize>,
+    pub edit_buffer: String,
+    pub has_sudo: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ServiceInfo {
+    pub name: String,
+    pub description: String,
+    pub status: String,
+    pub enabled: bool,
+    pub can_start: bool,
+    pub can_stop: bool,
+}
+
+impl Default for ServiceInfo {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            status: "unknown".to_string(),
+            enabled: false,
+            can_start: false,
+            can_stop: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub service: String,
+    pub message: String,
+}
+
+impl Default for LogEntry {
+    fn default() -> Self {
+        Self {
+            timestamp: String::new(),
+            level: String::new(),
+            service: String::new(),
+            message: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ConfigItem {
+    pub key: String,
+    pub value: String,
+    pub description: String,
+    pub category: String,
+}
+
+impl Default for ConfigItem {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            value: String::new(),
+            description: String::new(),
+            category: String::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -260,4 +331,5 @@ pub struct AppConfig {
     pub enable_network_monitoring: bool,
     pub show_system_processes: bool,
     pub auto_scroll: bool,
+    pub language: crate::language::Language,
 }

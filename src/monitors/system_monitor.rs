@@ -74,6 +74,7 @@ impl SystemMonitor {
         
         self.system.refresh_all();
         
+        let total_cpu_count = self.system.cpus().len() as f32;
         let mut current_disk_usage = HashMap::new();
         let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
@@ -119,11 +120,14 @@ impl SystemMonitor {
                     .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
                     .map_or("N/A".to_string(), |u| u.name().to_string_lossy().into_owned());
                 
+                let raw_cpu = process.cpu_usage();
+                let normalized_cpu = (raw_cpu / total_cpu_count).clamp(0.0, 100.0);
+                
                 ProcessInfo {
                     pid: pid.to_string(),
                     name: process.name().to_string_lossy().to_string(),
-                    cpu: process.cpu_usage(),
-                    cpu_display: format!("{:.2}%", process.cpu_usage()),
+                    cpu: normalized_cpu,
+                    cpu_display: format!("{:.2}%", normalized_cpu),
                     mem: process.memory(),
                     mem_display: format_size(process.memory()),
                     disk_read: format_rate(read_rate),
@@ -164,7 +168,7 @@ impl SystemMonitor {
                 parent: process.parent().map(|p| p.to_string()),
                 environ: process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect(),
                 threads: process.tasks().map(|t| t.len() as u32).unwrap_or(0),
-                file_descriptors: None, // TODO: Implement if available
+                file_descriptors: None,
                 cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
             }
         })
@@ -174,7 +178,7 @@ impl SystemMonitor {
         self.system.cpus().iter().map(|cpu| CoreInfo {
             usage: cpu.cpu_usage(),
             freq: cpu.frequency(),
-            temp: None, // TODO: Implement temperature reading per core
+            temp: None,
         }).collect()
     }
     
@@ -190,11 +194,11 @@ impl SystemMonitor {
                 total: disk.total_space(),
                 free: disk.available_space(),
                 used,
-                read_rate: 0,  // TODO: Implement disk I/O rates
+                read_rate: 0,
                 write_rate: 0,
                 read_ops: 0,
                 write_ops: 0,
-                is_ssd: None, // TODO: Detect SSD vs HDD
+                is_ssd: None,
             }
         }).collect()
     }
@@ -234,8 +238,8 @@ impl SystemMonitor {
                     packets_tx: data.total_packets_transmitted(),
                     errors_rx: data.total_errors_on_received(),
                     errors_tx: data.total_errors_on_transmitted(),
-                    interface_type: "Unknown".to_string(), // TODO: Detect interface type
-                    is_up: true, // TODO: Detect interface status
+                    interface_type: "Unknown".to_string(),
+                    is_up: true, 
                 }
             })
             .collect();
@@ -269,9 +273,9 @@ impl SystemMonitor {
     
     pub fn get_temperatures(&self) -> SystemTemperatures {
         SystemTemperatures {
-            cpu_temp: None, // TODO: Implement CPU temperature reading
+            cpu_temp: None,
             gpu_temps: Vec::new(),
-            motherboard_temp: None, // TODO: Implement motherboard temperature
+            motherboard_temp: None,
         }
     }
     

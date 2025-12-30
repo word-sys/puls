@@ -1,9 +1,9 @@
 [package]
 name = "puls"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-authors = ["PULS Contributors"]
-description = "A comprehensive system monitoring tool with TUI"
+authors = ["word-sys"]
+description = "A comprehensive system monitoring and editing tool with TUI"
 license = "GPL-3.0"
 repository = "https://github.com/word-sys/puls"
 

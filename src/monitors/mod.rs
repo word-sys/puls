@@ -182,7 +182,7 @@ impl DataCollector {
     pub async fn health_check(&self) -> Vec<(String, bool)> {
         let mut health = Vec::new();
         
-        health.push(("System".to_string(), true)); // Always available
+        health.push(("System".to_string(), true));
         
         if self.config.enable_docker {
             let docker_health = self.container_monitor.health_check(1000).await;
@@ -194,7 +194,7 @@ impl DataCollector {
         }
         
         if self.config.enable_network_monitoring {
-            health.push(("Network".to_string(), true)); // Always available if enabled
+            health.push(("Network".to_string(), true));
         }
         
         health

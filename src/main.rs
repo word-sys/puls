@@ -3,8 +3,10 @@ mod utils;
 mod config;
 mod monitors;
 mod ui;
+mod language;
+mod system_service;
 
-use crate::types::{AppState, ProcessSortBy};
+use crate::types::{AppState, ProcessSortBy, ServiceInfo, LogEntry, ConfigItem};
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -49,6 +51,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         if config.safe_mode {
             state.system_info.push(("Mode".to_string(), "Safe Mode".to_string()));
+        }
+        
+        let sys_mgr = system_service::SystemManager::new();
+        state.has_sudo = sys_mgr.has_sudo_privileges();
+        
+        state.services = sys_mgr.get_services();
+        if !state.services.is_empty() {
+            state.services_table_state.select(Some(0));
+        }
+        
+        state.logs = sys_mgr.get_logs(50);
+        if !state.logs.is_empty() {
+            state.logs_table_state.select(Some(0));
+        }
+        
+        state.config_items = sys_mgr.get_grub_config();
+        if !state.config_items.is_empty() {
+            state.config_table_state.select(Some(0));
         }
     }
     
@@ -99,7 +119,8 @@ async fn ui_loop(
         if now.duration_since(last_render) >= ui_refresh_interval {
             {
                 let mut state = app_state.lock();
-                terminal.draw(|f| render_ui(f, &mut state, config.safe_mode))?;
+                let translator = crate::language::Translator::new(config.language);
+                terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
             last_render = now;
         }
@@ -124,10 +145,10 @@ fn handle_key_event(
         }
         
         KeyCode::Tab => {
-            state.active_tab = (state.active_tab + 1) % 7;
+            state.active_tab = (state.active_tab + 1) % 10;
         }
         KeyCode::BackTab => {
-            state.active_tab = (state.active_tab + 6) % 7;
+            state.active_tab = (state.active_tab + 9) % 10;
         }
         
         KeyCode::Char('1') => state.active_tab = 0,
@@ -137,12 +158,158 @@ fn handle_key_event(
         KeyCode::Char('5') => state.active_tab = 4,
         KeyCode::Char('6') => state.active_tab = 5,
         KeyCode::Char('7') => state.active_tab = 6,
+        KeyCode::Char('8') => state.active_tab = 7,
+        KeyCode::Char('9') => state.active_tab = 8,
+        KeyCode::Char('0') => state.active_tab = 9,
         
         KeyCode::Down if state.active_tab == 0 => {
             handle_process_navigation(&mut state, true);
         }
         KeyCode::Up if state.active_tab == 0 => {
             handle_process_navigation(&mut state, false);
+        }
+        
+        KeyCode::Down if state.active_tab == 7 => {
+            let len = state.services.len();
+            if len > 0 {
+                let current = state.services_table_state.selected().unwrap_or(0);
+                state.services_table_state.select(Some((current + 1) % len));
+            }
+        }
+        KeyCode::Up if state.active_tab == 7 => {
+            let len = state.services.len();
+            if len > 0 {
+                let current = state.services_table_state.selected().unwrap_or(0);
+                state.services_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            }
+        }
+        
+        KeyCode::Down if state.active_tab == 8 => {
+            let len = state.logs.len();
+            if len > 0 {
+                let current = state.logs_table_state.selected().unwrap_or(0);
+                state.logs_table_state.select(Some((current + 1) % len));
+            }
+        }
+        KeyCode::Up if state.active_tab == 8 => {
+            let len = state.logs.len();
+            if len > 0 {
+                let current = state.logs_table_state.selected().unwrap_or(0);
+                state.logs_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            }
+        }
+        
+        KeyCode::Down if state.active_tab == 9 => {
+            let len = state.config_items.len();
+            if len > 0 {
+                let current = state.config_table_state.selected().unwrap_or(0);
+                state.config_table_state.select(Some((current + 1) % len));
+            }
+        }
+        KeyCode::Up if state.active_tab == 9 => {
+            let len = state.config_items.len();
+            if len > 0 {
+                let current = state.config_table_state.selected().unwrap_or(0);
+                state.config_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            }
+        }
+        
+        KeyCode::Char('e') if state.active_tab == 7 => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if state.has_sudo {
+                    state.editing_service = Some(idx);
+                    state.edit_buffer.clear();
+                }
+            }
+        }
+        
+        KeyCode::Char('s') if state.active_tab == 7 && state.editing_service.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    if service.can_start && state.has_sudo {
+                        let sys_mgr = system_service::SystemManager::new();
+                        let _ = sys_mgr.start_service(&service.name);
+                        state.services = sys_mgr.get_services();
+                    }
+                }
+            }
+        }
+        
+        KeyCode::Char('x') if state.active_tab == 7 && state.editing_service.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    if service.can_stop && state.has_sudo {
+                        let sys_mgr = system_service::SystemManager::new();
+                        let _ = sys_mgr.stop_service(&service.name);
+                        state.services = sys_mgr.get_services();
+                    }
+                }
+            }
+        }
+        
+        KeyCode::Char('r') if state.active_tab == 7 && state.editing_service.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    if state.has_sudo {
+                        let sys_mgr = system_service::SystemManager::new();
+                        let _ = sys_mgr.restart_service(&service.name);
+                        state.services = sys_mgr.get_services();
+                    }
+                }
+            }
+        }
+        
+        KeyCode::Char('e') if state.active_tab == 9 => {
+            if let Some(idx) = state.config_table_state.selected() {
+                if state.has_sudo {
+                    state.editing_config = Some(idx);
+                    if let Some(item) = state.config_items.get(idx) {
+                        state.edit_buffer = item.value.clone();
+                    }
+                }
+            }
+        }
+        
+        KeyCode::Char(c) if state.editing_service.is_some() || state.editing_config.is_some() => {
+            state.edit_buffer.push(c);
+        }
+        
+        KeyCode::Backspace if state.editing_service.is_some() || state.editing_config.is_some() => {
+            state.edit_buffer.pop();
+        }
+        
+        KeyCode::Enter if state.editing_config.is_some() => {
+            if let Some(idx) = state.editing_config {
+                let buffer = state.edit_buffer.clone();
+                let has_sudo = state.has_sudo;
+                if let Some(item) = state.config_items.get_mut(idx) {
+                    let key = item.key.clone();
+                    item.value = buffer.clone();
+                    if has_sudo {
+                        let sys_mgr = system_service::SystemManager::new();
+                        match key.as_str() {
+                            "hostname" => {
+                                let _ = sys_mgr.set_hostname(&buffer);
+                            }
+                            "timezone" => {
+                                let _ = sys_mgr.set_timezone(&buffer);
+                            }
+                            _ if key.starts_with("GRUB_") => {
+                                let _ = sys_mgr.set_grub_config(&key, &buffer);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            state.editing_config = None;
+            state.edit_buffer.clear();
+        }
+        
+        KeyCode::Esc if state.editing_service.is_some() || state.editing_config.is_some() => {
+            state.editing_service = None;
+            state.editing_config = None;
+            state.edit_buffer.clear();
         }
         
         KeyCode::Enter if state.active_tab == 0 => {
@@ -174,7 +341,7 @@ fn handle_key_event(
         }
         
         KeyCode::Char('h') | KeyCode::F(1) => {
-            // TODO: Implement help popup
+            // help process need to be implemented
         }
         
         _ => {}

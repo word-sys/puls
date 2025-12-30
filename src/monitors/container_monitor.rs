@@ -57,7 +57,7 @@ impl ContainerMonitor {
             }
         }
         
-        // TODO: Add Podman support here
+        // podman support
         
         Vec::new()
     }
@@ -358,14 +358,12 @@ mod tests {
     #[test]
     fn test_container_monitor_creation() {
         let monitor = ContainerMonitor::new();
-        // Just test that it doesn't panic
         assert!(true);
     }
     
     #[tokio::test]
     async fn test_container_health_check() {
         let monitor = ContainerMonitor::new();
-        // This will likely fail in test environment, but shouldn't panic
         let _result = monitor.health_check(1000).await;
         assert!(true);
     }

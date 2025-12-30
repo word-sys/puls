@@ -43,7 +43,7 @@ impl ColorScheme {
             text: Color::Black,
             text_secondary: Color::DarkGray,
             success: Color::Green,
-            warning: Color::Rgb(255, 165, 0), // Orange
+            warning: Color::Rgb(255, 165, 0),
             error: Color::Red,
             info: Color::Blue,
             border: Color::DarkGray,
@@ -105,39 +105,39 @@ impl ColorScheme {
 
 pub fn cpu_usage_color(usage: f32) -> Color {
     match usage {
-        x if x >= 90.0 => Color::Red,
-        x if x >= 70.0 => Color::Yellow,
-        x if x >= 50.0 => Color::Rgb(255, 165, 0), // Orange
-        x if x >= 30.0 => Color::Cyan,
+        x if x >= 85.0 => Color::Red,
+        x if x >= 65.0 => Color::Yellow,
+        x if x >= 40.0 => Color::Rgb(255, 165, 0), 
+        x if x >= 20.0 => Color::Cyan,
         _ => Color::Green,
     }
 }
 
 pub fn memory_usage_color(usage: f32) -> Color {
     match usage {
-        x if x >= 95.0 => Color::Red,
-        x if x >= 85.0 => Color::Yellow,
-        x if x >= 70.0 => Color::Rgb(255, 165, 0), // Orange
-        x if x >= 50.0 => Color::Cyan,
+        x if x >= 90.0 => Color::Red,
+        x if x >= 75.0 => Color::Yellow,
+        x if x >= 60.0 => Color::Rgb(255, 165, 0), 
+        x if x >= 40.0 => Color::Cyan,
         _ => Color::Green,
     }
 }
 
 pub fn disk_usage_color(usage: f32) -> Color {
     match usage {
-        x if x >= 95.0 => Color::Red,
-        x if x >= 90.0 => Color::Yellow,
-        x if x >= 80.0 => Color::Rgb(255, 165, 0), // Orange
-        x if x >= 60.0 => Color::Cyan,
+        x if x >= 90.0 => Color::Red,
+        x if x >= 80.0 => Color::Yellow,
+        x if x >= 70.0 => Color::Rgb(255, 165, 0), 
+        x if x >= 50.0 => Color::Cyan,
         _ => Color::Green,
     }
 }
 
 pub fn temperature_color(temp: f32) -> Color {
     match temp {
-        x if x >= 80.0 => Color::Red,
-        x if x >= 70.0 => Color::Yellow,
-        x if x >= 60.0 => Color::Rgb(255, 165, 0), // Orange
+        x if x >= 90.0 => Color::Red,
+        x if x >= 75.0 => Color::Yellow,
+        x if x >= 60.0 => Color::Rgb(255, 165, 0), 
         x if x >= 45.0 => Color::Cyan,
         _ => Color::Green,
     }
@@ -147,7 +147,7 @@ pub fn network_activity_color(rate_mbps: f64) -> Color {
     match rate_mbps {
         x if x >= 100.0 => Color::Red,
         x if x >= 50.0 => Color::Yellow,
-        x if x >= 10.0 => Color::Rgb(255, 165, 0), // Orange
+        x if x >= 10.0 => Color::Rgb(255, 165, 0),
         x if x >= 1.0 => Color::Cyan,
         _ => Color::Green,
     }
@@ -187,7 +187,7 @@ impl ColorGradient {
         let value = value.clamp(0.0, 1.0);
         match value {
             x if x >= 0.8 => Color::Red,
-            x if x >= 0.6 => Color::Rgb(255, 165, 0), // Orange
+            x if x >= 0.6 => Color::Rgb(255, 165, 0), 
             x if x >= 0.4 => Color::Yellow,
             x if x >= 0.2 => Color::Cyan,
             _ => Color::Blue,
@@ -217,8 +217,8 @@ impl ColorGradient {
         let value = value.clamp(0.0, 1.0);
         match value {
             x if x >= 0.8 => Color::Red,
-            x if x >= 0.6 => Color::Rgb(255, 100, 0), // Red-orange
-            x if x >= 0.4 => Color::Rgb(255, 200, 0), // Orange-yellow
+            x if x >= 0.6 => Color::Rgb(255, 100, 0), 
+            x if x >= 0.4 => Color::Rgb(255, 200, 0), 
             x if x >= 0.2 => Color::Yellow,
             _ => Color::Green,
         }
@@ -333,8 +333,8 @@ mod tests {
     #[test]
     fn test_usage_colors() {
         assert_eq!(cpu_usage_color(95.0), Color::Red);
-        assert_eq!(cpu_usage_color(75.0), Color::Yellow);
-        assert_eq!(cpu_usage_color(25.0), Color::Green);
+        assert_eq!(cpu_usage_color(70.0), Color::Yellow);
+        assert_eq!(cpu_usage_color(15.0), Color::Green);
     }
     
     #[test]
