@@ -7,7 +7,7 @@ A Rust-based detailed system monitoring and editing dashboard on TUI.
 
 ## What is PULS?
 
-PULS provides an interactive and feature-rich system monitoring and editing session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, and network.
+PULS provides an interactive and feature-rich system monitoring and editing session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, network also lets you edit your system services, edit GRUB and viewing system logs
 
 ## Key Features
 
@@ -27,9 +27,9 @@ PULS provides an interactive and feature-rich system monitoring and editing sess
 > This project is under development. There is some unconfirmed process that will be confirmed and updated in next updates: System service editing are existing and not existing, only reading them are working as which im confirmed, i didnt edited any system services using my tool so its not confirmed so its better to use on normal (without sudo), i will test the system services editing on spare computer, this is same for GRUB editing, viewing is confirmed but editing isnt, USE WITH CAUTION!
 
 ```bash
-wget -O puls-linux https://github.com/word-sys/puls/releases/latest/download/puls-linux && \
-chmod +x puls-linux && \
-sudo mv puls-linux /usr/local/bin/puls
+wget -O puls-linux https://github.com/word-sys/puls/releases/latest/download/puls && \
+chmod +x puls && \
+sudo mv puls /usr/local/bin/puls
 ```
 
 ## Usage
