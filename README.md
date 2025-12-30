@@ -1,13 +1,13 @@
 # PULS
 
-A Rust-based detailed system monitoring dashboard on TUI.
+A Rust-based detailed system monitoring and editing dashboard on TUI.
 
 ![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
 
 
 ## What is PULS?
 
-PULS provides an interactive and feature-rich system monitoring session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, and network.
+PULS provides an interactive and feature-rich system monitoring and editing session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, and network.
 
 ## Key Features
 
@@ -17,11 +17,14 @@ PULS provides an interactive and feature-rich system monitoring session within y
 - **GPU Monitoring** - NVIDIA GPU support with real-time stats
 - **Global Dashboard** - Live sparkline charts and system overview
 - **Safe Mode** - Low-resource safe mode for system diagnostic
+- **System Logs** - View the system logs of your system to diagnose any problems
+- **GRUB Editing** - Edit your GRUB easily from PULS
+- **System Services** - Add services, remove services, edit services, view services
 
 ## Installation
 
 > [!CAUTION]
-> This project is under development. There is some minor bug(s) that will be fixed in next updates: CPU Mhz and Temps not showing somehow, sometimes CPU Usage per process shows wrong values, I fixed this issue and tested it too but sometimes it happens, i will go deeper to find out why. I remade the hole calculation for this bug which still exists.
+> This project is under development. There is some unconfirmed process that will be confirmed and updated in next updates: System service editing are existing and not existing, only reading them are working as which im confirmed, i didnt edited any system services using my tool so its not confirmed so its better to use on normal (without sudo), i will test the system services editing on spare computer, this is same for GRUB editing, viewing is confirmed but editing isnt, USE WITH CAUTION!
 
 ```bash
 wget -O puls-linux https://github.com/word-sys/puls/releases/latest/download/puls-linux && \
@@ -32,7 +35,8 @@ sudo mv puls-linux /usr/local/bin/puls
 ## Usage
 
 ```bash
-puls           # Full-featured mode
+sudo puls      # Full-featured mode (USE WITH CAUTION!)
+puls           # Half-featured mode
 puls --safe    # Safe mode (low resource usage)
 ```
 
@@ -50,7 +54,7 @@ cargo build --release
 - `Tab` - Toggle tabs
 - `↑↓` - Switch between processes
 - `Enter` - Display process information
-- `1-7` - Go to tab with specified number
+- `1-9,0` - Go to tab with specified number
 - `p` - Pause/Resume process tab
 
 ## Requirements
