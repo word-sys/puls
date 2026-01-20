@@ -2,7 +2,7 @@
 
 A Rust-based detailed system monitoring and editing dashboard on TUI.
 
-![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshot.png) 
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png) 
 
 
 ## What is PULS?
