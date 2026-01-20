@@ -5,7 +5,7 @@ use crate::language::Language;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 #[command(name = "puls")]
-#[command(about = "A comprehensive system monitoring tool")]
+#[command(about = "A comprehensive system monitoring and editing tool")]
 pub struct Cli {
     #[arg(short, long, default_value_t = false)]
     pub safe: bool,

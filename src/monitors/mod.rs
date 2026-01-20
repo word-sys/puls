@@ -72,19 +72,17 @@ impl DataCollector {
         let (total_disk_read, total_disk_write) = self.system_monitor
             .calculate_total_disk_io(&processes);
         
-        let containers = if self.config.enable_docker && self.container_monitor.is_available() {
+        let (containers, docker_error) = if self.config.enable_docker && self.container_monitor.is_available() {
             match tokio::time::timeout(
                 self.config.get_operation_timeout(),
                 self.container_monitor.get_containers(self.config.get_operation_timeout().as_millis() as u64)
             ).await {
-                Ok(containers) => containers,
-                Err(_) => {
-                    eprintln!("Container collection timeout");
-                    Vec::new()
-                }
+                Ok(Ok(containers)) => (containers, None),
+                Ok(Err(e)) => (Vec::new(), Some(e)),
+                Err(_) => (Vec::new(), Some("Container collection timeout".to_string())),
             }
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         
         let gpus = if self.config.enable_gpu_monitoring && self.gpu_monitor.is_available() {
@@ -151,6 +149,7 @@ impl DataCollector {
             global_usage,
             temperatures,
             last_update: std::time::Instant::now(),
+            docker_error,
         }
     }
     

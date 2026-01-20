@@ -17,20 +17,37 @@ pub struct ColorScheme {
 }
 
 impl ColorScheme {
+    pub fn nord() -> Self {
+        Self {
+            primary: Color::Cyan, 
+            secondary: Color::Blue,
+            accent: Color::Magenta,
+            background: Color::Reset,
+            text: Color::White,
+            text_secondary: Color::Cyan,
+            success: Color::Green,
+            warning: Color::Yellow,
+            error: Color::Red,
+            info: Color::Blue,
+            border: Color::White,
+            highlight: Color::LightCyan,
+        }
+    }
+
     pub fn dark() -> Self {
         Self {
             primary: Color::Cyan,
             secondary: Color::Blue,
-            accent: Color::Yellow,
-            background: Color::Black,
+            accent: Color::Magenta,
+            background: Color::Reset,
             text: Color::White,
             text_secondary: Color::Gray,
             success: Color::Green,
             warning: Color::Yellow,
             error: Color::Red,
             info: Color::Cyan,
-            border: Color::Gray,
-            highlight: Color::Yellow,
+            border: Color::DarkGray,
+            highlight: Color::Cyan,
         }
     }
     
@@ -48,57 +65,6 @@ impl ColorScheme {
             info: Color::Blue,
             border: Color::DarkGray,
             highlight: Color::Blue,
-        }
-    }
-    
-    pub fn matrix() -> Self {
-        Self {
-            primary: Color::Green,
-            secondary: Color::Rgb(0, 100, 0),
-            accent: Color::Rgb(0, 255, 0),
-            background: Color::Black,
-            text: Color::Green,
-            text_secondary: Color::Rgb(0, 150, 0),
-            success: Color::Rgb(0, 255, 0),
-            warning: Color::Rgb(255, 255, 0),
-            error: Color::Red,
-            info: Color::Green,
-            border: Color::Green,
-            highlight: Color::Rgb(0, 255, 0),
-        }
-    }
-    
-    pub fn high_contrast() -> Self {
-        Self {
-            primary: Color::White,
-            secondary: Color::Yellow,
-            accent: Color::Magenta,
-            background: Color::Black,
-            text: Color::White,
-            text_secondary: Color::White,
-            success: Color::Green,
-            warning: Color::Yellow,
-            error: Color::Red,
-            info: Color::Cyan,
-            border: Color::White,
-            highlight: Color::Yellow,
-        }
-    }
-    
-    pub fn solarized_dark() -> Self {
-        Self {
-            primary: Color::Rgb(131, 148, 150),   // base0
-            secondary: Color::Rgb(88, 110, 117),  // base01
-            accent: Color::Rgb(42, 161, 152),     // cyan
-            background: Color::Rgb(0, 43, 54),    // base03
-            text: Color::Rgb(131, 148, 150),      // base0
-            text_secondary: Color::Rgb(101, 123, 131), // base00
-            success: Color::Rgb(133, 153, 0),     // green
-            warning: Color::Rgb(181, 137, 0),     // yellow
-            error: Color::Rgb(220, 50, 47),       // red
-            info: Color::Rgb(38, 139, 210),       // blue
-            border: Color::Rgb(88, 110, 117),     // base01
-            highlight: Color::Rgb(42, 161, 152),  // cyan
         }
     }
 }
@@ -232,7 +198,7 @@ pub struct ThemeManager {
 impl ThemeManager {
     pub fn new() -> Self {
         Self {
-            current_theme: ColorScheme::dark(),
+            current_theme: ColorScheme::nord(),
         }
     }
     
@@ -245,7 +211,7 @@ impl ThemeManager {
     }
     
     pub fn next_theme(&mut self) {
-        self.current_theme = ColorScheme::matrix();
+        self.current_theme = ColorScheme::dark();
     }
     
     pub fn usage_color(&self, usage: f32, metric_type: &str) -> Color {
@@ -341,7 +307,7 @@ mod tests {
     fn test_color_schemes() {
         let dark = ColorScheme::dark();
         assert_eq!(dark.primary, Color::Cyan);
-        assert_eq!(dark.background, Color::Black);
+        assert_eq!(dark.background, Color::Reset);
         
         let light = ColorScheme::light();
         assert_eq!(light.primary, Color::Blue);

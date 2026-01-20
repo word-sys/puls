@@ -5,11 +5,14 @@ mod monitors;
 mod ui;
 mod language;
 mod system_service;
+mod error_logger;
 
-use crate::types::{AppState, ProcessSortBy, ServiceInfo, LogEntry, ConfigItem};
+use crate::types::{AppState, ProcessSortBy, ServiceInfo, LogEntry, ConfigItem, BootInfo};
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+
 
 use parking_lot::Mutex;
 use crossterm::{
@@ -26,7 +29,7 @@ use crate::monitors::DataCollector;
 use crate::types::AppConfig;
 use crate::ui::render_ui;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let config = AppConfig::from(cli);
@@ -61,14 +64,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.services_table_state.select(Some(0));
         }
         
-        state.logs = sys_mgr.get_logs(50);
+        state.logs = sys_mgr.get_logs(50, None, None);
         if !state.logs.is_empty() {
             state.logs_table_state.select(Some(0));
         }
-        
+
         state.config_items = sys_mgr.get_grub_config();
         if !state.config_items.is_empty() {
             state.config_table_state.select(Some(0));
+        }
+        
+        state.boots = sys_mgr.get_boots();
+        if !state.boots.is_empty() {
+            state.current_boot_idx = 0;
         }
     }
     
@@ -91,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Err(ref e) = result {
         eprintln!("Application error: {}", e);
+        crate::error_logger::log_error(&e.to_string());
     }
 
     result.map_err(|e| e.into())
@@ -137,18 +146,91 @@ fn handle_key_event(
     
     match key.code {
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            if state.service_status_modal.is_some() {
+                 state.service_status_modal = None;
+                 return Ok(false);
+            }
+            if state.editing_filter {
+                state.editing_filter = false;
+                state.edit_buffer.clear();
+                return Ok(false);
+            }
+            if state.editing_service.is_some() || state.editing_config.is_some() {
+                state.editing_service = None;
+                state.editing_config = None;
+                state.edit_buffer.clear();
+                return Ok(false);
+            }
             return Ok(true);
         }
         
+        KeyCode::Char('l') if state.active_tab == 8 && state.service_status_modal.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    let sys_mgr = system_service::SystemManager::new();
+                    let status = sys_mgr.get_service_status(&service.name);
+                    state.service_status_modal = Some((service.name.clone(), status));
+                }
+            }
+        }
+
+        KeyCode::Char('/') if state.active_tab == 9 && !state.editing_filter => {
+             state.editing_filter = true;
+             state.edit_buffer = state.log_filter.clone();
+        }
+
+        KeyCode::Enter if state.editing_filter => {
+             state.log_filter = state.edit_buffer.clone();
+             state.editing_filter = false;
+             state.edit_buffer.clear();
+             let sys_mgr = system_service::SystemManager::new();
+             state.logs = sys_mgr.get_logs(50, Some(&state.log_filter), None);
+             state.logs_table_state.select(Some(0));
+        }
+
+        KeyCode::Char(c) if state.editing_filter => {
+            state.edit_buffer.push(c);
+        }
+
+        KeyCode::Backspace if state.editing_filter => {
+            state.edit_buffer.pop();
+        }
+
+        KeyCode::Char('>') | KeyCode::Right if state.active_tab == 9 && !state.editing_filter => {
+            if !state.boots.is_empty() {
+                if state.current_boot_idx > 0 {
+                    state.current_boot_idx -= 1;
+                    let sys_mgr = system_service::SystemManager::new();
+                    let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+                    let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
+                    state.logs = sys_mgr.get_logs(50, filter, boot_id);
+                    state.logs_table_state.select(Some(0));
+                }
+            }
+        }
+
+        KeyCode::Char('<') | KeyCode::Left if state.active_tab == 9 && !state.editing_filter => {
+            if !state.boots.is_empty() {
+                if state.current_boot_idx < state.boots.len() - 1 {
+                    state.current_boot_idx += 1;
+                    let sys_mgr = system_service::SystemManager::new();
+                    let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+                    let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
+                    state.logs = sys_mgr.get_logs(50, filter, boot_id);
+                    state.logs_table_state.select(Some(0));
+                }
+            }
+        }
+
         KeyCode::Char('p') | KeyCode::Char('P') => {
             state.paused = !state.paused;
         }
         
         KeyCode::Tab => {
-            state.active_tab = (state.active_tab + 1) % 10;
+            state.active_tab = (state.active_tab + 1) % 12;
         }
         KeyCode::BackTab => {
-            state.active_tab = (state.active_tab + 9) % 10;
+            state.active_tab = (state.active_tab + 11) % 12;
         }
         
         KeyCode::Char('1') => state.active_tab = 0,
@@ -161,6 +243,8 @@ fn handle_key_event(
         KeyCode::Char('8') => state.active_tab = 7,
         KeyCode::Char('9') => state.active_tab = 8,
         KeyCode::Char('0') => state.active_tab = 9,
+        KeyCode::Char('-') => state.active_tab = 10,
+        KeyCode::Char('=') => state.active_tab = 11,
         
         KeyCode::Down if state.active_tab == 0 => {
             handle_process_navigation(&mut state, true);
@@ -169,14 +253,14 @@ fn handle_key_event(
             handle_process_navigation(&mut state, false);
         }
         
-        KeyCode::Down if state.active_tab == 7 => {
+        KeyCode::Down if state.active_tab == 8 => {
             let len = state.services.len();
             if len > 0 {
                 let current = state.services_table_state.selected().unwrap_or(0);
                 state.services_table_state.select(Some((current + 1) % len));
             }
         }
-        KeyCode::Up if state.active_tab == 7 => {
+        KeyCode::Up if state.active_tab == 8 => {
             let len = state.services.len();
             if len > 0 {
                 let current = state.services_table_state.selected().unwrap_or(0);
@@ -184,14 +268,14 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Down if state.active_tab == 8 => {
+        KeyCode::Down if state.active_tab == 9 => {
             let len = state.logs.len();
             if len > 0 {
                 let current = state.logs_table_state.selected().unwrap_or(0);
                 state.logs_table_state.select(Some((current + 1) % len));
             }
         }
-        KeyCode::Up if state.active_tab == 8 => {
+        KeyCode::Up if state.active_tab == 9 => {
             let len = state.logs.len();
             if len > 0 {
                 let current = state.logs_table_state.selected().unwrap_or(0);
@@ -199,14 +283,14 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Down if state.active_tab == 9 => {
+        KeyCode::Down if state.active_tab == 10 => {
             let len = state.config_items.len();
             if len > 0 {
                 let current = state.config_table_state.selected().unwrap_or(0);
                 state.config_table_state.select(Some((current + 1) % len));
             }
         }
-        KeyCode::Up if state.active_tab == 9 => {
+        KeyCode::Up if state.active_tab == 10 => {
             let len = state.config_items.len();
             if len > 0 {
                 let current = state.config_table_state.selected().unwrap_or(0);
@@ -214,7 +298,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('e') if state.active_tab == 7 => {
+        KeyCode::Char('e') if state.active_tab == 8 => {
             if let Some(idx) = state.services_table_state.selected() {
                 if state.has_sudo {
                     state.editing_service = Some(idx);
@@ -223,7 +307,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('s') if state.active_tab == 7 && state.editing_service.is_none() => {
+        KeyCode::Char('s') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
                     if service.can_start && state.has_sudo {
@@ -235,7 +319,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('x') if state.active_tab == 7 && state.editing_service.is_none() => {
+        KeyCode::Char('x') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
                     if service.can_stop && state.has_sudo {
@@ -247,7 +331,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('r') if state.active_tab == 7 && state.editing_service.is_none() => {
+        KeyCode::Char('r') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
                     if state.has_sudo {
@@ -259,7 +343,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('e') if state.active_tab == 9 => {
+        KeyCode::Char('e') if state.active_tab == 10 => {
             if let Some(idx) = state.config_table_state.selected() {
                 if state.has_sudo {
                     state.editing_config = Some(idx);
@@ -306,11 +390,7 @@ fn handle_key_event(
             state.edit_buffer.clear();
         }
         
-        KeyCode::Esc if state.editing_service.is_some() || state.editing_config.is_some() => {
-            state.editing_service = None;
-            state.editing_config = None;
-            state.edit_buffer.clear();
-        }
+
         
         KeyCode::Enter if state.active_tab == 0 => {
             if let Some(selected_index) = state.process_table_state.selected() {
@@ -341,7 +421,6 @@ fn handle_key_event(
         }
         
         KeyCode::Char('h') | KeyCode::F(1) => {
-            // help process need to be implemented
         }
         
         _ => {}

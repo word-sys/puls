@@ -4,7 +4,7 @@ pub mod layouts;
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs, BorderType},
 };
 
 use crate::types::AppState;
@@ -14,44 +14,78 @@ use crate::language::Translator;
 pub use layouts::*;
 
 pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, translator: &Translator) {
+    let theme_manager = crate::ui::colors::ThemeManager::new();
+    let theme = theme_manager.get_theme();
+    
     let main_layout = create_main_layout(f.size());
     
-    render_tab_bar(f, state, main_layout.tab_area, is_safe_mode, translator);
+    render_tab_bar(f, state, main_layout.tab_area, is_safe_mode, translator, theme);
     
-    render_summary_bar(f, state, main_layout.summary_area, translator);
+    render_summary_bar(f, state, main_layout.summary_area, translator, theme);
     
     match state.active_tab {
-        0 => render_dashboard_tab(f, state, main_layout.content_area, translator),
-        1 => render_process_detail_tab(f, state, main_layout.content_area, translator),
-        2 => render_cpu_cores_tab(f, state, main_layout.content_area, translator),
-        3 => render_disks_tab(f, state, main_layout.content_area, translator),
-        4 => render_network_tab(f, state, main_layout.content_area, is_safe_mode, translator),
-        5 => render_gpu_tab(f, state, main_layout.content_area, is_safe_mode, translator),
-        6 => render_system_info_tab(f, state, main_layout.content_area, translator),
-        7 => render_services_tab(f, state, main_layout.content_area, translator),
-        8 => render_logs_tab(f, state, main_layout.content_area, translator),
-        9 => render_config_tab(f, state, main_layout.content_area, translator),
+        0 => render_dashboard_tab(f, state, main_layout.content_area, translator, theme),
+        1 => render_process_detail_tab(f, state, main_layout.content_area, translator, theme),
+        2 => render_cpu_cores_tab(f, state, main_layout.content_area, translator, theme),
+        3 => render_memory_tab(f, state, main_layout.content_area, translator, theme),
+        4 => render_disks_tab(f, state, main_layout.content_area, translator, theme),
+        5 => render_network_tab(f, state, main_layout.content_area, is_safe_mode, translator, theme),
+        6 => render_gpu_tab(f, state, main_layout.content_area, is_safe_mode, translator, theme),
+        7 => render_system_info_tab(f, state, main_layout.content_area, translator, theme),
+        8 => render_services_tab(f, state, main_layout.content_area, translator, theme),
+        9 => render_logs_tab(f, state, main_layout.content_area, translator, theme),
+        10 => render_config_tab(f, state, main_layout.content_area, translator, theme),
+        11 => render_containers_tab(f, state, main_layout.content_area, theme),
         _ => {}
     }
     
     render_footer(f, state, main_layout.footer_area, translator);
+
+    if let Some((name, status)) = &state.service_status_modal {
+        render_service_status_modal(f, name, status, theme);
+    }
 }
 
-fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator) {
+fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    let popup_area = Rect {
+        x: area.width / 10,
+        y: area.height / 10,
+        width: area.width * 8 / 10,
+        height: area.height * 8 / 10,
+    };
+    
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+    
+    let block = Block::default()
+        .title(format!("Status: {} (Esc to close)", name))
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.highlight));
+            
+    let paragraph = Paragraph::new(status)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .wrap(ratatui::widgets::Wrap { trim: false });
+        
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let tab_keys = vec![
-        "tab.dashboard", "tab.process", "tab.cpu", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config"
+        "tab.dashboard", "tab.process", "tab.cpu", "tab.memory", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config", "tab.containers"
     ];
     let tab_titles: Vec<Line> = tab_keys
     .iter()
     .enumerate()
     .map(|(i, &key)| {
         let title = translator.t(key);
-        let style = if is_safe_mode && (i == 4 || i == 5 || i == 7 || i == 8 || i == 9) {
-            Style::default().fg(Color::DarkGray)
+        let style = if is_safe_mode && (i == 5 || i == 6 || i == 8 || i == 9 || i == 10) {
+            Style::default().fg(theme.text_secondary)
         } else if i == state.active_tab {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::Gray)
+            Style::default().fg(theme.text)
         };
         Line::from(Span::styled(title, style))
     })
@@ -60,16 +94,18 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     let tabs = Tabs::new(tab_titles)
         .block(Block::default()
             .title(translator.t("title.puls"))
-            .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+            .title(ratatui::widgets::block::Title::from(format!(" v{} ", env!("CARGO_PKG_VERSION"))).alignment(Alignment::Right))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray)))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border)))
         .select(state.active_tab)
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .highlight_style(Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD));
     
     f.render_widget(tabs, area);
 }
 
-fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let usage = &state.dynamic_data.global_usage;
     let layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -82,32 +118,33 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &
         ])
         .split(area);
     
-    render_cpu_gauge(f, usage.cpu, usage.load_average, layout[0], translator);
+    render_cpu_gauge(f, usage.cpu, usage.load_average, layout[0], translator, theme);
     
-    render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1], translator);
+    render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1], translator, theme);
     
-    render_gpu_gauge(f, usage.gpu_util, layout[2], translator);
+    render_gpu_gauge(f, usage.gpu_util, layout[2], translator, theme);
     
-    render_network_summary(f, usage, layout[3], translator);
+    render_network_summary(f, usage, layout[3], translator, theme);
     
-    render_disk_summary(f, usage, layout[4], translator);
+    render_disk_summary(f, usage, layout[4], translator, theme);
 }
 
-fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), area: Rect, translator: &Translator) {
+fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let color = get_usage_color(cpu_percent);
     let label = format!("{:.1}% | Load: {:.1}", cpu_percent, load_avg.0);
     let gauge = Gauge::default()
         .block(Block::default()
             .title(translator.t("title.cpu"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray)))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(color))
         .percent(cpu_percent.clamp(0.0, 100.0) as u16)
         .label(label);
     f.render_widget(gauge, area);
 }
 
-fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect, translator: &Translator) {
+fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let mem_percent = if mem_total > 0 {
         (mem_used as f64 / mem_total as f64) * 100.0
     } else {
@@ -116,7 +153,6 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect,
     
     let color = get_usage_color(mem_percent as f32);
     
-    // Show memory pressure level
     let pressure = match mem_percent {
         x if x >= 90.0 => "health.critical",
         x if x >= 80.0 => "health.high",
@@ -130,18 +166,20 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect,
         .block(Block::default()
             .title(translator.t("title.memory"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray)))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(color))
         .percent(mem_percent.clamp(0.0, 100.0) as u16)
         .label(label);
     f.render_widget(gauge, area);
 }
 
-fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect, translator: &Translator) {
+fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let block = Block::default()
         .title(translator.t("title.gpu"))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     if let Some(gpu_percent) = gpu_util {
         let color = get_usage_color(gpu_percent as f32);
@@ -154,16 +192,18 @@ fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect, translator
     } else {
         let paragraph = Paragraph::new("N/A")
             .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_secondary))
             .block(block);
         f.render_widget(paragraph, area);
     }
 }
 
-fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator) {
+fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let block = Block::default()
         .title(translator.t("title.network"))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -176,7 +216,7 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
     let net_text = format!("▼{} ▲{}", format_rate(usage.net_down), format_rate(usage.net_up));
     let net_paragraph = Paragraph::new(net_text)
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Yellow));
+        .style(Style::default().fg(theme.accent));
     f.render_widget(net_paragraph, layout[0]);
     
     if !usage.net_down_history.is_empty() || !usage.net_up_history.is_empty() {
@@ -189,17 +229,18 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
         if !combined_data.is_empty() {
             let sparkline = Sparkline::default()
                 .data(&combined_data)
-                .style(Style::default().fg(Color::Yellow));
+                .style(Style::default().fg(theme.accent));
             f.render_widget(sparkline, layout[1]);
         }
     }
 }
 
-fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator) {
+fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let block = Block::default()
         .title(translator.t("title.disk"))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -212,7 +253,7 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     let disk_text = format!("▼{} ▲{}", format_rate(usage.disk_read), format_rate(usage.disk_write));
     let disk_paragraph = Paragraph::new(disk_text)
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::LightRed));
+        .style(Style::default().fg(theme.warning));
     f.render_widget(disk_paragraph, layout[0]);
     
     if !usage.disk_read_history.is_empty() || !usage.disk_write_history.is_empty() {
@@ -225,26 +266,26 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
         if !combined_data.is_empty() {
             let sparkline = Sparkline::default()
                 .data(&combined_data)
-                .style(Style::default().fg(Color::LightRed));
+                .style(Style::default().fg(theme.warning));
             f.render_widget(sparkline, layout[1]);
         }
     }
 }
 
-fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator) {
+fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Percentage(57), Constraint::Percentage(40)])
         .split(area);
     
-    render_system_status(f, state, layout[0], translator);
+    render_system_status(f, state, layout[0], translator, theme);
     
-    render_process_table(f, state, layout[1], translator);
+    render_process_table(f, state, layout[1], translator, theme);
     
-    render_container_table(f, state, layout[2], translator);
+    render_container_table(f, state, layout[2], translator, theme);
 }
 
-fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let usage = &state.dynamic_data.global_usage;
     let system_info = &state.system_info;
     
@@ -284,17 +325,19 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     
     let status_paragraph = Paragraph::new(status_text)
         .alignment(Alignment::Left)
+        .style(Style::default().fg(theme.text))
         .block(
             Block::default()
                 .title(translator.t("title.system_overview"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green))
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.success))
         );
     
     f.render_widget(status_paragraph, area);
 }
 
-fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator) {
+fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let processes = &state.dynamic_data.processes;
     let header_pid = translator.t("header.pid");
     let header_name = translator.t("header.name");
@@ -313,7 +356,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
             p.mem_display.clone(),
             p.disk_read.clone(),
             p.disk_write.clone(),
-        ])
+        ]).style(Style::default().fg(theme.text))
     });
     
     let table = Table::new(
@@ -330,22 +373,24 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     )
     .header(
         Row::new(vec![header_pid, header_name, header_user, header_cpu, header_memory, header_disk_read, header_disk_write])
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
             .bottom_margin(1)
     )
     .block(
         Block::default()
-            .title("Processes (↑↓ navigate, Enter details, s sort, f filter)")
+            .title(translator.t("title.processes"))
+            .title_style(Style::default().fg(theme.primary))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     )
-    .highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
     .highlight_symbol(">> ");
     
     f.render_stateful_widget(table, area, &mut state.process_table_state);
 }
 
-fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let containers = &state.dynamic_data.containers;
     
     if containers.is_empty() {
@@ -357,11 +402,13 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
         
         let paragraph = Paragraph::new(message)
             .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_secondary))
             .block(
                 Block::default()
                     .title(translator.t("title.containers"))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border))
             );
         f.render_widget(paragraph, area);
         return;
@@ -398,7 +445,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
             c.net_up.clone(),
             c.disk_r.clone(),
             c.disk_w.clone(),
-        ])
+        ]).style(Style::default().fg(theme.text))
     });
     
     let table = Table::new(
@@ -417,23 +464,25 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .block(
         Block::default()
             .title(translator.t("title.containers"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     );
     
     f.render_widget(table, area);
 }
 
-fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
+fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let block = Block::default()
         .title("Process Details")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -446,52 +495,52 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
         
         let info_lines = vec![
             Line::from(vec![
-                Span::styled("PID: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(&process.pid)
+                Span::styled("PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(&process.pid, Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Name: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(&process.name)
+                Span::styled("Name: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(&process.name, Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("User: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(&process.user)
+                Span::styled("User: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(&process.user, Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Status: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(&process.status)
+                Span::styled("Status: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(&process.status, Style::default().fg(crate::ui::colors::process_status_color(&process.status)))
             ]),
             Line::from(vec![
-                Span::styled("Parent PID: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(process.parent.as_deref().unwrap_or("N/A"))
+                Span::styled("Parent PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(process.parent.as_deref().unwrap_or("N/A"), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Started: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(&process.start_time)
+                Span::styled("Started: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(&process.start_time, Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("CPU Usage: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(format!("{:.2}%", process.cpu_usage))
+                Span::styled("CPU Usage: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:.2}%", process.cpu_usage), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Memory (RSS): ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(format_size(process.memory_rss))
+                Span::styled("Memory (RSS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format_size(process.memory_rss), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Memory (VMS): ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(format_size(process.memory_vms))
+                Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Threads: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::raw(process.threads.to_string())
+                Span::styled("Threads: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(process.threads.to_string(), Style::default().fg(theme.text))
             ]),
         ];
         
         let final_info_lines: Vec<_> = if let Some(ref cwd) = process.cwd {
             info_lines.into_iter().chain(std::iter::once(
                 Line::from(vec![
-                    Span::styled("Working Dir: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw(cwd)
+                    Span::styled("Working Dir: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(cwd, Style::default().fg(theme.text))
                 ])
             )).collect::<Vec<_>>()
         } else {
@@ -502,26 +551,27 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
                 Block::default()
                     .title("Process Information")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border))
             )
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(info_paragraph, layout[0]);
         
         let mut cmd_env_lines = vec![
-            Line::from(Span::styled("Command:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
             Line::from(""),
-            Line::from(Span::raw(&process.command)),
+            Line::from(Span::styled(&process.command, Style::default().fg(theme.text))),
             Line::from(""),
-            Line::from(Span::styled("Environment Variables:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled("Environment Variables:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
             Line::from(""),
         ];
         
         for (i, env) in process.environ.iter().enumerate() {
             if i >= 20 {
-                cmd_env_lines.push(Line::from(Span::raw("... (truncated)")));
+                cmd_env_lines.push(Line::from(Span::styled("... (truncated)", Style::default().fg(theme.text_secondary))));
                 break;
             }
-            cmd_env_lines.push(Line::from(Span::raw(env)));
+            cmd_env_lines.push(Line::from(Span::styled(env, Style::default().fg(theme.text))));
         }
         
         let cmd_env_paragraph = Paragraph::new(cmd_env_lines)
@@ -529,7 +579,8 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
                 Block::default()
                     .title("Command & Environment")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border))
             )
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(cmd_env_paragraph, layout[1]);
@@ -537,13 +588,19 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
     } else {
         let message = Paragraph::new("Select a process from the Dashboard tab (↑↓ to navigate, Enter to select)")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Gray))
+            .style(Style::default().fg(theme.text_secondary))
             .wrap(ratatui::widgets::Wrap { trim: true });
         f.render_widget(message, inner_area);
     }
 }
 
-fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
+fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    use ratatui::widgets::{Chart, Dataset, Axis, Paragraph, Gauge};
+    use ratatui::layout::{Layout, Constraint, Direction};
+    use ratatui::text::{Line, Span};
+    use ratatui::style::{Style, Modifier};
+    use ratatui::widgets::{Block, Borders};
+
     let cores = &state.dynamic_data.cores;
     
     if cores.is_empty() {
@@ -553,21 +610,93 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
                 Block::default()
                     .title("CPU Cores")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border))
             );
         f.render_widget(message, area);
         return;
     }
     
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(8),
+            Constraint::Min(10),
+        ])
+        .split(area);
+        
+    let cpu_model = state.system_info.iter().find(|(k, _)| k == "CPU").map(|(_, v)| v.as_str()).unwrap_or("Unknown CPU");
+    let core_count = cores.len();
+    let usage = &state.dynamic_data.global_usage;
+    
+    let top_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(chunks[0]);
+    
+    let info_text = vec![
+        Line::from(vec![
+            Span::styled("Model: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(cpu_model, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("Cores: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} Logical", core_count), Style::default().fg(theme.text)),
+            Span::raw(" | "),
+            Span::styled("Usage: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{:.1}%", usage.cpu), Style::default().fg(get_usage_color(usage.cpu))),
+        ]),
+        Line::from(vec![
+             Span::styled("Load Average: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+             Span::styled(format!("{:.2} {:.2} {:.2}", usage.load_average.0, usage.load_average.1, usage.load_average.2), Style::default().fg(theme.text)),
+        ]),
+    ];
+    
+    let info_paragraph = Paragraph::new(info_text)
+        .block(Block::default()
+            .title("CPU Information")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+        );
+    f.render_widget(info_paragraph, top_chunks[1]);
+
+    let history_data: Vec<(f64, f64)> = state.dynamic_data.global_usage.cpu_history
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v as f64))
+        .collect();
+
+    let datasets = vec![
+        Dataset::default()
+            .name("Total Usage")
+            .marker(ratatui::symbols::Marker::Braille)
+            .style(Style::default().fg(theme.primary))
+            .data(&history_data)
+    ];
+    
+    let chart = Chart::new(datasets)
+        .block(Block::default()
+            .title("Usage History")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+        )
+        .x_axis(Axis::default().bounds([0.0, 60.0]))
+        .y_axis(Axis::default().bounds([0.0, 100.0]));
+    f.render_widget(chart, top_chunks[0]);
+    
+    let inner_area = chunks[1];
     let block = Block::default()
-        .title(format!("CPU Cores ({} total)", cores.len()))
+        .title(format!("Detailed Core Usage ({} cores)", cores.len()))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+        
+    let grid_area = block.inner(inner_area);
+    f.render_widget(block, inner_area);
     
-    let inner_area = block.inner(area);
-    f.render_widget(block, area);
-    
-    let cores_per_row = (inner_area.width / 25).max(1) as usize;
+    let cores_per_row = (grid_area.width / 25).max(1) as usize;
     let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
     
     if rows_needed == 0 {
@@ -622,9 +751,9 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     }
 }
 
-fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
+fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let disks = &state.dynamic_data.disks;
-    let headers = ["Mount Point", "Device", "FS", "Total", "Used", "Free", "Usage %"];
+    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "R/s", "W/s", "R-Ops", "W-Ops"];
     
     let rows = disks.iter().map(|disk| {
         let usage_percent = if disk.total > 0 {
@@ -634,56 +763,66 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
         };
         
         Row::new(vec![
-            truncate_string(&disk.name, 20),
-            truncate_string(&disk.device, 15),
+            truncate_string(&disk.name, 15),
+            truncate_string(&disk.device, 25),
             disk.fs.clone(),
             format_size(disk.total),
             format_size(disk.used),
             format_size(disk.free),
             format_percentage(usage_percent),
+            format_rate(disk.read_rate),
+            format_rate(disk.write_rate),
+            disk.read_ops.to_string(),
+            disk.write_ops.to_string(),
         ]).style(Style::default().fg(
-            if usage_percent > 90.0 { Color::Red }
-            else if usage_percent > 75.0 { Color::Yellow }
-            else { Color::White }
+            if usage_percent > 90.0 { theme.error }
+            else if usage_percent > 75.0 { theme.warning }
+            else { theme.text }
         ))
     });
     
     let table = Table::new(
         rows,
         [
-            Constraint::Min(15),     // Mount Point
-            Constraint::Length(15),  // Device
-            Constraint::Length(8),   // FS
-            Constraint::Length(10),  // Total
-            Constraint::Length(10),  // Used
-            Constraint::Length(10),  // Free
-            Constraint::Length(10),  // Usage %
+            Constraint::Min(12),     // Mount
+            Constraint::Length(25),  // Device
+            Constraint::Length(6),   // FS
+            Constraint::Length(9),   // Total
+            Constraint::Length(9),   // Used
+            Constraint::Length(9),   // Free
+            Constraint::Length(7),   // Use%
+            Constraint::Length(9),   // R/s
+            Constraint::Length(9),   // W/s
+            Constraint::Length(7),   // R-Ops
+            Constraint::Length(7),   // W-Ops
         ]
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .block(
         Block::default()
             .title("Disk Usage")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     );
     
     f.render_widget(table, area);
 }
 
-fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator) {
+fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     if is_safe_mode {
         let message = Paragraph::new("Network monitoring is disabled in safe mode")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(theme.text_secondary))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .title("Network Interfaces")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.text_secondary))
             );
         f.render_widget(message, area);
         return;
@@ -702,7 +841,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
             format_size(net.total_up),
             format!("{}/{}", net.packets_rx, net.packets_tx),
         ]).style(Style::default().fg(
-            if net.is_up { Color::Green } else { Color::Red }
+            if net.is_up { theme.success } else { theme.error }
         ))
     });
     
@@ -720,28 +859,64 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .block(
         Block::default()
             .title("Network Interfaces")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     );
     
     f.render_widget(table, area);
 }
 
-fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator) {
+fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+    use ratatui::widgets::BorderType; 
+    if let Some(err) = &state.dynamic_data.docker_error {
+        let text = Paragraph::new(format!("Docker Error: {}", err))
+             .style(Style::default().fg(theme.error))
+             .alignment(Alignment::Center)
+             .block(
+                 Block::default()
+                     .borders(Borders::ALL)
+                     .border_type(BorderType::Rounded)
+                     .style(Style::default().fg(theme.border))
+                     .title("Docker Unavailable")
+             );
+        f.render_widget(text, area);
+        return;
+    }
+
+    if state.dynamic_data.containers.is_empty() {
+        let text = Paragraph::new("No containers running or Docker not detected")
+             .style(Style::default().fg(theme.text_secondary))
+             .alignment(Alignment::Center)
+             .block(
+                 Block::default()
+                     .borders(Borders::ALL)
+                     .border_type(BorderType::Rounded)
+                     .style(Style::default().fg(theme.border))
+                     .title("Containers")
+             );
+        f.render_widget(text, area);
+        return;
+    }
+    
+}
+
+fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     if is_safe_mode {
         let message = Paragraph::new("GPU monitoring is disabled in safe mode")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(theme.text_secondary))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .title("GPU Information")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.text_secondary))
             );
         f.render_widget(message, area);
         return;
@@ -750,7 +925,8 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     let block = Block::default()
         .title("GPU Information")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -759,22 +935,22 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
         Ok(gpus) if gpus.is_empty() => {
             let message = Paragraph::new("No supported GPUs found")
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::Yellow));
+                .style(Style::default().fg(theme.warning));
             f.render_widget(message, inner_area);
         }
         Ok(gpus) => {
-            render_gpu_details(f, gpus, inner_area);
+            render_gpu_details(f, gpus, inner_area, theme);
         }
         Err(e) => {
             let message = Paragraph::new(format!("GPU Error: {}", e))
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::Red));
+                .style(Style::default().fg(theme.error));
             f.render_widget(message, inner_area);
         }
     }
 }
 
-fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect) {
+fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect, theme: &crate::ui::colors::ColorScheme) {
     let num_gpus = gpus.len();
     if num_gpus == 0 {
         return;
@@ -794,11 +970,11 @@ fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect)
             continue;
         }
         
-        render_single_gpu(f, gpu, gpu_layout[i], i);
+        render_single_gpu(f, gpu, gpu_layout[i], i, theme);
     }
 }
 
-fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize) {
+fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize, theme: &crate::ui::colors::ColorScheme) {
     let title = format!(
         "GPU {} - {} ({}) - {}°C",
         index,
@@ -810,7 +986,8 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -833,9 +1010,9 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         0.0
     };
     
-    let details = vec![
+    let mut details = vec![
         Line::from(vec![
-            Span::styled("Memory: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Memory: ", Style::default().fg(theme.accent)),
             Span::raw(format!("{} / {} ({:.1}%)",
                 format_size(gpu.memory_used),
                 format_size(gpu.memory_total),
@@ -843,41 +1020,52 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
             ))
         ]),
         Line::from(vec![
-            Span::styled("Power: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Power: ", Style::default().fg(theme.accent)),
             Span::raw(format!("{:.2} W", gpu.power_usage as f64 / 1000.0))
         ]),
         Line::from(vec![
-            Span::styled("Graphics Clock: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Graphics Clock: ", Style::default().fg(theme.accent)),
             Span::raw(format_frequency(gpu.graphics_clock as u64))
         ]),
         Line::from(vec![
-            Span::styled("Memory Clock: ", Style::default().fg(Color::Yellow)),
+            Span::styled("Memory Clock: ", Style::default().fg(theme.accent)),
             Span::raw(format_frequency(gpu.memory_clock as u64))
         ]),
     ];
+
+    if let Some(temp) = gpu.memory_temperature {
+        details.push(Line::from(vec![
+            Span::styled("Memory Temp: ", Style::default().fg(theme.accent)),
+            Span::raw(format!("{}°C", temp))
+        ]));
+    }
+
+    if let Some(fan) = gpu.fan_speed {
+        details.push(Line::from(vec![
+            Span::styled("Fan Speed: ", Style::default().fg(theme.accent)),
+            Span::raw(format!("{}%", fan))
+        ]));
+    }
+
+    if let (Some(gen), Some(width)) = (gpu.pci_link_gen, gpu.pci_link_width) {
+        details.push(Line::from(vec![
+            Span::styled("PCIe: ", Style::default().fg(theme.accent)),
+            Span::raw(format!("Gen {} x{}", gen, width))
+        ]));
+    }
     
-    let final_details: Vec<_> = if let Some(fan_speed) = gpu.fan_speed {
-        details.into_iter().chain(std::iter::once(
-            Line::from(vec![
-                Span::styled("Fan Speed: ", Style::default().fg(Color::Yellow)),
-                Span::raw(format!("{}%", fan_speed))
-            ])
-        )).collect::<Vec<_>>()
-    } else {
-        details
-    };
-    let details_paragraph = Paragraph::new(final_details);
+    let details_paragraph = Paragraph::new(details).style(Style::default().fg(theme.text));
     f.render_widget(details_paragraph, layout[1]);
 }
 
-fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator) {
+fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(area);
     
     let rows = state.system_info.iter().map(|(key, value)| {
-        Row::new(vec![key.clone(), value.clone()])
+        Row::new(vec![key.clone(), value.clone()]).style(Style::default().fg(theme.text))
     });
     
     let table = Table::new(
@@ -888,7 +1076,8 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translat
         Block::default()
             .title("System Information")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     )
     .column_spacing(2);
     
@@ -905,11 +1094,13 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translat
     
     let stats = Paragraph::new(stats_text)
         .alignment(Alignment::Left)
+        .style(Style::default().fg(theme.text))
         .block(
             Block::default()
                 .title("Process Statistics")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Gray))
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border))
         );
     
     f.render_widget(stats, layout[1]);
@@ -959,7 +1150,7 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
     let footer_style = if !alerts.is_empty() {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else if state.paused {
-        Style::default().fg(Color::Red)
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -971,16 +1162,18 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
     f.render_widget(footer, area);
 }
 
-fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let services = &state.services;
     
     if services.is_empty() {
         let paragraph = Paragraph::new("No services available")
             .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
                 .title(translator.t("title.services"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green)));
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.success)));
         f.render_widget(paragraph, area);
         return;
     }
@@ -1004,11 +1197,11 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
         };
         
         let style = if state.editing_service == Some(i) && state.has_sudo {
-            Style::default().bg(Color::DarkGray)
+            Style::default().bg(theme.secondary).fg(theme.text)
         } else if !state.has_sudo {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme.text_secondary)
         } else {
-            Style::default()
+            Style::default().fg(theme.text)
         };
         
         Row::new(vec![
@@ -1028,9 +1221,9 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
-    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
     .block(
         Block::default()
             .title(if state.has_sudo {
@@ -1039,10 +1232,11 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 format!("{} (Read-Only)", translator.t("title.services"))
             })
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(if state.has_sudo {
-                Style::default().fg(Color::Green)
+                Style::default().fg(theme.border)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(theme.text_secondary)
             })
     );
     
@@ -1050,17 +1244,87 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
     f.render_stateful_widget(table, area, &mut service_state.clone());
 }
 
-fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Filter & Boot
+            Constraint::Min(0),    // Table
+        ])
+        .split(area);
+
+    let top_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(50), // Filter
+            Constraint::Percentage(50), // Boot
+        ])
+        .split(chunks[0]);
+
+    let filter_text = if state.log_filter.is_empty() {
+        "Press / to filter".to_string()
+    } else {
+        format!("Filter: {}", state.log_filter)
+    };
+
+    let filter_style = if state.editing_filter {
+        Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)
+    } else if !state.log_filter.is_empty() {
+        Style::default().fg(theme.success)
+    } else {
+        Style::default().fg(theme.text_secondary)
+    };
+
+    let filter_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Log Filter ")
+        .style(Style::default().fg(if state.editing_filter { theme.primary } else { theme.border }));
+
+    let filter_widget = Paragraph::new(if state.editing_filter {
+            format!("{}█", state.edit_buffer)
+        } else {
+            filter_text
+        })
+        .style(filter_style)
+        .block(filter_block);
+
+    f.render_widget(filter_widget, top_chunks[0]);
+
+    let boot_text = if !state.boots.is_empty() {
+        let current = state.boots.get(state.current_boot_idx)
+            .map(|b| format!("{} ({})", b.id.get(..8).unwrap_or("?"), b.timestamp))
+            .unwrap_or_else(|| "Unknown".to_string());
+        format!(" < Boot {}/{} > : {} ", state.current_boot_idx + 1, state.boots.len(), current)
+    } else {
+        " No boot info ".to_string()
+    };
+
+    let boot_widget = Paragraph::new(boot_text)
+        .style(Style::default().fg(theme.text))
+        .alignment(Alignment::Right)
+        .block(
+             Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(" Boot Selection ")
+                .style(Style::default().fg(theme.border))
+        );
+    
+    f.render_widget(boot_widget, top_chunks[1]);
+
     let logs = &state.logs;
     
     if logs.is_empty() {
         let paragraph = Paragraph::new("No logs available")
             .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
                 .title(translator.t("title.logs"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)));
-        f.render_widget(paragraph, area);
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.info)));
+        f.render_widget(paragraph, chunks[1]);
         return;
     }
     
@@ -1076,11 +1340,11 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
     
     let rows = logs.iter().map(|l| {
         let level_color = match l.level.as_str() {
-            "ERROR" => Color::Red,
-            "WARNING" => Color::Yellow,
-            "INFO" => Color::Green,
-            "DEBUG" => Color::Gray,
-            _ => Color::White,
+            "ERROR" => theme.error,
+            "WARNING" => theme.warning,
+            "INFO" => theme.success,
+            "DEBUG" => theme.text_secondary,
+            _ => theme.text,
         };
         
         Row::new(vec![
@@ -1100,30 +1364,33 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
-    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
     .block(
         Block::default()
             .title(translator.t("title.logs"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue))
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
     );
     
     let mut logs_state = state.logs_table_state.clone();
-    f.render_stateful_widget(table, area, &mut logs_state.clone());
+    f.render_stateful_widget(table, chunks[1], &mut logs_state.clone());
 }
 
-fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
+fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let configs = &state.config_items;
     
     if configs.is_empty() {
         let paragraph = Paragraph::new("No configuration items available")
             .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
                 .title(translator.t("title.config"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Magenta)));
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.accent)));
         f.render_widget(paragraph, area);
         return;
     }
@@ -1140,11 +1407,11 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     
     let rows = configs.iter().enumerate().map(|(i, c)| {
         let style = if state.editing_config == Some(i) && state.has_sudo {
-            Style::default().bg(Color::DarkGray)
+            Style::default().bg(theme.secondary).fg(theme.text)
         } else if !state.has_sudo {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme.text_secondary)
         } else {
-            Style::default()
+            Style::default().fg(theme.text)
         };
         
         Row::new(vec![
@@ -1164,9 +1431,9 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     )
     .header(
         Row::new(headers)
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
-    .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
     .block(
         Block::default()
             .title(if state.has_sudo {
@@ -1175,13 +1442,77 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
                 format!("{} (Read-Only)", translator.t("title.config"))
             })
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(if state.has_sudo {
-                Style::default().fg(Color::Magenta)
+                Style::default().fg(theme.border)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(theme.text_secondary)
             })
     );
     
     let mut config_state = state.config_table_state.clone();
     f.render_stateful_widget(table, area, &mut config_state.clone());
+}
+
+fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50), // RAM & Swap Gauges
+            Constraint::Percentage(50), // Details Table
+        ])
+        .split(area);
+
+    let gauge_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50), // RAM
+            Constraint::Percentage(50), // Swap
+        ])
+        .split(chunks[0]);
+
+    let usage = &state.dynamic_data.global_usage;
+    
+    let mem_percent = if usage.mem_total > 0 {
+        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
+    } else { 0.0 };
+    
+    let mem_gauge = Gauge::default()
+        .block(Block::default().title("RAM Usage").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .gauge_style(Style::default().fg(get_usage_color(mem_percent as f32)))
+        .percent(mem_percent as u16)
+        .label(format!("{:.1}% ({} / {})", mem_percent, format_size(usage.mem_used), format_size(usage.mem_total)));
+    f.render_widget(mem_gauge, gauge_chunks[0]);
+
+    let swap_percent = if usage.swap_total > 0 {
+         (usage.swap_used as f64 / usage.swap_total as f64) * 100.0
+    } else { 0.0 }; 
+    
+    let swap_gauge = Gauge::default()
+        .block(Block::default().title("Swap Usage").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .gauge_style(Style::default().fg(theme.primary))
+        .percent(swap_percent as u16)
+        .label(format!("{:.1}% ({} / {})", swap_percent, format_size(usage.swap_used), format_size(usage.swap_total)));
+    f.render_widget(swap_gauge, gauge_chunks[1]);
+
+    let total_mem_str = format_size(usage.mem_used + (usage.mem_total - usage.mem_used));
+    let used_mem_str = format_size(usage.mem_used);
+    let cached_mem_str = format_size(usage.mem_cached);
+    let free_mem_str = format_size(usage.mem_total.saturating_sub(usage.mem_used));
+
+    let headers = vec!["Metric", "Value"];
+    let rows = vec![
+        Row::new(vec!["Total Memory".to_string(), total_mem_str]), 
+        Row::new(vec!["Used Memory".to_string(), used_mem_str]),
+        Row::new(vec!["Cached / Buffers".to_string(), cached_mem_str]),
+        Row::new(vec!["Free / Available".to_string(), free_mem_str]),
+    ];
+    
+    let table = Table::new(
+        rows,
+        [Constraint::Percentage(50), Constraint::Percentage(50)]
+    ).header(Row::new(headers).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)))
+     .block(Block::default().title("Details").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
+     
+    f.render_widget(table, chunks[1]);
 }

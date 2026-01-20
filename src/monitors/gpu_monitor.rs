@@ -105,23 +105,38 @@ impl GpuMonitor {
             ).map_err(|e| e.to_string())?;
             
             let fan_speed = device.fan_speed(0).ok();
-            
+
             let driver_version = nvml.sys_driver_version()
                 .unwrap_or_else(|_| "Unknown".to_string());
             
-            gpus.push(GpuInfo {
-                name,
-                brand: "NVIDIA".to_string(),
-                utilization: utilization.gpu,
-                memory_used: memory_info.used,
-                memory_total: memory_info.total,
-                temperature,
-                power_usage,
-                graphics_clock,
-                memory_clock,
-                fan_speed,
-                driver_version,
-            });
+            let memory_temperature = None;
+                /*
+                // Newer NVML/Drivers might support Memory temperature
+                // Falling back to GPU temp if not specifically available or use separate sensor query
+                let memory_temperature = device.temperature(
+                     nvml_wrapper::enum_wrappers::device::TemperatureSensor::Memory
+                ).ok();
+                */
+
+                let pci_link_gen = device.current_pcie_link_gen().ok();
+                let pci_link_width = device.current_pcie_link_width().ok();
+            
+                gpus.push(GpuInfo {
+                    name,
+                    brand: "NVIDIA".to_string(),
+                    utilization: utilization.gpu,
+                    memory_used: memory_info.used,
+                    memory_total: memory_info.total,
+                    temperature,
+                    memory_temperature,
+                    power_usage,
+                    graphics_clock,
+                    memory_clock,
+                    fan_speed,
+                    pci_link_gen,
+                    pci_link_width,
+                    driver_version,
+                });
         }
         
         Ok(gpus)
@@ -197,6 +212,9 @@ impl GpuMonitor {
             graphics_clock: 0,
             memory_clock: 0,   
             fan_speed: None,   
+            pci_link_gen: None,
+            pci_link_width: None,
+            memory_temperature: None,
             driver_version: "amdgpu".to_string(), 
         })
     }

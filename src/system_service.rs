@@ -42,7 +42,7 @@ impl SystemManager {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        for line in stdout.lines().take(20) {
+        for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 4 {
                 let service_name = parts[0];
@@ -169,21 +169,81 @@ impl SystemManager {
         }
     }
 
-    pub fn get_logs(&self, limit: usize) -> Vec<LogEntry> {
+    pub fn get_service_status(&self, service_name: &str) -> String {
+        let output = Command::new("systemctl")
+            .args(&["status", &format!("{}.service", service_name), "--no-pager"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.trim().is_empty() {
+                    String::from_utf8_lossy(&out.stderr).to_string()
+                } else {
+                    stdout.to_string()
+                }
+            }
+            Err(e) => format!("Error getting status: {}", e),
+        }
+    }
+
+    pub fn get_boots(&self) -> Vec<crate::types::BootInfo> {
+        let mut boots = Vec::new();
+        
+        let output = match Command::new("journalctl")
+            .arg("--list-boots")
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => return boots,
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                 let boot_id = parts[1];
+                 let date = parts[2..].join(" ");
+                 
+                 boots.push(crate::types::BootInfo {
+                     id: boot_id.to_string(),
+                     timestamp: date,
+                 });
+            }
+        }
+        
+        boots
+    }
+
+    pub fn get_logs(&self, limit: usize, filter: Option<&str>, boot_id: Option<&str>) -> Vec<LogEntry> {
         let mut logs = Vec::new();
 
+        let mut args = vec![
+            "--lines".to_string(),
+            limit.to_string(),
+            "--no-pager".to_string(),
+            "--output=short".to_string(),
+        ];
+
+        if let Some(f) = filter {
+            if !f.is_empty() {
+                args.push(format!("--grep={}", f));
+            }
+        }
+        
+        if let Some(bid) = boot_id {
+            args.push(format!("--boot={}", bid));
+        }
+
         let output = match Command::new("journalctl")
-            .args(&[
-                "--lines",
-                &limit.to_string(),
-                "--no-pager",
-                "--output=short",
-            ])
+            .args(&args)
             .output()
         {
             Ok(output) => output,
             Err(_) => return logs,
         };
+        
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -289,6 +349,14 @@ impl SystemManager {
         }
 
         let grub_file = "/etc/default/grub";
+        
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let backup_file = format!("{}.bak.{}", grub_file, timestamp);
+        
+        Command::new("sudo")
+            .args(&["cp", grub_file, &backup_file])
+            .output()
+            .map_err(|e| format!("Failed to create backup: {}", e))?;
 
         let content = std::fs::read_to_string(grub_file)
             .map_err(|e| e.to_string())?;

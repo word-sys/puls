@@ -53,10 +53,13 @@ pub struct GpuInfo {
     pub memory_used: u64,
     pub memory_total: u64,
     pub temperature: u32,
+    pub memory_temperature: Option<u32>,
     pub power_usage: u32,
     pub graphics_clock: u32,
     pub memory_clock: u32,
     pub fan_speed: Option<u32>,
+    pub pci_link_gen: Option<u32>,
+    pub pci_link_width: Option<u32>,
     pub driver_version: String,
 }
 
@@ -127,11 +130,16 @@ pub struct GlobalUsage {
     pub cpu: f32,
     pub mem_used: u64,
     pub mem_total: u64,
+    pub mem_cached: u64,
+    pub swap_used: u64,
+    pub swap_total: u64,
     pub gpu_util: Option<u32>,
     pub net_down: u64,
     pub net_up: u64,
     pub disk_read: u64,
     pub disk_write: u64,
+    pub disk_read_ops: u64,
+    pub disk_write_ops: u64,
     pub cpu_history: VecDeque<f32>,
     pub mem_history: VecDeque<f32>,
     pub net_down_history: VecDeque<u64>,
@@ -150,11 +158,16 @@ impl Default for GlobalUsage {
             cpu: 0.0,
             mem_used: 0,
             mem_total: 0,
+            mem_cached: 0,
+            swap_used: 0,
+            swap_total: 0,
             gpu_util: None,
             net_down: 0,
             net_up: 0,
             disk_read: 0,
             disk_write: 0,
+            disk_read_ops: 0,
+            disk_write_ops: 0,
             cpu_history: VecDeque::from(vec![0.0; 60]),
             mem_history: VecDeque::from(vec![0.0; 60]),
             net_down_history: VecDeque::from(vec![0; 60]),
@@ -181,6 +194,7 @@ pub struct DynamicData {
     pub global_usage: GlobalUsage,
     pub temperatures: SystemTemperatures,
     pub last_update: std::time::Instant,
+    pub docker_error: Option<String>,
 }
 
 impl Default for DynamicData {
@@ -200,8 +214,15 @@ impl Default for DynamicData {
                 motherboard_temp: None,
             },
             last_update: std::time::Instant::now(),
+            docker_error: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BootInfo {
+    pub id: String,
+    pub timestamp: String,
 }
 
 #[derive(Clone, Default)]
@@ -222,11 +243,17 @@ pub struct AppState {
     pub paused: bool,
     pub services: Vec<ServiceInfo>,
     pub logs: Vec<LogEntry>,
+    pub boots: Vec<BootInfo>,
+    pub current_boot_idx: usize,
     pub config_items: Vec<ConfigItem>,
     pub editing_service: Option<usize>,
     pub editing_config: Option<usize>,
     pub edit_buffer: String,
     pub has_sudo: bool,
+    pub log_filter: String,
+    pub service_status_modal: Option<(String, String)>,
+    pub editing_filter: bool,
+    pub docker_error: Option<String>,
 }
 
 #[derive(Clone, Debug)]

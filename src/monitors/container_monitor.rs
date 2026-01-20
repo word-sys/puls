@@ -33,7 +33,9 @@ impl ContainerMonitor {
         match Docker::connect_with_local_defaults() {
             Ok(docker) => Some(docker),
             Err(e) => {
-                eprintln!("Failed to connect to Docker: {}", e);
+                if !e.to_string().contains("No such file or directory") {
+                    eprintln!("Failed to connect to Docker: {}", e);
+                }
                 None
             }
         }
@@ -44,22 +46,20 @@ impl ContainerMonitor {
         None
     }
     
-    pub async fn get_containers(&mut self, timeout_ms: u64) -> Vec<ContainerInfo> {
+    pub async fn get_containers(&mut self, timeout_ms: u64) -> Result<Vec<ContainerInfo>, String> {
         #[cfg(feature = "docker")]
         if let Some(ref docker) = self.docker {
             let docker_clone = docker.clone();
             match self.get_docker_containers(&docker_clone, timeout_ms).await {
-                Ok(containers) => return containers,
-                Err(e) => {
-                    eprintln!("Docker error: {}", e);
-                    return Vec::new();
-                }
+                Ok(containers) => return Ok(containers),
+                Err(e) => return Err(format!("Docker error: {}", e)),
             }
+        } else {
+             return Err("Docker service not running".to_string());
         }
         
-        // podman support
         
-        Vec::new()
+        Ok(Vec::new())
     }
     
     #[cfg(feature = "docker")]

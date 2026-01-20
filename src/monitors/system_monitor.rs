@@ -79,9 +79,11 @@ impl SystemMonitor {
         let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
             .filter(|(pid, process)| {
+                /*
                 if pid.as_u32() == self.self_pid {
                     return false;
                 }
+                */
                 
                 if !show_system && is_system_process(&process.name().to_string_lossy()) {
                     return false;
@@ -123,6 +125,12 @@ impl SystemMonitor {
                 let raw_cpu = process.cpu_usage();
                 let normalized_cpu = (raw_cpu / total_cpu_count).clamp(0.0, 100.0);
                 
+                let mut status = process.status().to_string();
+                
+                if pid.as_u32() == self.self_pid || normalized_cpu > 0.0 {
+                     status = "Running".to_string();
+                }
+
                 ProcessInfo {
                     pid: pid.to_string(),
                     name: process.name().to_string_lossy().to_string(),
@@ -133,7 +141,7 @@ impl SystemMonitor {
                     disk_read: format_rate(read_rate),
                     disk_write: format_rate(write_rate),
                     user,
-                    status: process.status().to_string(),
+                    status,
                 }
             })
             .collect();
@@ -255,15 +263,24 @@ impl SystemMonitor {
         let boot_time = System::boot_time();
         let uptime = current_timestamp().saturating_sub(boot_time);
         
+        let mem_available = self.system.available_memory();
+        let mem_free = self.system.free_memory();
+        let mem_cached = mem_available.saturating_sub(mem_free);
+
         GlobalUsage {
             cpu: self.system.global_cpu_usage(),
             mem_used: self.system.used_memory(),
             mem_total: self.system.total_memory(),
+            mem_cached,
+            swap_used: self.system.used_swap(),
+            swap_total: self.system.total_swap(),
             gpu_util,
             net_down: total_net_down,
             net_up: total_net_up,
             disk_read: total_disk_read,
             disk_write: total_disk_write,
+            disk_read_ops: 0, // Pending 
+            disk_write_ops: 0, // Pending 
             load_average: (load.one, load.five, load.fifteen),
             uptime,
             boot_time,
