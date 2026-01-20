@@ -54,7 +54,7 @@ cargo build --release
 - `Tab` - Toggle tabs
 - `↑↓` - Switch between processes
 - `Enter` - Display process information
-- `1-9,0` - Go to tab with specified number
+- `1-9,0,-,=` - Go to tab with specified number or character
 - `p` - Pause/Resume process tab
 
 ## Requirements
