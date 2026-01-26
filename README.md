@@ -40,13 +40,38 @@ puls           # Half-featured mode
 puls --safe    # Safe mode (low resource usage)
 ```
 
-## Build from Source
+## Build from Source (Portable)
 
-```bash
-git clone https://github.com/word-sys/puls.git
-cd puls
-cargo build --release
-```
+To build a single binary that works on essentially all Linux distributions (including Debian 10, Ubuntu 20.04, and newer systems), follow these steps:
+
+1.  **Install dependencies**:
+
+    *   **Debian/Ubuntu**:
+        ```bash
+        sudo apt install musl-tools
+        ```
+    *   **Fedora**:
+        ```bash
+        sudo dnf install musl-gcc
+        ```
+    *   **Arch Linux**:
+        ```bash
+        sudo pacman -S musl
+        ```
+
+    Then add the Rust target:
+    ```bash
+    rustup target add x86_64-unknown-linux-musl
+    ```
+
+2.  **Build the project**:
+    ```bash
+    git clone https://github.com/word-sys/puls.git
+    cd puls
+    cargo build --release --target x86_64-unknown-linux-musl
+    ```
+
+The resulting binary will be located at `target/x86_64-unknown-linux-musl/release/puls`. This binary is statically linked and portable.
 
 ## Controls
 
