@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["word-sys"]
 description = "A comprehensive system monitoring and editing tool with TUI"
@@ -16,10 +16,6 @@ sysinfo = "0.31"
 users = "0.11"
 
 bollard = { version = "0.17", optional = true }
-
-nvml-wrapper = { version = "0.10", optional = true }
-# AMD GPU support (placeholder for future implementation)
-# libdrm-sys = { version = "0.4", optional = true }
 
 ratatui = "0.26"
 crossterm = "0.28"
@@ -41,11 +37,9 @@ log = "0.4"
 signal-hook = "0.3"
 
 [features]
-default = ["docker", "nvidia-gpu"]
+default = ["docker"]
 docker = ["dep:bollard"]
-nvidia-gpu = ["dep:nvml-wrapper"]
-amd-gpu = []
-full = ["docker", "nvidia-gpu"]
+full = ["docker"]
 
 [profile.release]
 opt-level = 3

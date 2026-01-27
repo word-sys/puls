@@ -85,10 +85,12 @@ impl DataCollector {
             (Vec::new(), None)
         };
         
-        let gpus = if self.config.enable_gpu_monitoring && self.gpu_monitor.is_available() {
-            self.gpu_monitor.get_gpu_info()
+        let gpus = if !self.config.enable_gpu_monitoring {
+            Err("GPU monitoring disabled by configuration".to_string())
+        } else if !self.gpu_monitor.is_available() {
+            Err("GPU monitoring unavailable (monitor reports not available)".to_string())
         } else {
-            Err("GPU monitoring disabled".to_string())
+            self.gpu_monitor.get_gpu_info()
         };
         
         let gpu_util = match &gpus {
