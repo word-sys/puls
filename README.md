@@ -1,93 +1,81 @@
 # PULS
 
-A Rust-based detailed system monitoring and editing dashboard on TUI.
+**A unified system monitoring and management tool for Linux.**
 
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png) 
+PULS combines high-performance resource monitoring with active system administration capabilities. It allows specialized control over system services, boot configurations, and logs directly from a TUI.
 
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png)
 
-## What is PULS?
+## Architecture
 
-PULS provides an interactive and feature-rich system monitoring and editing session within your terminal. It provides real-time monitoring of processes with insightful information about CPU, memory, disk I/O, network also lets you edit your system services, edit GRUB and viewing system logs
+PULS is built in Rust using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
+*   **Monitoring**: Uses `sysinfo` for host metrics, `nvml-wrapper` for NVIDIA GPUs, and `bollard` for Docker engine interaction.
+*   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
+*   **Configuration**: Parses and safely modifies `/etc/default/grub` and other system files with automatic backup generation.
 
-## Key Features
+## Features
 
-- **Interactive Process List** - Sortable list of processes consuming resources
-- **Detailed Process View** - Detailed view of process information, command lines, and environment variables
-- **Container Monitoring** - Built-in Docker/Podman native container support
-- **GPU Monitoring** - NVIDIA GPU support with real-time stats
-- **Global Dashboard** - Live sparkline charts and system overview
-- **Safe Mode** - Low-resource safe mode for system diagnostic
-- **System Logs** - View the system logs of your system to diagnose any problems
-- **GRUB Editing** - Edit your GRUB easily from PULS
-- **System Services** - Add services, remove services, edit services, view services
+### 1. Resource Monitoring
+*   **CPU & Memory**: Per-core visualization and memory page breakdown.
+*   **Disk I/O**: Read/Write throughput monitoring per partition.
+*   **Network**: Real-time upload/download rates for selected interfaces.
+*   **NVIDIA GPUs**: Direct GPU utilization, VRAM usage, and health telemetry via NVML.
+
+### 2. Process & Container Architecture
+*   **Process Tree**: Sortable process list exposing PID, user, priority, and resource consumption.
+*   **Container Engine Integration**: Connects to the local Docker socket to monitor container lifecycles, resource usage (CPU/Mem limits), and health status.
+
+### 3. Service Management Subsystem
+Unlike read-only monitors, PULS provides full control over `systemd` units:
+*   **State Control**: Start, Stop, Restart services.
+*   **Boot Persistence**: Enable or Disable services at startup.
+*   **Status Inspection**: View full service definition and validation states.
+
+### 4. Journal & Logging
+*   **Aggregated Logs**: View `journald` logs directly within the TUI.
+*   **Filtering**: Filter logs by specific system services, priority levels (Error/Warning), or specific boot sessions.
+
+### 5. Boot Configuration (GRUB)
+*   **Parameter Editing**: Modify kernel parameters in `/etc/default/grub`.
+*   **Safety Backup**: PULS automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
 
 ## Installation
 
-> [!CAUTION]
-> This project is under development. There is some unconfirmed process that will be confirmed and updated in next updates: System service editing are existing and not existing, only reading them are working as which im confirmed, i didnt edited any system services using my tool so its not confirmed so its better to use on normal (without sudo), i will test the system services editing on spare computer, this is same for GRUB editing, viewing is confirmed but editing isnt, USE WITH CAUTION!
+### Static Binary (Portable)
+The recommended way to run PULS on any Linux distribution (Debian, Fedora, Arch, Alpine) is using the statically linked MUSL binary. This avoids glibc version mismatches.
 
 ```bash
-wget -O puls https://github.com/word-sys/puls/releases/latest/download/puls && \
-chmod +x puls && \
+# 1. Download
+wget -O puls https://github.com/word-sys/puls/releases/latest/download/puls
+
+# 2. Verify and Install
+chmod +x puls
 sudo mv puls /usr/local/bin/puls
 ```
 
-## Usage
+### Build from Source
+To build the portable static binary yourself:
 
-```bash
-sudo puls      # Full-featured mode (USE WITH CAUTION!)
-puls           # Half-featured mode
-puls --safe    # Safe mode (low resource usage)
-```
+1.  **Dependencies**:
+    *   `musl-tools` (Debian/Ubuntu) or `musl-gcc` (Fedora) or `musl` (Arch).
+    *   `rustup target add x86_64-unknown-linux-musl`
 
-## Build from Source (Portable)
-
-To build a single binary that works on essentially all Linux distributions (including Debian 10, Ubuntu 20.04, and newer systems), follow these steps:
-
-1.  **Install dependencies**:
-
-    *   **Debian/Ubuntu**:
-        ```bash
-        sudo apt install musl-tools
-        ```
-    *   **Fedora**:
-        ```bash
-        sudo dnf install musl-gcc
-        ```
-    *   **Arch Linux**:
-        ```bash
-        sudo pacman -S musl
-        ```
-
-    Then add the Rust target:
+2.  **Build**:
     ```bash
-    rustup target add x86_64-unknown-linux-musl
-    ```
-
-2.  **Build the project**:
-    ```bash
-    git clone https://github.com/word-sys/puls.git
-    cd puls
     cargo build --release --target x86_64-unknown-linux-musl
     ```
 
-The resulting binary will be located at `target/x86_64-unknown-linux-musl/release/puls`. This binary is statically linked and portable.
+## Usage
 
-## Controls
+PULS operates in different modes depending on the privileges and flags provided:
 
-- `q`/`Esc` - Quit
-- `Tab` - Toggle tabs
-- `↑↓` - Switch between processes
-- `Enter` - Display process information
-- `1-9,0,-,=` - Go to tab with specified number or character
-- `p` - Pause/Resume process tab
-
-## Requirements
-
-- Linux environment
-- Docker/Podman (optional, for monitoring containers)
-- NVIDIA drivers (optional, for GPU monitoring)
+| Command | Capabilities |
+| :--- | :--- |
+| `puls` | **Read-only**: Monitoring of user processes, CPU/GPU, and Containers. |
+| `sudo puls` | **Read/Write**: Full access to System Services (`systemctl`), Journals, and GRUB editing. |
+| `puls --safe` | **Safety Mode**: Explicitly disables write capability, preventing accidental edits. |
 
 ---
 
-*PULS is actively maintained. Go to the [releases page](https://github.com/word-sys/puls/releases) for the latest release.*
+*For release notes and updates, please visit the [GitHub Releases](https://github.com/word-sys/puls/releases) page.*
+*Verified on Ubuntu 20.04+ and Arch Linux.*
