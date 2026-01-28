@@ -9,8 +9,9 @@ PULS combines high-performance resource monitoring with active system administra
 ## Architecture
 
 PULS is built in Rust using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
-*   **Monitoring**: Uses `sysinfo` for host metrics, `nvml-wrapper` for NVIDIA GPUs, and `bollard` for Docker engine interaction.
+*   **Monitoring**: Uses `sysinfo` for host metrics, `nvidia-smi` for NVIDIA GPUs, and a native DRM parser for AMD/Intel GPU telemetry. Supports multi-GPU configurations.
 *   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
+*   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory metrics.
 *   **Configuration**: Parses and safely modifies `/etc/default/grub` and other system files with automatic backup generation.
 
 ## Features
@@ -19,7 +20,7 @@ PULS is built in Rust using `ratatui` for the interface and leverages native Lin
 *   **CPU & Memory**: Per-core visualization and memory page breakdown.
 *   **Disk I/O**: Read/Write throughput monitoring per partition.
 *   **Network**: Real-time upload/download rates for selected interfaces.
-*   **NVIDIA GPUs**: Direct GPU utilization, VRAM usage, and health telemetry via NVML.
+*   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. Visual history tracking using Braille patterns.
 
 ### 2. Process & Container Architecture
 *   **Process Tree**: Sortable process list exposing PID, user, priority, and resource consumption.
