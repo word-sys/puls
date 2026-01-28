@@ -38,6 +38,12 @@ impl GpuMonitor {
                 Err(format!("No GPUs found. Errors: {}", errors.join(", ")))
             }
         } else {
+            for (i, gpu) in gpus.iter_mut().enumerate() {
+                gpu.utilization_history = self.gpu_history
+                    .iter()
+                    .filter_map(|frame| frame.get(i).cloned())
+                    .collect();
+            }
             Ok(gpus)
         }
     }
@@ -89,6 +95,7 @@ impl GpuMonitor {
                 pci_link_gen: None,
                 pci_link_width: None,
                 driver_version,
+                utilization_history: Vec::new(),
             });
         }
         
@@ -163,6 +170,7 @@ impl GpuMonitor {
             pci_link_gen: None,
             pci_link_width: None,
             driver_version: "amdgpu".to_string(),
+            utilization_history: Vec::new(),
         })
     }
     
@@ -245,6 +253,7 @@ impl GpuMonitor {
             pci_link_gen: None,
             pci_link_width: None,
             driver_version: "i915".to_string(),
+            utilization_history: Vec::new(),
         })
     }
 

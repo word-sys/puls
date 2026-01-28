@@ -4,7 +4,8 @@ pub mod layouts;
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs, BorderType},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs, BorderType, Chart, Dataset, GraphType, Axis},
+    symbols::Marker,
 };
 
 use crate::types::AppState;
@@ -47,6 +48,10 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     
     if let Some(pid) = state.pending_kill_pid {
         render_kill_confirmation(f, pid, theme);
+    }
+    
+    if let Some((action, name)) = &state.pending_service_action {
+        render_service_action_confirmation(f, action, name, theme);
     }
 }
 
@@ -98,6 +103,33 @@ fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, theme: &crate::ui:
         .style(Style::default().fg(theme.text))
         .alignment(Alignment::Center);
         
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    let popup_area = Rect {
+        x: area.width / 4,
+        y: area.height / 2 - 2,
+        width: area.width / 2,
+        height: 5,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let title = format!("⚠ {} Service", action.to_uppercase());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning));
+
+    let text = format!("{} service '{}'?\n\ny: Yes  |  n/Esc: Cancel", action, name);
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .alignment(Alignment::Center);
+
     f.render_widget(paragraph, popup_area);
 }
 
@@ -1098,23 +1130,39 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .ratio(gpu.utilization as f64 / 100.0);
     f.render_widget(util_gauge, layout[0]);
     
-    let history_block = Block::default()
-        .title("Utilization History")
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(theme.border));
-    
-    let sparkline_inner = history_block.inner(layout[1]);
-    f.render_widget(history_block, layout[1]);
-    
-    let sparkline_data: Vec<u64> = (0..sparkline_inner.width as usize)
-        .map(|_| gpu.utilization as u64)
+    let history_len = gpu.utilization_history.len();
+    let data: Vec<(f64, f64)> = gpu.utilization_history
+        .iter()
+        .enumerate()
+        .map(|(i, &u)| (i as f64, u as f64))
         .collect();
-    
-    let sparkline = Sparkline::default()
-        .data(&sparkline_data)
-        .style(Style::default().fg(util_color));
-    f.render_widget(sparkline, sparkline_inner);
+        
+    let dataset = Dataset::default()
+        .marker(Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(util_color))
+        .data(&data);
+        
+    let chart = Chart::new(vec![dataset])
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, history_len as f64])
+                .labels(vec![])
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, 100.0])
+                .labels(vec![])
+        )
+        .block(
+             Block::default()
+                .title("Utilization History")
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border))
+        );
+        
+    f.render_widget(chart, layout[1]);
     
     let mem_percent = if gpu.memory_total > 0 {
         (gpu.memory_used as f64 / gpu.memory_total as f64 * 100.0) as f32
@@ -1251,8 +1299,8 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         translator.t("help.paused")
     } else {
         match state.active_tab {
-            0 => "q:Quit | ↑↓:Select | k:Kill | p:Pause | t:Theme | /:Search".to_string(),
-            8 => "↑↓:Navigate | s:Start | x:Stop | r:Restart | +:Enable | _:Disable | l:Status".to_string(),
+            0 => "q: Quit | ↑↓: Select | k: Kill | p: Pause | t: Theme | /: Search | Tab/1-9: Navigate | Ctrl+g: Sort General".to_string(),
+            8 => "↑↓: Navigate | s: Start | x: Stop | r: Restart | +: Enable | _: Disable | l: Status".to_string(),
             _ => translator.t("help.main"),
         }
     };

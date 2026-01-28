@@ -19,14 +19,7 @@ impl SystemManager {
     }
 
     fn check_sudo() -> bool {
-        match Command::new("sudo")
-            .arg("-n")
-            .arg("true")
-            .output()
-        {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
-        }
+        users::get_current_uid() == 0
     }
 
     pub fn get_services(&self) -> Vec<ServiceInfo> {
@@ -86,11 +79,11 @@ impl SystemManager {
 
     pub fn start_service(&self, service_name: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("sudo")
-            .args(&["systemctl", "start", &format!("{}.service", service_name)])
+        let output = Command::new("systemctl")
+            .args(&["start", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -103,11 +96,11 @@ impl SystemManager {
 
     pub fn stop_service(&self, service_name: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("sudo")
-            .args(&["systemctl", "stop", &format!("{}.service", service_name)])
+        let output = Command::new("systemctl")
+            .args(&["stop", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -120,11 +113,11 @@ impl SystemManager {
 
     pub fn restart_service(&self, service_name: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("sudo")
-            .args(&["systemctl", "restart", &format!("{}.service", service_name)])
+        let output = Command::new("systemctl")
+            .args(&["restart", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -137,11 +130,11 @@ impl SystemManager {
 
     pub fn enable_service(&self, service_name: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("sudo")
-            .args(&["systemctl", "enable", &format!("{}.service", service_name)])
+        let output = Command::new("systemctl")
+            .args(&["enable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -154,11 +147,11 @@ impl SystemManager {
 
     pub fn disable_service(&self, service_name: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("sudo")
-            .args(&["systemctl", "disable", &format!("{}.service", service_name)])
+        let output = Command::new("systemctl")
+            .args(&["disable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -345,7 +338,7 @@ impl SystemManager {
 
     pub fn set_grub_config(&self, key: &str, value: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
         let grub_file = "/etc/default/grub";
@@ -353,8 +346,8 @@ impl SystemManager {
         let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
         let backup_file = format!("{}.bak.{}", grub_file, timestamp);
         
-        Command::new("sudo")
-            .args(&["cp", grub_file, &backup_file])
+        Command::new("cp")
+            .args(&[grub_file, &backup_file])
             .output()
             .map_err(|e| format!("Failed to create backup: {}", e))?;
 
@@ -378,10 +371,8 @@ impl SystemManager {
             new_content.push_str(&format!("{}=\"{}\"\n", key, value));
         }
 
-        let mut child = Command::new("sudo")
-            .arg("tee")
+        let mut child = Command::new("tee")
             .arg(grub_file)
-            .arg("/dev/null")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .spawn()
@@ -398,11 +389,11 @@ impl SystemManager {
 
     pub fn set_hostname(&self, new_hostname: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        Command::new("sudo")
-            .args(&["hostnamectl", "set-hostname", new_hostname])
+        Command::new("hostnamectl")
+            .args(&["set-hostname", new_hostname])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -411,11 +402,11 @@ impl SystemManager {
 
     pub fn set_timezone(&self, timezone: &str) -> Result<(), String> {
         if !self.has_sudo {
-            return Err("Insufficient privileges (sudo required)".to_string());
+            return Err("Insufficient privileges (root required)".to_string());
         }
 
-        Command::new("sudo")
-            .args(&["timedatectl", "set-timezone", timezone])
+        Command::new("timedatectl")
+            .args(&["set-timezone", timezone])
             .output()
             .map_err(|e| e.to_string())?;
 

@@ -261,9 +261,15 @@ fn handle_key_event(
         }
         
         KeyCode::Char('k') | KeyCode::Char('K') if state.active_tab == 0 && state.pending_kill_pid.is_none() => {
-            if let Some(pid) = state.selected_pid {
-                if state.has_sudo {
-                    state.pending_kill_pid = Some(pid);
+            if let Some(idx) = state.process_table_state.selected() {
+                if idx < state.dynamic_data.processes.len() {
+                    let pid_str = &state.dynamic_data.processes[idx].pid;
+                    if let Ok(pid_num) = pid_str.parse::<usize>() {
+                         let pid = sysinfo::Pid::from(pid_num);
+                         if state.has_sudo {
+                             state.pending_kill_pid = Some(pid);
+                         }
+                    }
                 }
             }
         }
@@ -271,9 +277,21 @@ fn handle_key_event(
         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_kill_pid.is_some() => {
             if let Some(pid) = state.pending_kill_pid.take() {
                 use std::process::Command;
-                let _ = Command::new("sudo")
-                    .args(["kill", "-9", &pid.to_string()])
+                let output = Command::new("kill")
+                    .args(["-9", &pid.to_string()])
                     .output();
+                
+                match output {
+                    Ok(out) if !out.status.success() => {
+                        let err = String::from_utf8_lossy(&out.stderr).to_string();
+                        state.service_status_modal = Some(("Kill Failed".to_string(), err));
+                    }
+                    Err(e) => {
+                        state.service_status_modal = Some(("Kill Failed".to_string(), e.to_string()));
+                    }
+                    _ => {}
+                }
+                
                 state.selected_pid = None;
             }
         }
@@ -281,15 +299,35 @@ fn handle_key_event(
         KeyCode::Char('n') | KeyCode::Char('N') if state.pending_kill_pid.is_some() => {
             state.pending_kill_pid = None;
         }
+
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_service_action.is_some() => {
+             if let Some((action, service_name)) = state.pending_service_action.take() {
+                let sys_mgr = system_service::SystemManager::new();
+                let result = match action.as_str() {
+                    "stop" => sys_mgr.stop_service(&service_name),
+                    _ => Ok(()),
+                };
+
+                match result {
+                    Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Stopped {}", service_name))),
+                    Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                }
+                state.services = sys_mgr.get_services();
+             }
+        }
+
+        KeyCode::Char('n') | KeyCode::Char('N') if state.pending_service_action.is_some() => {
+             state.pending_service_action = None;
+        }
         
-        KeyCode::Down if state.active_tab == 8 => {
+        KeyCode::Down if state.active_tab == 8 && state.pending_service_action.is_none() => {
             let len = state.services.len();
             if len > 0 {
                 let current = state.services_table_state.selected().unwrap_or(0);
                 state.services_table_state.select(Some((current + 1) % len));
             }
         }
-        KeyCode::Up if state.active_tab == 8 => {
+        KeyCode::Up if state.active_tab == 8 && state.pending_service_action.is_none() => {
             let len = state.services.len();
             if len > 0 {
                 let current = state.services_table_state.selected().unwrap_or(0);
@@ -336,7 +374,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('s') if state.active_tab == 8 && state.editing_service.is_none() => {
+        KeyCode::Char('s') if state.active_tab == 8 && state.editing_service.is_none() && state.pending_service_action.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
                     if service.can_start && state.has_sudo {
@@ -352,17 +390,11 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('x') if state.active_tab == 8 && state.editing_service.is_none() => {
+        KeyCode::Char('x') if state.active_tab == 8 && state.editing_service.is_none() && state.pending_service_action.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
                     if service.can_stop && state.has_sudo {
-                        let sys_mgr = system_service::SystemManager::new();
-                        let service_name = service.name.clone();
-                        match sys_mgr.stop_service(&service_name) {
-                            Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Stopped {}", service_name))),
-                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
-                        }
-                        state.services = sys_mgr.get_services();
+                        state.pending_service_action = Some(("stop".to_string(), service.name.clone()));
                     }
                 }
             }
@@ -488,7 +520,10 @@ fn handle_key_event(
             state.sort_by = ProcessSortBy::Name;
             state.sort_ascending = !state.sort_ascending;
         }
-        
+        KeyCode::Char('g') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.sort_by = ProcessSortBy::General;
+            state.sort_ascending = !state.sort_ascending;
+        }
         KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.show_system_processes = !state.show_system_processes;
         }
@@ -540,12 +575,14 @@ async fn data_collection_loop(
         
         let collection_start = Instant::now();
         
-        let (selected_pid, show_system_processes, filter_text) = {
+        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending) = {
             let state = app_state.lock();
             (
                 state.selected_pid,
                 state.show_system_processes,
                 state.filter_text.clone(),
+                state.sort_by.clone(),
+                state.sort_ascending,
             )
         };
         
@@ -555,6 +592,8 @@ async fn data_collection_loop(
                 selected_pid,
                 show_system_processes,
                 &filter_text,
+                &sort_by,
+                sort_ascending,
                 prev_global_usage.clone(),
             ).await
         };

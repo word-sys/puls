@@ -39,11 +39,12 @@ impl DataCollector {
         selected_pid: Option<sysinfo::Pid>,
         show_system_processes: bool,
         filter: &str,
+        sort_by: &crate::types::ProcessSortBy,
+        sort_ascending: bool,
         mut prev_global_usage: GlobalUsage,
     ) -> DynamicData {
         let now = Instant::now();
         let collection_start = now;
-        
         let mut processes = self.system_monitor.update_processes(
             show_system_processes,
             filter
@@ -51,10 +52,11 @@ impl DataCollector {
         
         crate::monitors::system_monitor::sort_processes(
             &mut processes,
-            &crate::types::ProcessSortBy::Cpu,
-            false
-        );
-        
+            sort_by,
+            sort_ascending,
+            self.system_monitor.get_total_memory()
+        );    
+ 
         let detailed_process = selected_pid
             .and_then(|pid| self.system_monitor.get_detailed_process(pid));
         

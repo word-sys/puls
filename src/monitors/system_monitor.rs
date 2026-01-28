@@ -66,6 +66,10 @@ impl SystemMonitor {
             }),
         ]
     }
+
+    pub fn get_total_memory(&self) -> u64 {
+        self.system.total_memory()
+    }
     
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
         let now = Instant::now();
@@ -326,7 +330,7 @@ impl Default for SystemMonitor {
     }
 }
 
-pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy, ascending: bool) {
+pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy, ascending: bool, total_memory: u64) {
     match sort_by {
         ProcessSortBy::Cpu => {
             processes.sort_by(|a, b| {
@@ -357,6 +361,14 @@ pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy,
         ProcessSortBy::DiskRead | ProcessSortBy::DiskWrite => {
             processes.sort_by(|a, b| {
                 let cmp = a.cpu.partial_cmp(&b.cpu).unwrap_or(std::cmp::Ordering::Equal);
+                if ascending { cmp } else { cmp.reverse() }
+            });
+        },
+        ProcessSortBy::General => {
+            processes.sort_by(|a, b| {
+                let a_score = a.cpu + (a.mem as f32 / total_memory as f32 * 100.0);
+                let b_score = b.cpu + (b.mem as f32 / total_memory as f32 * 100.0);
+                let cmp = a_score.partial_cmp(&b_score).unwrap_or(std::cmp::Ordering::Equal);
                 if ascending { cmp } else { cmp.reverse() }
             });
         },
@@ -402,10 +414,10 @@ mod tests {
             },
         ];
         
-        sort_processes(&mut processes, &ProcessSortBy::Cpu, false);
+        sort_processes(&mut processes, &ProcessSortBy::Cpu, false, 8192 * 1024 * 1024);
         assert_eq!(processes[0].name, "kthreadd");
         
-        sort_processes(&mut processes, &ProcessSortBy::Memory, false);
+        sort_processes(&mut processes, &ProcessSortBy::Memory, false, 8192 * 1024 * 1024);
         assert_eq!(processes[0].name, "kthreadd");
     }
 }

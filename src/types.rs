@@ -58,6 +58,7 @@ pub struct GpuInfo {
     pub graphics_clock: u32,
     pub memory_clock: u32,
     pub fan_speed: Option<u32>,
+    pub utilization_history: Vec<u32>,
     pub pci_link_gen: Option<u32>,
     pub pci_link_width: Option<u32>,
     pub driver_version: String,
@@ -256,6 +257,7 @@ pub struct AppState {
     pub docker_error: Option<String>,
     pub current_theme: usize,
     pub pending_kill_pid: Option<sysinfo::Pid>,
+    pub pending_service_action: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -327,6 +329,7 @@ pub enum ProcessSortBy {
     Pid,
     DiskRead,
     DiskWrite,
+    General,
 }
 
 impl Default for ProcessSortBy {
