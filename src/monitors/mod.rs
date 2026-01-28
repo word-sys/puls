@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod system_monitor;
 pub mod gpu_monitor;
 pub mod container_monitor;

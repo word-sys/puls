@@ -78,7 +78,7 @@ impl SystemMonitor {
         let mut current_disk_usage = HashMap::new();
         let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
-            .filter(|(pid, process)| {
+            .filter(|(_pid, process)| {
                 /*
                 if pid.as_u32() == self.self_pid {
                     return false;

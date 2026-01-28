@@ -32,12 +32,7 @@ impl ContainerMonitor {
     fn init_docker() -> Option<Docker> {
         match Docker::connect_with_local_defaults() {
             Ok(docker) => Some(docker),
-            Err(e) => {
-                if !e.to_string().contains("No such file or directory") {
-                    eprintln!("Failed to connect to Docker: {}", e);
-                }
-                None
-            }
+            Err(_) => None,
         }
     }
     
@@ -58,8 +53,8 @@ impl ContainerMonitor {
              return Err("Docker service not running".to_string());
         }
         
-        
-        Ok(Vec::new())
+        #[cfg(not(feature = "docker"))]
+        Err("Docker support not compiled".to_string())
     }
     
     #[cfg(feature = "docker")]

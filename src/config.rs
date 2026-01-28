@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use clap::Parser;
 use crate::types::AppConfig;
 use crate::language::Language;
@@ -65,7 +67,7 @@ impl From<Cli> for AppConfig {
 
 impl AppConfig {
     pub fn ui_refresh_rate_ms(&self) -> u64 {
-        16
+        50  // 20 FPS
     }
     
     pub fn data_refresh_rate_ms(&self) -> u64 {

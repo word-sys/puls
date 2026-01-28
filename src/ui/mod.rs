@@ -8,13 +8,13 @@ use ratatui::{
 };
 
 use crate::types::AppState;
-use crate::utils::{format_size, format_rate, format_percentage, format_frequency, get_usage_color, truncate_string, get_system_health, get_top_memory_consumers, get_cpu_efficiency, estimate_memory_availability};
+use crate::utils::{format_size, format_rate, format_percentage, format_frequency, get_usage_color, truncate_string, get_system_health, get_cpu_efficiency, estimate_memory_availability};
 use crate::language::Translator;
 
 pub use layouts::*;
 
 pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, translator: &Translator) {
-    let theme_manager = crate::ui::colors::ThemeManager::new();
+    let theme_manager = crate::ui::colors::ThemeManager::from_index(state.current_theme);
     let theme = theme_manager.get_theme();
     
     let main_layout = create_main_layout(f.size());
@@ -44,6 +44,10 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     if let Some((name, status)) = &state.service_status_modal {
         render_service_status_modal(f, name, status, theme);
     }
+    
+    if let Some(pid) = state.pending_kill_pid {
+        render_kill_confirmation(f, pid, theme);
+    }
 }
 
 fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, theme: &crate::ui::colors::ColorScheme) {
@@ -67,6 +71,32 @@ fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, theme: &
         .block(block)
         .style(Style::default().fg(theme.text))
         .wrap(ratatui::widgets::Wrap { trim: false });
+        
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    let popup_area = Rect {
+        x: area.width / 4,
+        y: area.height / 2 - 2,
+        width: area.width / 2,
+        height: 5,
+    };
+    
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+    
+    let block = Block::default()
+        .title("⚠ Kill Process")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning));
+    
+    let text = format!("Kill process {}?\n\ny: Yes  |  n/Esc: Cancel", pid);
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .alignment(Alignment::Center);
         
     f.render_widget(paragraph, popup_area);
 }
@@ -904,6 +934,66 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &cr
         return;
     }
     
+    let containers = &state.dynamic_data.containers;
+    
+    let headers = vec![
+        "ID", "Name", "Image", "Status", "CPU", "Memory", 
+        "Net ↓/s", "Net ↑/s", "Disk R/s", "Disk W/s", "Ports"
+    ];
+    
+    let rows = containers.iter().map(|c| {
+        let status_color = if c.status.to_lowercase().contains("up") {
+            theme.success
+        } else if c.status.to_lowercase().contains("exit") {
+            theme.error
+        } else {
+            theme.warning
+        };
+        
+        Row::new(vec![
+            c.id.clone(),
+            truncate_string(&c.name, 20),
+            truncate_string(&c.image, 25),
+            c.status.clone(),
+            c.cpu.clone(),
+            c.mem.clone(),
+            c.net_down.clone(),
+            c.net_up.clone(),
+            c.disk_r.clone(),
+            c.disk_w.clone(),
+            truncate_string(&c.ports, 20),
+        ]).style(Style::default().fg(status_color))
+    });
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(12),  // ID
+            Constraint::Min(15),     // Name
+            Constraint::Length(25),  // Image
+            Constraint::Length(12),  // Status
+            Constraint::Length(8),   // CPU
+            Constraint::Length(10),  // Memory
+            Constraint::Length(10),  // Net Down
+            Constraint::Length(10),  // Net Up
+            Constraint::Length(10),  // Disk Read
+            Constraint::Length(10),  // Disk Write
+            Constraint::Min(15),     // Ports
+        ]
+    )
+    .header(
+        Row::new(headers)
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+    )
+    .block(
+        Block::default()
+            .title(format!("Containers ({} running)", containers.len()))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+    );
+    
+    f.render_widget(table, area);
 }
 
 fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -994,7 +1084,11 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(3)])
+        .constraints([
+            Constraint::Length(1),  
+            Constraint::Length(3),  
+            Constraint::Min(3),     
+        ])
         .split(inner_area);
     
     let util_color = get_usage_color(gpu.utilization as f32);
@@ -1003,6 +1097,24 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .gauge_style(Style::default().fg(util_color))
         .ratio(gpu.utilization as f64 / 100.0);
     f.render_widget(util_gauge, layout[0]);
+    
+    let history_block = Block::default()
+        .title("Utilization History")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+    
+    let sparkline_inner = history_block.inner(layout[1]);
+    f.render_widget(history_block, layout[1]);
+    
+    let sparkline_data: Vec<u64> = (0..sparkline_inner.width as usize)
+        .map(|_| gpu.utilization as u64)
+        .collect();
+    
+    let sparkline = Sparkline::default()
+        .data(&sparkline_data)
+        .style(Style::default().fg(util_color));
+    f.render_widget(sparkline, sparkline_inner);
     
     let mem_percent = if gpu.memory_total > 0 {
         (gpu.memory_used as f64 / gpu.memory_total as f64 * 100.0) as f32
@@ -1055,7 +1167,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     }
     
     let details_paragraph = Paragraph::new(details).style(Style::default().fg(theme.text));
-    f.render_widget(details_paragraph, layout[1]);
+    f.render_widget(details_paragraph, layout[2]);
 }
 
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -1138,7 +1250,11 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
     let help_text = if state.paused {
         translator.t("help.paused")
     } else {
-        translator.t("help.main")
+        match state.active_tab {
+            0 => "q:Quit | ↑↓:Select | k:Kill | p:Pause | t:Theme | /:Search".to_string(),
+            8 => "↑↓:Navigate | s:Start | x:Stop | r:Restart | +:Enable | _:Disable | l:Status".to_string(),
+            _ => translator.t("help.main"),
+        }
     };
     
     let alert_text = if !alerts.is_empty() {
@@ -1240,7 +1356,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             })
     );
     
-    let mut service_state = state.services_table_state.clone();
+    let service_state = state.services_table_state.clone();
     f.render_stateful_widget(table, area, &mut service_state.clone());
 }
 
@@ -1375,7 +1491,7 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
             .border_style(Style::default().fg(theme.border))
     );
     
-    let mut logs_state = state.logs_table_state.clone();
+    let logs_state = state.logs_table_state.clone();
     f.render_stateful_widget(table, chunks[1], &mut logs_state.clone());
 }
 
@@ -1450,11 +1566,11 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             })
     );
     
-    let mut config_state = state.config_table_state.clone();
+    let config_state = state.config_table_state.clone();
     f.render_stateful_widget(table, area, &mut config_state.clone());
 }
 
-fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

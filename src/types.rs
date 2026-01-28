@@ -254,6 +254,8 @@ pub struct AppState {
     pub service_status_modal: Option<(String, String)>,
     pub editing_filter: bool,
     pub docker_error: Option<String>,
+    pub current_theme: usize,
+    pub pending_kill_pid: Option<sysinfo::Pid>,
 }
 
 #[derive(Clone, Debug)]

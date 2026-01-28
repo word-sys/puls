@@ -7,11 +7,10 @@ mod language;
 mod system_service;
 mod error_logger;
 
-use crate::types::{AppState, ProcessSortBy, ServiceInfo, LogEntry, ConfigItem, BootInfo};
+use crate::types::{AppState, ProcessSortBy};
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
 
 
 use parking_lot::Mutex;
@@ -146,6 +145,10 @@ fn handle_key_event(
     
     match key.code {
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            if state.pending_kill_pid.is_some() {
+                state.pending_kill_pid = None;
+                return Ok(false);
+            }
             if state.service_status_modal.is_some() {
                  state.service_status_modal = None;
                  return Ok(false);
@@ -246,11 +249,37 @@ fn handle_key_event(
         KeyCode::Char('-') => state.active_tab = 10,
         KeyCode::Char('=') => state.active_tab = 11,
         
+        KeyCode::Char('t') | KeyCode::Char('T') => {
+            state.current_theme = (state.current_theme + 1) % 3;
+        }
+        
         KeyCode::Down if state.active_tab == 0 => {
             handle_process_navigation(&mut state, true);
         }
         KeyCode::Up if state.active_tab == 0 => {
             handle_process_navigation(&mut state, false);
+        }
+        
+        KeyCode::Char('k') | KeyCode::Char('K') if state.active_tab == 0 && state.pending_kill_pid.is_none() => {
+            if let Some(pid) = state.selected_pid {
+                if state.has_sudo {
+                    state.pending_kill_pid = Some(pid);
+                }
+            }
+        }
+        
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_kill_pid.is_some() => {
+            if let Some(pid) = state.pending_kill_pid.take() {
+                use std::process::Command;
+                let _ = Command::new("sudo")
+                    .args(["kill", "-9", &pid.to_string()])
+                    .output();
+                state.selected_pid = None;
+            }
+        }
+        
+        KeyCode::Char('n') | KeyCode::Char('N') if state.pending_kill_pid.is_some() => {
+            state.pending_kill_pid = None;
         }
         
         KeyCode::Down if state.active_tab == 8 => {
@@ -312,7 +341,11 @@ fn handle_key_event(
                 if let Some(service) = state.services.get(idx) {
                     if service.can_start && state.has_sudo {
                         let sys_mgr = system_service::SystemManager::new();
-                        let _ = sys_mgr.start_service(&service.name);
+                        let service_name = service.name.clone();
+                        match sys_mgr.start_service(&service_name) {
+                            Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Started {}", service_name))),
+                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                        }
                         state.services = sys_mgr.get_services();
                     }
                 }
@@ -324,7 +357,11 @@ fn handle_key_event(
                 if let Some(service) = state.services.get(idx) {
                     if service.can_stop && state.has_sudo {
                         let sys_mgr = system_service::SystemManager::new();
-                        let _ = sys_mgr.stop_service(&service.name);
+                        let service_name = service.name.clone();
+                        match sys_mgr.stop_service(&service_name) {
+                            Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Stopped {}", service_name))),
+                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                        }
                         state.services = sys_mgr.get_services();
                     }
                 }
@@ -336,8 +373,44 @@ fn handle_key_event(
                 if let Some(service) = state.services.get(idx) {
                     if state.has_sudo {
                         let sys_mgr = system_service::SystemManager::new();
-                        let _ = sys_mgr.restart_service(&service.name);
+                        let service_name = service.name.clone();
+                        match sys_mgr.restart_service(&service_name) {
+                            Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Restarted {}", service_name))),
+                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                        }
                         state.services = sys_mgr.get_services();
+                    }
+                }
+            }
+        }
+
+        KeyCode::Char('+') if state.active_tab == 8 && state.editing_service.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    if state.has_sudo {
+                         let sys_mgr = system_service::SystemManager::new();
+                         let service_name = service.name.clone();
+                         match sys_mgr.enable_service(&service_name) {
+                             Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Enabled {}", service_name))),
+                             Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                         }
+                         state.services = sys_mgr.get_services();
+                    }
+                }
+            }
+        }
+        
+        KeyCode::Char('_') if state.active_tab == 8 && state.editing_service.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    if state.has_sudo {
+                         let sys_mgr = system_service::SystemManager::new();
+                         let service_name = service.name.clone();
+                         match sys_mgr.disable_service(&service_name) {
+                             Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Disabled {}", service_name))),
+                             Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                         }
+                         state.services = sys_mgr.get_services();
                     }
                 }
             }

@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 authors = ["word-sys"]
 description = "A comprehensive system monitoring and editing tool with TUI"

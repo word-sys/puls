@@ -50,7 +50,7 @@ impl SystemManager {
                     continue;
                 }
 
-                let status = parts[3];
+                let _status = parts[3];
                 let active = parts[2];
 
                 let enabled_output = Command::new("systemctl")
