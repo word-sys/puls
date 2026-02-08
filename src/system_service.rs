@@ -1,6 +1,7 @@
 use std::process::Command;
 use std::path::Path;
 use std::io::Write;
+use std::collections::{HashMap, HashSet};
 use crate::types::{ServiceInfo, LogEntry, ConfigItem};
 use chrono::Local;
 
@@ -24,55 +25,96 @@ impl SystemManager {
 
     pub fn get_services(&self) -> Vec<ServiceInfo> {
         let mut services = Vec::new();
+        let mut loaded_states = HashMap::new();
+        let mut visited_services = HashSet::new();
 
-        let output = match Command::new("systemctl")
-            .args(&["list-units", "--type=service", "--all", "--no-pager", "--quiet"])
+        if let Ok(output) = Command::new("systemctl")
+            .args(&["list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--full"])
             .output()
         {
-            Ok(output) => output,
-            Err(_) => return services,
-        };
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        for line in stdout.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 4 {
-                let service_name = parts[0];
-                if !service_name.ends_with(".service") {
-                    continue;
-                }
-
-                let _status = parts[3];
-                let active = parts[2];
-
-                let enabled_output = Command::new("systemctl")
-                    .args(&["is-enabled", service_name])
-                    .output();
-
-                let is_enabled = match enabled_output {
-                    Ok(output) => String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .to_string() == "enabled",
-                    Err(_) => false,
-                };
-
-                let is_running = active == "active";
-
-                services.push(ServiceInfo {
-                    name: service_name.replace(".service", ""),
-                    description: format!("{} Service", service_name.replace(".service", "")),
-                    status: if is_running {
-                        "Running".to_string()
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let name = parts[0];
+                    let active = parts[2];
+                    
+                    let description = if parts.len() > 4 {
+                        parts[4..].join(" ")
                     } else {
-                        "Stopped".to_string()
-                    },
-                    enabled: is_enabled,
-                    can_start: !is_running && self.has_sudo,
-                    can_stop: is_running && self.has_sudo,
-                });
+                        format!("{} Service", name.replace(".service", ""))
+                    };
+                    
+                    loaded_states.insert(name.to_string(), (active.to_string(), description));
+                }
             }
         }
+
+        if let Ok(output) = Command::new("systemctl")
+            .args(&["list-unit-files", "--type=service", "--no-pager", "--no-legend", "--full"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let name = parts[0];
+                    if !name.ends_with(".service") {
+                        continue;
+                    }
+                    
+                    visited_services.insert(name.to_string());
+                    let state = parts[1];
+                    let is_enabled = state == "enabled";
+                    let (status_str, description) = if let Some((active, desc)) = loaded_states.get(name) {
+                        let s = match active.as_str() {
+                            "active" => "Running",
+                            "activating" => "Starting",
+                            "deactivating" => "Stopping",
+                            "failed" => "Failed",
+                            "reloading" => "Reloading",
+                            _ => "Stopped",
+                        };
+                        (s.to_string(), desc.clone())
+                    } else {
+                        ("Stopped".to_string(), format!("{} Service", name.replace(".service", "")))
+                    };
+
+                    let is_running = status_str == "Running" || status_str == "Starting" || status_str == "Reloading";
+
+                    services.push(ServiceInfo {
+                        name: name.replace(".service", ""),
+                        description,
+                        status: status_str,
+                        enabled: is_enabled,
+                        can_start: !is_running && self.has_sudo,
+                        can_stop: is_running && self.has_sudo,
+                    });
+                }
+            }
+        }
+        
+        for (name, (active, description)) in &loaded_states {
+            if !visited_services.contains(name) {
+                 if !name.ends_with(".service") {
+                     continue;
+                 }
+                 
+                 let status_str = if active == "active" { "Running" } else { "Stopped" };
+                 let is_running = status_str == "Running";
+                 
+                 services.push(ServiceInfo {
+                     name: name.replace(".service", ""),
+                     description: description.clone(),
+                     status: status_str.to_string(),
+                     enabled: false,
+                     can_start: !is_running && self.has_sudo,
+                     can_stop: is_running && self.has_sudo,
+                 });
+            }
+        }
+        
+        services.sort_by(|a, b| a.name.cmp(&b.name));
 
         services
     }

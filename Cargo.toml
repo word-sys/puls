@@ -1,9 +1,9 @@
 [package]
 name = "puls"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 authors = ["word-sys"]
-description = "A comprehensive system monitoring and editing tool with TUI"
+description = "A unified system monitoring and management tool for Linux"
 license = "GPL-3.0"
 repository = "https://github.com/word-sys/puls"
 
@@ -12,10 +12,10 @@ name = "puls"
 path = "src/main.rs"
 
 [dependencies]
-sysinfo = "0.31"  
+sysinfo = "0.33"  
 users = "0.11"
 
-bollard = { version = "0.17", optional = true }
+bollard = { version = "0.18", optional = true }
 
 ratatui = "0.26"
 crossterm = "0.28"
@@ -51,3 +51,14 @@ strip = true
 [profile.dev]
 opt-level = 0
 debug = true
+
+[package.metadata.deb]
+maintainer = "word-sys <baringuzeldemir@gmail.com>"
+copyright = "2026, word-sys"
+depends = "$auto" 
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/puls", "usr/bin/", "755"],
+]
+

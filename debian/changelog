@@ -1,0 +1,28 @@
+puls (0.6.1) buster; urgency=medium
+
+  * Added GPU Memory Monitoring
+  * Made AMD GPU Fix for fixing "zeros"
+  * Added Debian Packaging for Debian systems
+  * Added Detailed Resource Info
+  * Changed UI Layout and Summary Bar for better visibility
+  * Improved Performace
+  * Fixed Docker "legacy" error
+  * Fixed Service Management "Stop Function not working"
+
+ -- word-sys <baringuzeldemir@gmail.com>  Sun, 08 Feb 2026 14:00:00 +0000
+
+puls (0.6.0) buster; urgency=medium
+
+  * Added Multi-Vendor GPU Support and Multi-GPU Monitoring
+  * Added GPU History Visualization
+  * Added General Process Sorting to General Tab
+  * Added Service Action Confirmations for verification
+  * Improved Sudo Privilege Detection
+  * Fixed Process Kill Logic
+  * Fixed Dashboard UI
+  * Fixed UI Consistency
+  * Changed Refactored GPU monitoring to be more resilient and support multi-vram/multi-core telemetry
+  * Updated Dashboard layout for better information density
+  * Improved system service management safety checks
+
+ -- word-sys <baringuzeldemir@gmail.com>  Wed, 28 Jan 2026 15:00:00 +0000

@@ -272,28 +272,21 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
     
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner_area);
     
     let net_text = format!("▼{} ▲{}", format_rate(usage.net_down), format_rate(usage.net_up));
     let net_paragraph = Paragraph::new(net_text)
-        .alignment(Alignment::Center)
+        .alignment(Alignment::Left)
         .style(Style::default().fg(theme.accent));
     f.render_widget(net_paragraph, layout[0]);
     
-    if !usage.net_down_history.is_empty() || !usage.net_up_history.is_empty() {
-        let combined_data: Vec<u64> = usage.net_down_history
-            .iter()
-            .zip(usage.net_up_history.iter())
-            .map(|(&down, &up)| down.max(up))
-            .collect();
-        
-        if !combined_data.is_empty() {
-            let sparkline = Sparkline::default()
-                .data(&combined_data)
-                .style(Style::default().fg(theme.accent));
-            f.render_widget(sparkline, layout[1]);
-        }
+    if !usage.net_down_history.is_empty() {
+         let data: Vec<u64> = usage.net_down_history.iter().cloned().collect();
+         let sparkline = Sparkline::default()
+            .data(&data)
+            .style(Style::default().fg(theme.accent));
+        f.render_widget(sparkline, layout[1]);
     }
 }
 
@@ -306,38 +299,31 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
-    
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner_area);
-    
-    let disk_text = format!("▼{} ▲{}", format_rate(usage.disk_read), format_rate(usage.disk_write));
+
+    let disk_text = format!("R:{} W:{}", format_rate(usage.disk_read), format_rate(usage.disk_write));
     let disk_paragraph = Paragraph::new(disk_text)
-        .alignment(Alignment::Center)
+        .alignment(Alignment::Left)
         .style(Style::default().fg(theme.warning));
     f.render_widget(disk_paragraph, layout[0]);
     
-    if !usage.disk_read_history.is_empty() || !usage.disk_write_history.is_empty() {
-        let combined_data: Vec<u64> = usage.disk_read_history
-            .iter()
-            .zip(usage.disk_write_history.iter())
-            .map(|(&read, &write)| read.max(write))
-            .collect();
-        
-        if !combined_data.is_empty() {
-            let sparkline = Sparkline::default()
-                .data(&combined_data)
-                .style(Style::default().fg(theme.warning));
-            f.render_widget(sparkline, layout[1]);
-        }
+    if !usage.disk_read_history.is_empty() {
+        let data: Vec<u64> = usage.disk_read_history.iter().cloned().collect();
+        let sparkline = Sparkline::default()
+             .data(&data)
+             .style(Style::default().fg(theme.warning));
+        f.render_widget(sparkline, layout[1]);
     }
 }
 
 fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Percentage(57), Constraint::Percentage(40)])
+        .constraints([Constraint::Length(3), Constraint::Percentage(75), Constraint::Percentage(22)])
         .split(area);
     
     render_system_status(f, state, layout[0], translator, theme);
@@ -373,14 +359,14 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     let (mem_available, availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
     
     let status_text = format!(
-        "Status {} | CPU: {:.0}% (Eff: {}) | Load: {:.2}/core | Memory: {:.0}% ({}: {}) | Up: {} | Tasks: {}",
+        "Status {} | CPU: {:.0}% (Eff: {}) | Load: {:.2}/core | Mem: {:.0}% ({}) | Swap: {:.0}% | Up: {} | Procs: {}",
         status_str,
         usage.cpu,
         cpu_efficiency,
         load_per_core.parse::<f64>().unwrap_or(0.0),
         mem_percent,
-        availability_level,
         format_size(mem_available),
+        if usage.swap_total > 0 { (usage.swap_used as f64 / usage.swap_total as f64) * 100.0 } else { 0.0 },
         crate::utils::format_uptime(usage.uptime),
         state.dynamic_data.processes.len()
     );
@@ -1117,9 +1103,10 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  
-            Constraint::Length(3),  
-            Constraint::Min(3),     
+            Constraint::Length(1),  // Gauge
+            Constraint::Percentage(40), // Utilization Chart
+            Constraint::Percentage(40), // Memory Chart
+            Constraint::Min(3),     // Details
         ])
         .split(inner_area);
     
@@ -1144,16 +1131,8 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .data(&data);
         
     let chart = Chart::new(vec![dataset])
-        .x_axis(
-            Axis::default()
-                .bounds([0.0, history_len as f64])
-                .labels(vec![])
-        )
-        .y_axis(
-            Axis::default()
-                .bounds([0.0, 100.0])
-                .labels(vec![])
-        )
+        .x_axis(Axis::default().bounds([0.0, history_len as f64]))
+        .y_axis(Axis::default().bounds([0.0, 100.0]))
         .block(
              Block::default()
                 .title("Utilization History")
@@ -1161,8 +1140,32 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
-        
     f.render_widget(chart, layout[1]);
+
+    let mem_history_len = gpu.memory_history.len();
+    let mem_data: Vec<(f64, f64)> = gpu.memory_history
+        .iter()
+        .enumerate()
+        .map(|(i, &u)| (i as f64, u as f64))
+        .collect();
+        
+    let mem_dataset = Dataset::default()
+        .marker(Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(theme.accent))
+        .data(&mem_data);
+        
+    let mem_chart = Chart::new(vec![mem_dataset])
+        .x_axis(Axis::default().bounds([0.0, mem_history_len as f64]))
+        .y_axis(Axis::default().bounds([0.0, 100.0]))
+        .block(
+             Block::default()
+                .title("Memory Usage History")
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border))
+        );
+    f.render_widget(mem_chart, layout[2]);
     
     let mem_percent = if gpu.memory_total > 0 {
         (gpu.memory_used as f64 / gpu.memory_total as f64 * 100.0) as f32
@@ -1215,7 +1218,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     }
     
     let details_paragraph = Paragraph::new(details).style(Style::default().fg(theme.text));
-    f.render_widget(details_paragraph, layout[2]);
+    f.render_widget(details_paragraph, layout[3]);
 }
 
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {

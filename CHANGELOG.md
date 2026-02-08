@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.1] - 2026-02-08
+
+### Added
+- **GPU Memory Monitoring**: Added memory usage tracking and history chart for NVIDIA, AMD, and Intel GPUs.
+- **AMD GPU Fix**: Robust fallback parsing for AMD GPU utilization to resolve "zeros" reporting issue.
+- **Debian Packaging**: Support for building `.deb` packages using pre-compiled musl binaries.
+- **Detailed Resource Info**: Added CPU efficiency, Swap usage, and more detailed system status line.
+
+### Changed
+- **UI Layout**: Expanded Process list and reduced Container list for better focus on processes.
+- **Summary Bar**: Increased height to 4 lines and restored borders to Network/Disk I/O sections with sparklines for better visibility.
+- **Performance**: Optimized system monitoring.
+- **UI Performance**: Adjusted refresh rate to 30 FPS (33ms) for fixing rendering and data problems.
+
+### Fixed
+- **Docker**: Resolved "Legacy error" by updating `bollard` dependency to 0.18.
+- **Service Management**: Fixed issue where stopped services would disappear from the list. Services are now enumerated using `list-unit-files` to ensure all installed services are visible regardless of state.
+
 ## [v0.6.0] - 2026-01-28
 
 ### Added

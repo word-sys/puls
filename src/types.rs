@@ -59,6 +59,7 @@ pub struct GpuInfo {
     pub memory_clock: u32,
     pub fan_speed: Option<u32>,
     pub utilization_history: Vec<u32>,
+    pub memory_history: Vec<u32>,
     pub pci_link_gen: Option<u32>,
     pub pci_link_width: Option<u32>,
     pub driver_version: String,

@@ -75,8 +75,9 @@ impl SystemMonitor {
         let now = Instant::now();
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         self.last_update = now;
-        
-        self.system.refresh_all();
+        self.system.refresh_cpu_all();
+        self.system.refresh_memory();
+        self.system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         
         let total_cpu_count = self.system.cpus().len() as f32;
         let mut current_disk_usage = HashMap::new();
@@ -301,7 +302,8 @@ impl SystemMonitor {
     }
     
     pub fn refresh(&mut self) {
-        self.system.refresh_all();
+        self.system.refresh_cpu_all();
+        self.system.refresh_memory();
     }
     
     pub fn calculate_total_disk_io(&self, processes: &[ProcessInfo]) -> (u64, u64) {

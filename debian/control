@@ -1,0 +1,12 @@
+Source: puls
+Section: utils
+Priority: optional
+Maintainer: word-sys <baringuzeldemir@gmail.com>
+Build-Depends: debhelper (>= 12)
+Standards-Version: 4.5.1
+Homepage: https://github.com/word-sys/puls
+
+Package: puls
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: A unified system monitoring and management tool for Linux

@@ -7,7 +7,7 @@ use crate::language::Language;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 #[command(name = "puls")]
-#[command(about = "A comprehensive system monitoring and editing tool")]
+#[command(about = "A unified system monitoring and management tool for Linux")]
 pub struct Cli {
     #[arg(short, long, default_value_t = false)]
     pub safe: bool,
@@ -67,7 +67,7 @@ impl From<Cli> for AppConfig {
 
 impl AppConfig {
     pub fn ui_refresh_rate_ms(&self) -> u64 {
-        50  // 20 FPS
+        33  //30FPS
     }
     
     pub fn data_refresh_rate_ms(&self) -> u64 {
@@ -116,18 +116,11 @@ impl Features {
     #[cfg(not(feature = "docker"))]
     pub const DOCKER: bool = false;
     
-    #[cfg(feature = "nvidia-gpu")]
     pub const NVIDIA_GPU: bool = true;
-    #[cfg(not(feature = "nvidia-gpu"))]
-    pub const NVIDIA_GPU: bool = false;
-    
-    #[cfg(feature = "amd-gpu")]
     pub const AMD_GPU: bool = true;
-    #[cfg(not(feature = "amd-gpu"))]
-    pub const AMD_GPU: bool = false;
     
     pub fn has_gpu_support() -> bool {
-        Self::NVIDIA_GPU || Self::AMD_GPU
+        true
     }
     
     pub fn has_container_support() -> bool {

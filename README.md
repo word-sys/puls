@@ -66,6 +66,22 @@ To build the portable static binary yourself:
     cargo build --release --target x86_64-unknown-linux-musl
     ```
 
+### Build .deb Package
+To create a Debian package compatible with older systems (Debian Buster/Bullseye, Ubuntu 20.04+):
+
+1.  **Install cargo-deb**:
+    ```bash
+    cargo install cargo-deb
+    ```
+
+2.  **Build**:
+    This uses the static `musl` build to ensure compatibility.
+    ```bash
+    rustup target add x86_64-unknown-linux-musl
+    cargo deb --target x86_64-unknown-linux-musl
+    ```
+    The `.deb` file will be created in `target/x86_64-unknown-linux-musl/debian/`.
+
 ## Usage
 
 PULS operates in different modes depending on the privileges and flags provided:

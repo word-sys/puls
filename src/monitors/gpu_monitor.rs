@@ -6,6 +6,7 @@ use std::fs;
 
 pub struct GpuMonitor {
     gpu_history: VecDeque<Vec<u32>>,
+    gpu_memory_history: VecDeque<Vec<u32>>,
     last_update: std::time::Instant,
 }
 
@@ -13,6 +14,7 @@ impl GpuMonitor {
     pub fn new() -> Self {
         Self {
             gpu_history: VecDeque::new(),
+            gpu_memory_history: VecDeque::new(),
             last_update: std::time::Instant::now(),
         }
     }
@@ -40,6 +42,11 @@ impl GpuMonitor {
         } else {
             for (i, gpu) in gpus.iter_mut().enumerate() {
                 gpu.utilization_history = self.gpu_history
+                    .iter()
+                    .filter_map(|frame| frame.get(i).cloned())
+                    .collect();
+                    
+                gpu.memory_history = self.gpu_memory_history
                     .iter()
                     .filter_map(|frame| frame.get(i).cloned())
                     .collect();
@@ -96,6 +103,7 @@ impl GpuMonitor {
                 pci_link_width: None,
                 driver_version,
                 utilization_history: Vec::new(),
+                memory_history: Vec::new(),
             });
         }
         
@@ -138,14 +146,22 @@ impl GpuMonitor {
 
     fn parse_amd_gpu(&self, device_path: &Path, card_name: &str) -> Result<GpuInfo, String> {
         let name = fs::read_to_string(device_path.join("product_name"))
+             .or_else(|_| fs::read_to_string(device_path.join("product_number")))
              .or_else(|_| fs::read_to_string(device_path.join("device")))
              .unwrap_or_else(|_| format!("AMD GPU ({})", card_name))
              .trim()
              .to_string();
 
+        // Try multiple paths for utilization
         let utilization = fs::read_to_string(device_path.join("gpu_busy_percent"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
+            .or_else(|| {
+                // Fallback: check other common files
+                fs::read_to_string(device_path.join("busy_percent"))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+            })
             .unwrap_or(0);
 
         let (memory_used, memory_total) = self.read_amd_memory(device_path);
@@ -171,6 +187,7 @@ impl GpuMonitor {
             pci_link_width: None,
             driver_version: "amdgpu".to_string(),
             utilization_history: Vec::new(),
+            memory_history: Vec::new(),
         })
     }
     
@@ -254,6 +271,7 @@ impl GpuMonitor {
             pci_link_width: None,
             driver_version: "i915".to_string(),
             utilization_history: Vec::new(),
+            memory_history: Vec::new(),
         })
     }
 
@@ -305,10 +323,22 @@ impl GpuMonitor {
     
     pub fn update_gpu_history(&mut self, gpus: &[GpuInfo], max_history: usize) {
         let utilizations: Vec<u32> = gpus.iter().map(|g| g.utilization).collect();
+        let memory_usage: Vec<u32> = gpus.iter().map(|g| {
+            if g.memory_total > 0 {
+                ((g.memory_used as f64 / g.memory_total as f64) * 100.0) as u32
+            } else {
+                0
+            }
+        }).collect();
         
         self.gpu_history.push_back(utilizations);
+        self.gpu_memory_history.push_back(memory_usage);
+        
         while self.gpu_history.len() > max_history {
             self.gpu_history.pop_front();
+        }
+        while self.gpu_memory_history.len() > max_history {
+            self.gpu_memory_history.pop_front();
         }
     }
     

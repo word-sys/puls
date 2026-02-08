@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# No build needed, using pre-compiled binary
+
+override_dh_auto_install:
+	mkdir -p debian/puls/usr/bin
+	cp target/x86_64-unknown-linux-musl/release/puls debian/puls/usr/bin/
+
