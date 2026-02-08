@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=PULS
+Comment=Unified System Monitoring Tool
+Exec=puls
+Icon=puls
+Terminal=true
+Type=Application
+Categories=System;Monitor;ConsoleOnly;
+Keywords=task;manager;monitor;system;
+StartupNotify=true

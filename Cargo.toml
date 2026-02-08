@@ -58,7 +58,16 @@ copyright = "2026, word-sys"
 depends = "$auto" 
 section = "utils"
 priority = "optional"
+extended-description = """\
+PULS is a terminal-based system monitoring tool.
+Features:
+- CPU, Memory, Disk, Network monitoring
+- GPU monitoring (NVIDIA, AMD, Intel)
+- Process management
+- Service control (systemd)
+"""
 assets = [
     ["target/release/puls", "usr/bin/", "755"],
+    ["puls.desktop", "usr/share/applications/", "644"],
+    ["puls_icon.svg", "usr/share/icons/hicolor/scalable/apps/puls.svg", "644"],
 ]
-
