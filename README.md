@@ -2,7 +2,7 @@
 
 **A unified system monitoring and management tool for Linux.**
 
-PULS combines high-performance resource monitoring with active system administration capabilities. It allows specialized control over system services, boot configurations, and logs directly from a TUI.
+PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI.
 
 ![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png)
 
@@ -12,7 +12,7 @@ PULS is built in Rust using `ratatui` for the interface and leverages native Lin
 *   **Monitoring**: Uses `sysinfo` for host metrics, `nvidia-smi` for NVIDIA GPUs, and a native DRM parser for AMD/Intel GPU telemetry. Supports multi-GPU configurations.
 *   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
 *   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory metrics.
-*   **Configuration**: Parses and safely modifies `/etc/default/grub` and other system files with automatic backup generation.
+*   **Configuration**: Parses and modifies `/etc/default/grub` and other system files with automatic backup generation.
 
 ## Features
 
@@ -20,14 +20,14 @@ PULS is built in Rust using `ratatui` for the interface and leverages native Lin
 *   **CPU & Memory**: Per-core visualization and memory page breakdown.
 *   **Disk I/O**: Read/Write throughput monitoring per partition.
 *   **Network**: Real-time upload/download rates for selected interfaces.
-*   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. Visual history tracking using Braille patterns.
+*   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. Visual history tracking included.
 
 ### 2. Process & Container Architecture
 *   **Process Tree**: Sortable process list exposing PID, user, priority, and resource consumption.
 *   **Container Engine Integration**: Connects to the local Docker socket to monitor container lifecycles, resource usage (CPU/Mem limits), and health status.
 
 ### 3. Service Management Subsystem
-Unlike read-only monitors, PULS provides full control over `systemd` units:
+PULS provides control over `systemd` units:
 *   **State Control**: Start, Stop, Restart services.
 *   **Boot Persistence**: Enable or Disable services at startup.
 *   **Status Inspection**: View full service definition and validation states.
@@ -55,7 +55,7 @@ sudo mv puls /usr/local/bin/puls
 ```
 
 ### Build from Source
-To build the portable static binary yourself:
+To build the portable static binary:
 
 1.  **Dependencies**:
     *   `musl-tools` (Debian/Ubuntu) or `musl-gcc` (Fedora) or `musl` (Arch).
