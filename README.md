@@ -18,7 +18,7 @@ PULS is built in Rust using `ratatui` for the interface and leverages native Lin
 
 ### 1. Resource Monitoring
 *   **CPU & Memory**: Per-core visualization and memory page breakdown.
-*   **Disk I/O**: Read/Write throughput monitoring per partition.
+*   **Disk I/O**: Read/Write monitoring per partition.
 *   **Network**: Real-time upload/download rates for selected interfaces.
 *   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. Visual history tracking included.
 
