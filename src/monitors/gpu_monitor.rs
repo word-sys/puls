@@ -152,13 +152,16 @@ impl GpuMonitor {
              .trim()
              .to_string();
 
-        // Try multiple paths for utilization
         let utilization = fs::read_to_string(device_path.join("gpu_busy_percent"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
             .or_else(|| {
-                // Fallback: check other common files
-                fs::read_to_string(device_path.join("busy_percent"))
+                fs::read_to_string(device_path.join("busy_percent")) // older kernels
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+            })
+             .or_else(|| {
+                 fs::read_to_string(device_path.join("device/load"))
                     .ok()
                     .and_then(|s| s.trim().parse::<u32>().ok())
             })
@@ -168,8 +171,20 @@ impl GpuMonitor {
         let temperature = self.find_hwmon_temp(device_path).unwrap_or(0);
         let power_usage = self.find_hwmon_power(device_path).unwrap_or(0);
 
-        let graphics_clock = self.read_amd_clock(device_path, "pp_dpm_sclk").unwrap_or(0);
-        let memory_clock = self.read_amd_clock(device_path, "pp_dpm_mclk").unwrap_or(0);
+        let mut graphics_clock = self.read_amd_clock(device_path, "pp_dpm_sclk").unwrap_or(0);
+        if graphics_clock == 0 {
+             //hwmon freq1_input i dont have any AMD GPU lol so i hope this works, fallback
+             graphics_clock = self.find_hwmon_clock(device_path, "freq1_input").unwrap_or(0);
+        }
+
+        let mut memory_clock = self.read_amd_clock(device_path, "pp_dpm_mclk").unwrap_or(0);
+        if memory_clock == 0 {
+             memory_clock = self.find_hwmon_clock(device_path, "freq2_input").unwrap_or(0);
+        }
+        
+        if graphics_clock == 0 {
+             graphics_clock = self.find_hwmon_clock(device_path, "freq0_input").unwrap_or(0);
+        }
 
         Ok(GpuInfo {
             name,
@@ -216,6 +231,23 @@ impl GpuMonitor {
                         }
                     }
                 }
+            }
+        }
+        None
+    }
+
+    fn find_hwmon_clock(&self, device_path: &Path, filename: &str) -> Option<u32> {
+        let hwmon_dir = device_path.join("hwmon");
+        if let Ok(entries) = fs::read_dir(hwmon_dir) {
+            for entry in entries.flatten() {
+                 let path = entry.path().join(filename);
+                 if path.exists() {
+                     if let Ok(s) = fs::read_to_string(&path) {
+                         if let Ok(val) = s.trim().parse::<u32>() {
+                             return Some(val / 1_000_000);
+                         }
+                     }
+                 }
             }
         }
         None

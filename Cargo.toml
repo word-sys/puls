@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 sysinfo = "0.33"  
 users = "0.11"
 
-bollard = { version = "0.18", optional = true }
+bollard = { version = "0.19", optional = true }
 
 ratatui = "0.26"
 crossterm = "0.28"

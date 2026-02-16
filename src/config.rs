@@ -59,15 +59,13 @@ impl From<Cli> for AppConfig {
             enable_gpu_monitoring: !cli.safe && !cli.no_gpu,
             enable_network_monitoring: !cli.safe && !cli.no_network,
             language,
-            show_system_processes: cli.show_system,
-            auto_scroll: cli.auto_scroll,
         }
     }
 }
 
 impl AppConfig {
     pub fn ui_refresh_rate_ms(&self) -> u64 {
-        33  //30FPS
+        33  //30FPS i think
     }
     
     pub fn data_refresh_rate_ms(&self) -> u64 {
@@ -101,8 +99,6 @@ impl Default for AppConfig {
             enable_docker: true,
             enable_gpu_monitoring: true,
             enable_network_monitoring: true,
-            show_system_processes: false,
-            auto_scroll: false,
             language: Language::English,
         }
     }

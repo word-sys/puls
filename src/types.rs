@@ -46,6 +46,7 @@ pub struct ContainerInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct GpuInfo {
     pub name: String,
     pub brand: String,
@@ -66,6 +67,7 @@ pub struct GpuInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct DetailedProcessInfo {
     pub pid: String,
     pub name: String,
@@ -84,6 +86,7 @@ pub struct DetailedProcessInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct CoreInfo {
     pub usage: f32,
     pub freq: u64,
@@ -91,6 +94,7 @@ pub struct CoreInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct DetailedDiskInfo {
     pub name: String,
     pub device: String,
@@ -106,6 +110,7 @@ pub struct DetailedDiskInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct DetailedNetInfo {
     pub name: String,
     pub down_rate: u64,
@@ -121,6 +126,7 @@ pub struct DetailedNetInfo {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct SystemTemperatures {
     pub cpu_temp: Option<f32>,
     pub gpu_temps: Vec<f32>,
@@ -128,6 +134,7 @@ pub struct SystemTemperatures {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct GlobalUsage {
     pub cpu: f32,
     pub mem_used: u64,
@@ -185,6 +192,7 @@ impl Default for GlobalUsage {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct DynamicData {
     pub processes: Vec<ProcessInfo>,
     pub detailed_process: Option<DetailedProcessInfo>,
@@ -228,6 +236,7 @@ pub struct BootInfo {
 }
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 pub struct AppState {
     pub active_tab: usize,
     pub process_table_state: TableState,
@@ -262,6 +271,7 @@ pub struct AppState {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct ServiceInfo {
     pub name: String,
     pub description: String,
@@ -285,6 +295,7 @@ impl Default for ServiceInfo {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct LogEntry {
     pub timestamp: String,
     pub level: String,
@@ -304,6 +315,7 @@ impl Default for LogEntry {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct ConfigItem {
     pub key: String,
     pub value: String,
@@ -323,6 +335,7 @@ impl Default for ConfigItem {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum ProcessSortBy {
     Cpu,
     Memory,
@@ -339,20 +352,9 @@ impl Default for ProcessSortBy {
     }
 }
 
-#[derive(Clone, Debug)]
-pub enum AppMessage {
-    UpdateData(DynamicData),
-    Error(String),
-    TogglePause,
-}
 
-#[derive(Clone, Debug, Default)]
-pub struct AppPerformance {
-    pub update_duration_ms: u64,
-    pub render_duration_ms: u64,
-    pub memory_usage: u64,
-    pub fps: f32,
-}
+
+
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -362,7 +364,5 @@ pub struct AppConfig {
     pub enable_docker: bool,
     pub enable_gpu_monitoring: bool,
     pub enable_network_monitoring: bool,
-    pub show_system_processes: bool,
-    pub auto_scroll: bool,
     pub language: crate::language::Language,
 }

@@ -204,6 +204,15 @@ impl DataCollector {
         
         health
     }
+    #[cfg(feature = "docker")]
+    pub fn get_docker_client(&self) -> Option<bollard::Docker> {
+        self.container_monitor.client()
+    }
+    
+    #[cfg(not(feature = "docker"))]
+    pub fn get_docker_client(&self) -> Option<()> {
+        None
+    }
 }
 
 pub type SharedDataCollector = Arc<Mutex<DataCollector>>;

@@ -356,7 +356,7 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     };
     
     let cpu_efficiency = get_cpu_efficiency(usage.cpu, usage.load_average.0);
-    let (mem_available, availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
+    let (mem_available, _availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
     
     let status_text = format!(
         "Status {} | CPU: {:.0}% (Eff: {}) | Load: {:.2}/core | Mem: {:.0}% ({}) | Swap: {:.0}% | Up: {} | Procs: {}",

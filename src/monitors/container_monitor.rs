@@ -4,7 +4,12 @@ use futures_util::{future, stream::StreamExt};
 use tokio::time::timeout;
 
 #[cfg(feature = "docker")]
-use bollard::{container::StatsOptions, Docker};
+#[cfg(feature = "docker")]
+use bollard::Docker;
+#[cfg(feature = "docker")]
+use bollard::query_parameters::{StatsOptions, ListContainersOptions, LogsOptions};
+#[cfg(feature = "docker")]
+use bollard::models::ContainerStatsResponse;
 
 use crate::types::{ContainerInfo, ContainerIoStats};
 use crate::utils::{format_size, format_rate, calculate_rate};
@@ -31,8 +36,13 @@ impl ContainerMonitor {
     #[cfg(feature = "docker")]
     fn init_docker() -> Option<Docker> {
         match Docker::connect_with_local_defaults() {
-            Ok(docker) => Some(docker),
-            Err(_) => None,
+            Ok(docker) => {
+                Some(docker)
+            },
+            Err(e) => {
+                //eprintln!("Failed to connect to Docker: {}", e); no errors for TTY otherwise broken glass
+                None
+            },
         }
     }
     
@@ -67,9 +77,10 @@ impl ContainerMonitor {
             return Err("Docker daemon not accessible".into());
         }
         
+        let options: Option<ListContainersOptions> = None;
         let containers_list = timeout(
             Duration::from_millis(timeout_ms / 2),
-            docker.list_containers::<String>(None)
+            docker.list_containers(options)
         ).await??;
         
         if containers_list.is_empty() {
@@ -148,7 +159,7 @@ impl ContainerMonitor {
                         stats, 
                         elapsed_secs,
                         &mut current_container_stats
-                    )
+                    ).await
                 } else {
                     (
                         "0.00%".to_string(),
@@ -180,10 +191,10 @@ impl ContainerMonitor {
     }
     
     #[cfg(feature = "docker")]
-    fn calculate_container_metrics(
+    async fn calculate_container_metrics(
         &self,
         container_id: &str,
-        stats: &bollard::container::Stats,
+        stats: &ContainerStatsResponse,
         elapsed_secs: f64,
         current_stats: &mut HashMap<String, ContainerIoStats>
     ) -> (String, String, String, String, String, String) {
@@ -197,13 +208,15 @@ impl ContainerMonitor {
         let cpu_usage = self.calculate_cpu_usage(stats);
         let cpu_display = format!("{:.2}%", cpu_usage);
         
-        let memory_usage = stats.memory_stats.usage.unwrap_or(0);
+        let memory_usage = stats.memory_stats.as_ref()
+            .and_then(|m| m.usage)
+            .unwrap_or(0);
         let memory_display = format_size(memory_usage);
         
         if let Some(ref networks) = stats.networks {
             for (_, net_data) in networks {
-                container_io_stats.net_rx += net_data.rx_bytes;
-                container_io_stats.net_tx += net_data.tx_bytes;
+                container_io_stats.net_rx += net_data.rx_bytes.unwrap_or(0);
+                container_io_stats.net_tx += net_data.tx_bytes.unwrap_or(0);
             }
         }
         
@@ -221,12 +234,16 @@ impl ContainerMonitor {
         let net_down_display = format_rate(net_rx_rate);
         let net_up_display = format_rate(net_tx_rate);
         
-        if let Some(ref blkio_stats) = stats.blkio_stats.io_service_bytes_recursive {
-            for entry in blkio_stats {
-                match entry.op.as_str() {
-                    "Read" => container_io_stats.disk_r += entry.value,
-                    "Write" => container_io_stats.disk_w += entry.value,
-                    _ => {}
+        if let Some(ref blkio_stats) = stats.blkio_stats {
+            if let Some(ref entries) = blkio_stats.io_service_bytes_recursive {
+                for entry in entries {
+                    if let (Some(op), Some(value)) = (&entry.op, entry.value) {
+                         match op.as_str() {
+                            "Read" => container_io_stats.disk_r += value,
+                            "Write" => container_io_stats.disk_w += value,
+                            _ => {}
+                        }
+                    }
                 }
             }
         }
@@ -258,15 +275,27 @@ impl ContainerMonitor {
     }
     
     #[cfg(feature = "docker")]
-    fn calculate_cpu_usage(&self, stats: &bollard::container::Stats) -> f64 {
-        let cpu_delta = stats.cpu_stats.cpu_usage.total_usage
-            .saturating_sub(stats.precpu_stats.cpu_usage.total_usage) as f64;
+    fn calculate_cpu_usage(&self, stats: &ContainerStatsResponse) -> f64 {
+        let cpu_stats = stats.cpu_stats.as_ref();
+        let precpu_stats = stats.precpu_stats.as_ref();
         
-        let system_delta = stats.cpu_stats.system_cpu_usage
-            .unwrap_or(0)
-            .saturating_sub(stats.precpu_stats.system_cpu_usage.unwrap_or(0)) as f64;
+        if cpu_stats.is_none() || precpu_stats.is_none() {
+            return 0.0;
+        }
         
-        let num_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
+        let cpu_stats = cpu_stats.unwrap();
+        let precpu_stats = precpu_stats.unwrap();
+        
+        let cpu_usage = cpu_stats.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0);
+        let precpu_usage = precpu_stats.cpu_usage.as_ref().and_then(|u| u.total_usage).unwrap_or(0);
+        
+        let system_usage = cpu_stats.system_cpu_usage.unwrap_or(0);
+        let presystem_usage = precpu_stats.system_cpu_usage.unwrap_or(0);
+        
+        let cpu_delta = cpu_usage.saturating_sub(precpu_usage) as f64;
+        let system_delta = system_usage.saturating_sub(presystem_usage) as f64;
+        
+        let num_cpus = cpu_stats.online_cpus.unwrap_or(1) as f64;
         
         if system_delta > 0.0 && cpu_delta > 0.0 {
             (cpu_delta / system_delta) * num_cpus * 100.0
@@ -298,7 +327,30 @@ impl ContainerMonitor {
             "none".to_string()
         }
     }
+
+    pub async fn get_container_logs(&self, container_id: &str) -> Result<Vec<String>, String> {
+        if let Some(ref docker) = self.docker {
+            fetch_container_logs(docker, container_id).await
+        } else {
+            Err("Docker not available".to_string())
+        }
+    }
+
+    #[cfg(not(feature = "docker"))]
+    pub async fn get_container_logs(&self, _container_id: &str) -> Result<Vec<String>, String> {
+         Err("Docker support not compiled".to_string())
+    }
     
+    #[cfg(feature = "docker")]
+    pub fn client(&self) -> Option<Docker> {
+        self.docker.clone()
+    }
+    
+    #[cfg(not(feature = "docker"))]
+    pub fn client(&self) -> Option<()> {
+        None
+    }
+
     #[cfg(not(feature = "docker"))]
     async fn get_docker_containers(&mut self, _timeout_ms: u64) -> Result<Vec<ContainerInfo>, Box<dyn std::error::Error + Send + Sync>> {
         Err("Docker support not compiled".into())
@@ -338,6 +390,32 @@ impl ContainerMonitor {
         
         None
     }
+}
+
+#[cfg(feature = "docker")]
+pub async fn fetch_container_logs(docker: &Docker, container_id: &str) -> Result<Vec<String>, String> {
+    let options = LogsOptions {
+        stdout: true,
+        stderr: true,
+        tail: "50".to_string(),
+        ..Default::default()
+    };
+    
+    let mut logs_stream = docker.logs(container_id, Some(options));
+    let mut logs = Vec::new();
+    
+    while let Some(log_result) = logs_stream.next().await {
+        if let Ok(log_output) = log_result {
+                logs.push(log_output.to_string());
+        }
+    }
+    
+    Ok(logs)
+}
+
+#[cfg(not(feature = "docker"))]
+pub async fn fetch_container_logs(_docker: &(), _container_id: &str) -> Result<Vec<String>, String> {
+    Err("Docker support not compiled".to_string())
 }
 
 impl Default for ContainerMonitor {

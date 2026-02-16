@@ -31,6 +31,8 @@ use crate::ui::render_ui;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    init_logging(cli.verbose)?;
+    check_system_requirements()?;
     let config = AppConfig::from(cli);
     
     enable_raw_mode()?;
@@ -89,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
         });
 
-        ui_loop(&mut terminal, app_state, &config).await
+        ui_loop(&mut terminal, app_state, data_collector, &config).await
     }).await;
 
     disable_raw_mode()?;
@@ -107,6 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn ui_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app_state: Arc<Mutex<AppState>>,
+    data_collector: Arc<Mutex<DataCollector>>,
     config: &AppConfig,
 ) -> io::Result<()> {
     let ui_refresh_interval = Duration::from_millis(config.ui_refresh_rate_ms());
@@ -117,7 +120,7 @@ async fn ui_loop(
         
         while event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
-                let should_quit = handle_key_event(key, &app_state)?;
+                let should_quit = handle_key_event(key, &app_state, &data_collector)?;
                 if should_quit {
                     return Ok(());
                 }
@@ -140,6 +143,7 @@ async fn ui_loop(
 fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
+    data_collector: &Arc<Mutex<DataCollector>>,
 ) -> io::Result<bool> {
     let mut state = app_state.lock();
     
@@ -165,6 +169,39 @@ fn handle_key_event(
                 return Ok(false);
             }
             return Ok(true);
+        }
+        
+        KeyCode::Char('l') if state.active_tab == 11 && state.service_status_modal.is_none() => {
+             if let Some(idx) = state.container_table_state.selected() {
+                 if let Some(container) = state.dynamic_data.containers.get(idx) {
+                     let container_id = container.id.clone();
+                     let container_name = container.name.clone();
+                     
+                     let app_state_clone = app_state.clone();
+                     let data_collector_reader = data_collector.lock();
+                     
+                     #[cfg(feature = "docker")]
+                     if let Some(client) = data_collector_reader.get_docker_client() {
+                         tokio::task::spawn_local(async move {
+                            match crate::monitors::container_monitor::fetch_container_logs(&client, &container_id).await {
+                                Ok(logs) => {
+                                    let mut state = app_state_clone.lock();
+                                    state.service_status_modal = Some((format!("Logs: {}", container_name), logs.join("\n")));
+                                }
+                                Err(e) => {
+                                    let mut state = app_state_clone.lock();
+                                    state.service_status_modal = Some(("Error fetching logs".to_string(), e));
+                                }
+                            }
+                         });
+                         state.service_status_modal = Some(("Fetching Logs...".to_string(), "Please wait...".to_string()));
+                     }
+                     #[cfg(not(feature = "docker"))]
+                     {
+                         state.service_status_modal = Some(("Error".to_string(), "Docker support not compiled".to_string()));
+                     }
+                 }
+             }
         }
         
         KeyCode::Char('l') if state.active_tab == 8 && state.service_status_modal.is_none() => {
@@ -647,29 +684,7 @@ impl From<io::Error> for AppError {
     }
 }
 
-#[cfg(unix)]
-fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
-    use signal_hook::{consts::SIGTERM, iterator::Signals};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-    
-    let term = Arc::new(AtomicBool::new(false));
-    let mut signals = Signals::new(&[SIGTERM])?;
-    
-    let term_clone = Arc::clone(&term);
-    std::thread::spawn(move || {
-        for sig in signals.forever() {
-            match sig {
-                SIGTERM => {
-                    term_clone.store(true, Ordering::Relaxed);
-                }
-                _ => unreachable!(),
-            }
-        }
-    });
-    
-    Ok(())
-}
+
 
 fn check_system_requirements() -> Result<(), AppError> {
     if !atty::is(atty::Stream::Stdout) {
