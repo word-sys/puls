@@ -687,19 +687,50 @@ impl From<io::Error> for AppError {
 
 
 fn check_system_requirements() -> Result<(), AppError> {
-    if !atty::is(atty::Stream::Stdout) {
-        return Err(AppError::Config(
-            "PULS requires a terminal environment".to_string()
-        ));
+    if atty::is(atty::Stream::Stdout) {
+        if let Ok((width, height)) = crossterm::terminal::size() {
+            if width < 80 || height < 24 {
+                eprintln!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
+            }
+        }
+        return Ok(());
     }
-    
-    if let Ok((width, height)) = crossterm::terminal::size() {
-        if width < 80 || height < 24 {
-            eprintln!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
+
+    //okiedokie i dont know if this works on any systems :)
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        use std::env;
+
+        if let Ok(exe_path) = env::current_exe() {
+            let terminals = [
+                ("x-terminal-emulator", "-e"),
+                ("gnome-terminal", "--"),
+                ("konsole", "-e"),
+                ("xfce4-terminal", "-e"),
+                ("lxterminal", "-e"),
+                ("mate-terminal", "-e"),
+                ("kitty", "-e"),
+                ("alacritty", "-e"),
+                ("xterm", "-e"),
+            ];
+
+            for (term, arg) in terminals {
+                 if Command::new(term)
+                    .arg(arg)
+                    .arg(&exe_path)
+                    .spawn()
+                    .is_ok() 
+                {
+                    std::process::exit(0);
+                }
+            }
         }
     }
-    
-    Ok(())
+
+    Err(AppError::Config(
+        "PULS is a terminal application. Please run it inside a terminal emulator.".to_string()
+    ))
 }
 
 fn init_logging(verbose: bool) -> Result<(), AppError> {

@@ -39,7 +39,7 @@ impl ContainerMonitor {
             Ok(docker) => {
                 Some(docker)
             },
-            Err(e) => {
+            Err(_e) => {
                 //eprintln!("Failed to connect to Docker: {}", e); no errors for TTY otherwise broken glass
                 None
             },
