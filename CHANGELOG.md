@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.2] - 2026-02-17
+
+### Added
+- **Container Logs**: Added a new feature to view Docker container logs directly in the UI (press 'l' in the containers tab).
+
+### Fixes
+- **Docker Compatibility**: Updated bollard to v0.19 and refactored codebase to fix legacy client errors and support newer Docker APIs.
+- **AMD GPU Monitoring**: (I hope) Fixed 0Hz/0Usage reporting on AMD cards by implementing a fallback to hwmon sensors when legacy pp_dpm_* files are missing.
+- **Build Cleanliness**: Removed unused "add implementation later" code and parameters, resolving compiler warnings and lowering binary size.
+
 ## [v0.6.1] - 2026-02-08
 
 ### Added
