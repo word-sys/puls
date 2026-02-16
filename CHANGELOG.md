@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Container Logs**: Added a new feature to view Docker container logs directly in the UI (press 'l' in the containers tab).
+- **Quick Launch**: Release executable PULS file now opens terminal for itself, result is working like AppImage application but executable way.
 
 ### Fixes
 - **Docker Compatibility**: Updated bollard to v0.19 and refactored codebase to fix legacy client errors and support newer Docker APIs.
