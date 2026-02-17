@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.7.0] - 2026-02-18
+
+### Added
+- **Real-Time Sensors**: Temperatures and sensor data refresh in real-time and used on different tabs
+- **Disk SMART Data**: NVMe health percentage, power cycle count, and disk type (NVMe/SSD/HDD) shown on Disks tab
+- **Sensors Tab Redesign**: Sensors tried to be grouped by category (CPU, GPU, Memory, Disk, Fan, Other) with visual temperature bars
+- **CPU Cores**: Enlarged gauges with borders and temperature display in info panel
+- **Memory Temperature**: Temperature row added to Memory tab details, not every computer gaves this info so dont expect much
+- **Log Detail Modal**: Styled to match service status modal (larger, consistent borders)
+
+### Fixed
+- **Docker Compatibility**: Updated bollard to v0.19, fixed legacy client errors for newer Docker APIs
+- **AMD GPU Monitoring**: (I hope again) Fixed 0Hz/0Usage on AMD cards with hwmon sensor fallback
+- **NVMe Temperature**: Added sysfs hwmon fallback when component label matching fails
+
 ## [v0.6.2] - 2026-02-17
 
 ### Added

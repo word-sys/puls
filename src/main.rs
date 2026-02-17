@@ -148,9 +148,21 @@ fn handle_key_event(
     let mut state = app_state.lock();
     
     match key.code {
+        KeyCode::Esc | KeyCode::Enter if state.viewing_log.is_some() => {
+            state.viewing_log = None;
+        }
+        
+        _ if state.viewing_log.is_some() => {
+            return Ok(false);
+        }
+        
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
             if state.pending_kill_pid.is_some() {
                 state.pending_kill_pid = None;
+                return Ok(false);
+            }
+            if state.pending_config_confirmation.is_some() {
+                state.pending_config_confirmation = None;
                 return Ok(false);
             }
             if state.service_status_modal.is_some() {
@@ -267,10 +279,10 @@ fn handle_key_event(
         }
         
         KeyCode::Tab => {
-            state.active_tab = (state.active_tab + 1) % 12;
+            state.active_tab = (state.active_tab + 1) % 13;
         }
         KeyCode::BackTab => {
-            state.active_tab = (state.active_tab + 11) % 12;
+            state.active_tab = (state.active_tab + 12) % 13;
         }
         
         KeyCode::Char('1') => state.active_tab = 0,
@@ -285,6 +297,7 @@ fn handle_key_event(
         KeyCode::Char('0') => state.active_tab = 9,
         KeyCode::Char('-') => state.active_tab = 10,
         KeyCode::Char('=') => state.active_tab = 11,
+        KeyCode::Char('+') if state.active_tab != 8 => state.active_tab = 12,
         
         KeyCode::Char('t') | KeyCode::Char('T') => {
             state.current_theme = (state.current_theme + 1) % 3;
@@ -387,6 +400,14 @@ fn handle_key_event(
             }
         }
         
+        KeyCode::Enter if state.active_tab == 9 => {
+            if let Some(idx) = state.logs_table_state.selected() {
+                if let Some(log) = state.logs.get(idx) {
+                    state.viewing_log = Some(log.clone());
+                }
+            }
+        }
+        
         KeyCode::Down if state.active_tab == 10 => {
             let len = state.config_items.len();
             if len > 0 {
@@ -485,7 +506,7 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('e') if state.active_tab == 10 => {
+        KeyCode::Enter if state.active_tab == 10 && state.editing_config.is_none() => {
             if let Some(idx) = state.config_table_state.selected() {
                 if state.has_sudo {
                     state.editing_config = Some(idx);
@@ -496,6 +517,37 @@ fn handle_key_event(
             }
         }
         
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_config_confirmation.is_some() => {
+            if let Some((idx, new_value)) = state.pending_config_confirmation.clone() {
+                let has_sudo = state.has_sudo;
+                if let Some(item) = state.config_items.get_mut(idx) {
+                    if has_sudo {
+                         let sys_mgr = system_service::SystemManager::new();
+                         let key = item.key.clone();
+                         let result = match key.as_str() {
+                            "hostname" => sys_mgr.set_hostname(&new_value).map(|_| "Updated hostname".to_string()),
+                            "timezone" => sys_mgr.set_timezone(&new_value).map(|_| "Updated timezone".to_string()),
+                            _ if key.starts_with("GRUB_") => sys_mgr.set_grub_config(&key, &new_value).map(|back| format!("Backup: {}", back)),
+                            _ => Ok("".to_string()),
+                        };
+                        
+                        match result {
+                            Ok(msg) => {
+                                item.value = new_value.clone();
+                                state.service_status_modal = Some(("Success".to_string(), msg));
+                            },
+                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                        }
+                    }
+                }
+            }
+            state.pending_config_confirmation = None;
+        }
+
+        KeyCode::Char('n') | KeyCode::Char('N') if state.pending_config_confirmation.is_some() => {
+            state.pending_config_confirmation = None;
+        }
+
         KeyCode::Char(c) if state.editing_service.is_some() || state.editing_config.is_some() => {
             state.edit_buffer.push(c);
         }
@@ -506,27 +558,7 @@ fn handle_key_event(
         
         KeyCode::Enter if state.editing_config.is_some() => {
             if let Some(idx) = state.editing_config {
-                let buffer = state.edit_buffer.clone();
-                let has_sudo = state.has_sudo;
-                if let Some(item) = state.config_items.get_mut(idx) {
-                    let key = item.key.clone();
-                    item.value = buffer.clone();
-                    if has_sudo {
-                        let sys_mgr = system_service::SystemManager::new();
-                        match key.as_str() {
-                            "hostname" => {
-                                let _ = sys_mgr.set_hostname(&buffer);
-                            }
-                            "timezone" => {
-                                let _ = sys_mgr.set_timezone(&buffer);
-                            }
-                            _ if key.starts_with("GRUB_") => {
-                                let _ = sys_mgr.set_grub_config(&key, &buffer);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                state.pending_config_confirmation = Some((idx, state.edit_buffer.clone()));
             }
             state.editing_config = None;
             state.edit_buffer.clear();

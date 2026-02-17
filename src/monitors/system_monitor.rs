@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
-use sysinfo::{DiskUsage, Networks, Pid, System};
+use sysinfo::{DiskUsage, Networks, Pid, System, Components};
 use users::{Users, UsersCache};
 use chrono::prelude::*;
 
@@ -9,6 +9,7 @@ use crate::utils::*;
 
 pub struct SystemMonitor {
     system: System,
+    components: Components,
     users_cache: UsersCache,
     prev_disk_usage: HashMap<Pid, DiskUsage>,
     prev_net_usage: HashMap<String, NetworkStats>,
@@ -21,8 +22,11 @@ impl SystemMonitor {
         let mut system = System::new_all();
         system.refresh_all();
         
+        let components = Components::new_with_refreshed_list();
+        
         Self {
             system,
+            components,
             users_cache: UsersCache::new(),
             prev_disk_usage: HashMap::new(),
             prev_net_usage: HashMap::new(),
@@ -78,6 +82,7 @@ impl SystemMonitor {
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
         self.system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        self.components.refresh(true);
         
         let total_cpu_count = self.system.cpus().len() as f32;
         let mut current_disk_usage = HashMap::new();
@@ -188,10 +193,28 @@ impl SystemMonitor {
     }
     
     pub fn get_cores(&self) -> Vec<CoreInfo> {
-        self.system.cpus().iter().map(|cpu| CoreInfo {
-            usage: cpu.cpu_usage(),
-            freq: cpu.frequency(),
-            temp: None,
+        let components = &self.components;
+        // k10temp coretemp zenpower
+        
+        let cpu_temp_global = components.iter()
+            .find(|c| {
+                let label = c.label().to_lowercase();
+                label.contains("tctl") || label.contains("package") || label.contains("die")
+            })
+
+            .and_then(|c| c.temperature());
+
+        self.system.cpus().iter().enumerate().map(|(i, cpu)| {
+            let core_temp = components.iter()
+                .find(|c| c.label().to_lowercase().contains(&format!("core {}", i)))
+                .and_then(|c| c.temperature())
+                .or(cpu_temp_global);
+
+            CoreInfo {
+                usage: cpu.cpu_usage(),
+                freq: cpu.frequency(),
+                temp: core_temp,
+            }
         }).collect()
     }
     
@@ -199,6 +222,82 @@ impl SystemMonitor {
         let disks = sysinfo::Disks::new_with_refreshed_list();
         disks.iter().map(|disk| {
             let used = disk.total_space().saturating_sub(disk.available_space());
+            let disk_name = disk.name().to_string_lossy();
+            
+            let temp = self.components.iter()
+                .find(|c| {
+                    let label = c.label().to_string();
+                    label.contains(disk_name.as_ref()) || disk_name.contains(label.as_str())
+                })
+                .and_then(|c| c.temperature())
+                .or_else(|| {
+                    let dev_str_fb = disk_name.to_string();
+                    let block_dev_fb = dev_str_fb.split('/').last().unwrap_or(&dev_str_fb);
+                    let base_fb = if block_dev_fb.contains("nvme") {
+                        block_dev_fb.rfind('p')
+                            .and_then(|pos| {
+                                if pos > 0 && block_dev_fb[pos+1..].chars().all(|c| c.is_ascii_digit()) {
+                                    Some(&block_dev_fb[..pos])
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(block_dev_fb)
+                    } else {
+                        block_dev_fb.trim_end_matches(|c: char| c.is_ascii_digit())
+                    };
+                    // /sys/block/<dev>/device/hwmon/hwmon*/temp1_input
+                    let hwmon_path = format!("/sys/block/{}/device/hwmon", base_fb);
+                    std::fs::read_dir(&hwmon_path).ok().and_then(|entries| {
+                        for entry in entries.flatten() {
+                            let temp_file = entry.path().join("temp1_input");
+                            if let Ok(val) = std::fs::read_to_string(&temp_file) {
+                                if let Ok(millideg) = val.trim().parse::<f32>() {
+                                    return Some(millideg / 1000.0);
+                                }
+                            }
+                        }
+                        None
+                    })
+                });
+            
+            let dev_str = disk_name.to_string();
+            let block_dev = dev_str.split('/').last().unwrap_or(&dev_str);
+            let base_dev = if block_dev.contains("nvme") {
+                block_dev.rfind('p')
+                    .and_then(|pos| {
+                        if pos > 0 && block_dev[pos+1..].chars().all(|c| c.is_ascii_digit()) {
+                            Some(&block_dev[..pos])
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(block_dev)
+            } else {
+                block_dev.trim_end_matches(|c: char| c.is_ascii_digit())
+            };
+
+            let mut health_pct: Option<u8> = None;
+            let mut power_cycles: Option<u64> = None;
+            let is_nvme = base_dev.starts_with("nvme");
+            
+            if is_nvme {
+                // /sys/block/nvme0n1/device/percentage_used
+                if let Ok(val) = std::fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
+                    if let Ok(pct) = val.trim().parse::<u8>() {
+                        health_pct = Some(100u8.saturating_sub(pct));
+                    }
+                }
+                // /sys/block/nvme0n1/device/power_cycles  
+                if let Ok(val) = std::fs::read_to_string(format!("/sys/block/{}/device/power_cycles", base_dev)) {
+                    power_cycles = val.trim().parse::<u64>().ok();
+                }
+            }
+
+            let is_ssd = std::fs::read_to_string(format!("/sys/block/{}/queue/rotational", base_dev))
+                .ok()
+                .and_then(|v| v.trim().parse::<u8>().ok())
+                .map(|v| v == 0);
             
             DetailedDiskInfo {
                 name: disk.mount_point().to_string_lossy().into_owned(),
@@ -211,7 +310,10 @@ impl SystemMonitor {
                 write_rate: 0,
                 read_ops: 0,
                 write_ops: 0,
-                is_ssd: None,
+                is_ssd,
+                temp,
+                health_pct,
+                power_cycles,
             }
         }).collect()
     }
@@ -284,8 +386,8 @@ impl SystemMonitor {
             net_up: total_net_up,
             disk_read: total_disk_read,
             disk_write: total_disk_write,
-            disk_read_ops: 0, // Pending 
-            disk_write_ops: 0, // Pending 
+            disk_read_ops: 0, //will be
+            disk_write_ops: 0, //done 
             load_average: (load.one, load.five, load.fifteen),
             uptime,
             boot_time,
@@ -294,16 +396,44 @@ impl SystemMonitor {
     }
     
     pub fn get_temperatures(&self) -> SystemTemperatures {
+        let components = &self.components;
+        let cpu_temp = components.iter()
+            .find(|c| {
+                let label = c.label().to_lowercase();
+                label.contains("tctl") || label.contains("package") || label.contains("die")
+            })
+            .and_then(|c| c.temperature());
+            
+        let gpu_temps: Vec<f32> = components.iter()
+             .filter(|c| {
+                 let label = c.label().to_lowercase();
+                 label.contains("gpu") || label.contains("radeon") || label.contains("amdgpu")
+             })
+             .filter_map(|c| c.temperature())
+             .collect();
+             
         SystemTemperatures {
-            cpu_temp: None,
-            gpu_temps: Vec::new(),
+            cpu_temp,
+            gpu_temps,
             motherboard_temp: None,
         }
+    }
+
+    pub fn get_sensors(&self) -> Vec<SensorInfo> {
+        self.components.iter().map(|c| {
+            SensorInfo {
+                label: c.label().to_string(),
+                temp: c.temperature().unwrap_or(0.0),
+                max: c.max(),
+                critical: c.critical(),
+            }
+        }).collect()
     }
     
     pub fn refresh(&mut self) {
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
+        self.components.refresh(true);
     }
     
     pub fn calculate_total_disk_io(&self, processes: &[ProcessInfo]) -> (u64, u64) {

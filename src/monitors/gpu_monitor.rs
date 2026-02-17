@@ -152,6 +152,7 @@ impl GpuMonitor {
              .trim()
              .to_string();
 
+        // Try multiple paths for utilization
         let utilization = fs::read_to_string(device_path.join("gpu_busy_percent"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
@@ -161,7 +162,12 @@ impl GpuMonitor {
                     .and_then(|s| s.trim().parse::<u32>().ok())
             })
              .or_else(|| {
-                 fs::read_to_string(device_path.join("device/load"))
+                 fs::read_to_string(device_path.join("device/gpu_busy_percent"))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+            })
+             .or_else(|| {
+                 fs::read_to_string(device_path.join("device/load")) // some drivers use 0-100 load
                     .ok()
                     .and_then(|s| s.trim().parse::<u32>().ok())
             })
@@ -173,7 +179,7 @@ impl GpuMonitor {
 
         let mut graphics_clock = self.read_amd_clock(device_path, "pp_dpm_sclk").unwrap_or(0);
         if graphics_clock == 0 {
-             //hwmon freq1_input i dont have any AMD GPU lol so i hope this works, fallback
+             // Fallback to hwmon freq inputs
              graphics_clock = self.find_hwmon_clock(device_path, "freq1_input").unwrap_or(0);
         }
 
@@ -240,11 +246,29 @@ impl GpuMonitor {
         let hwmon_dir = device_path.join("hwmon");
         if let Ok(entries) = fs::read_dir(hwmon_dir) {
             for entry in entries.flatten() {
-                 let path = entry.path().join(filename);
+                 let hwmon_path = entry.path();
+                 
+                 let path = hwmon_path.join(filename);
                  if path.exists() {
                      if let Ok(s) = fs::read_to_string(&path) {
                          if let Ok(val) = s.trim().parse::<u32>() {
                              return Some(val / 1_000_000);
+                         }
+                     }
+                 }
+                 
+                 if filename.starts_with("freq") {
+                     for i in 1..=3 {
+                         let alt_path = hwmon_path.join(format!("freq{}_input", i));
+                         if alt_path.exists() {
+                             if let Ok(s) = fs::read_to_string(&alt_path) {
+                                 if let Ok(val) = s.trim().parse::<u32>() {
+                                      let mhz = val / 1_000_000;
+                                      if mhz > 100 {
+                                          return Some(mhz);
+                                      }
+                                 }
+                             }
                          }
                      }
                  }
@@ -312,12 +336,17 @@ impl GpuMonitor {
         if let Ok(entries) = fs::read_dir(hwmon_dir) {
             for entry in entries.flatten() {
                  let path = entry.path();
-                 if let Ok(file_name) = entry.file_name().into_string() {
-                     if file_name.starts_with("temp") && file_name.ends_with("_input") {
-                         if let Ok(s) = fs::read_to_string(&path) {
-                             if let Ok(val) = s.trim().parse::<u32>() {
-                                 return Some(val / 1000);
-                             }
+                 if path.is_dir() {
+                     if let Ok(hwmon_entries) = fs::read_dir(&path) {
+                         for hwmon_entry in hwmon_entries.flatten() {
+                            let file_name = hwmon_entry.file_name().to_string_lossy().to_string();
+                            if file_name.starts_with("temp") && file_name.ends_with("_input") {
+                                if let Ok(s) = fs::read_to_string(hwmon_entry.path()) {
+                                    if let Ok(val) = s.trim().parse::<u32>() {
+                                        return Some(val / 1000);
+                                    }
+                                }
+                            }
                          }
                      }
                  }
@@ -331,13 +360,18 @@ impl GpuMonitor {
         if let Ok(entries) = fs::read_dir(hwmon_dir) {
             for entry in entries.flatten() {
                  let path = entry.path();
-                 if let Ok(file_name) = entry.file_name().into_string() {
-                     if file_name.starts_with("power") && (file_name.ends_with("_average") || file_name.ends_with("_input")) {
-                         if let Ok(s) = fs::read_to_string(&path) {
-                             if let Ok(val) = s.trim().parse::<u32>() {
-                                 return Some(val / 1000);
-                             }
-                         }
+                 if path.is_dir() {
+                     if let Ok(hwmon_entries) = fs::read_dir(&path) {
+                        for hwmon_entry in hwmon_entries.flatten() {
+                            let file_name = hwmon_entry.file_name().to_string_lossy().to_string();
+                            if file_name.starts_with("power") && (file_name.ends_with("_average") || file_name.ends_with("_input")) {
+                                if let Ok(s) = fs::read_to_string(hwmon_entry.path()) {
+                                    if let Ok(val) = s.trim().parse::<u32>() {
+                                        return Some(val / 1000);
+                                    }
+                                }
+                            }
+                        }
                      }
                  }
             }

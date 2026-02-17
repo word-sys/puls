@@ -40,16 +40,55 @@ PULS provides control over `systemd` units:
 *   **Parameter Editing**: Modify kernel parameters in `/etc/default/grub`.
 *   **Safety Backup**: PULS automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
 
+## Screenshots
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png)
+
+PULS General Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot1.png)
+
+PULS Advanced Process Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot2.png)
+
+PULS CPU Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot3.png)
+
+PULS Memory Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot4.png)
+
+PULS Disk Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot5.png)
+
+PULS Network Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot6.png)
+
+PULS GPU Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot7.png)
+
+PULS System Services Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot8.png)
+
+PULS Logs Tab
+
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot9.png)
+
+PULS Sensors Tab
+
 ## Installation
 
 ### Static Binary (Portable)
 The recommended way to run PULS on any Linux distribution (Debian, Fedora, Arch, Alpine) is using the statically linked MUSL binary. This avoids glibc version mismatches.
 
 ```bash
-# 1. Download
 wget -O puls https://github.com/word-sys/puls/releases/latest/download/puls
-
-# 2. Verify and Install
 chmod +x puls
 sudo mv puls /usr/local/bin/puls
 ```

@@ -62,6 +62,7 @@ impl Translator {
         map.insert("tab.logs", "0:Logs");
         map.insert("tab.config", "-:Config");
         map.insert("tab.containers", "=:Docker");
+        map.insert("tab.sensors", "+:Sensors");
         map.insert("title.config", "Configuration");
         map.insert("title.puls", "PULS - System Monitor & Admin Tool");
         map.insert("title.cpu", "CPU");
@@ -74,6 +75,7 @@ impl Translator {
         map.insert("title.system_info", "System Information");
         map.insert("title.process_stats", "Process Statistics");
         map.insert("title.containers", "Containers");
+        map.insert("title.sensors", "Sensors");
         map.insert("title.cpu_cores", "CPU Cores");
         map.insert("title.disks", "Disks");
         map.insert("title.networks", "Networks");
@@ -204,6 +206,7 @@ impl Translator {
         map.insert("tab.logs", "0:Günlükler");
         map.insert("tab.config", "-:Ayarlar");
         map.insert("tab.containers", "=:Konteynerler");
+        map.insert("tab.sensors", "+:Sensörler");
         map.insert("title.config", "Ayarlar");
         map.insert("title.puls", "PULS - Sistem İzleyici & Yönetim Aracı");
         map.insert("title.cpu", "CPU");
@@ -216,6 +219,7 @@ impl Translator {
         map.insert("title.system_info", "Sistem Bilgileri");
         map.insert("title.process_stats", "İşlem İstatistikleri");
         map.insert("title.containers", "Konteynerler");
+        map.insert("title.sensors", "Sensörler");
         map.insert("title.cpu_cores", "CPU Çekirdekleri");
         map.insert("title.disks", "Diskler");
         map.insert("title.networks", "Ağ Arayüzleri");

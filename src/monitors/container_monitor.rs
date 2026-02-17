@@ -17,6 +17,8 @@ use crate::utils::{format_size, format_rate, calculate_rate};
 pub struct ContainerMonitor {
     #[cfg(feature = "docker")]
     docker: Option<Docker>,
+    #[cfg(feature = "docker")]
+    pub init_error: Option<String>,
     
     prev_container_stats: HashMap<String, ContainerIoStats>,
     last_update: Instant,
@@ -24,9 +26,17 @@ pub struct ContainerMonitor {
 
 impl ContainerMonitor {
     pub fn new() -> Self {
+        #[cfg(feature = "docker")]
+        let (docker, init_error) =  match Self::init_docker() {
+            Ok(d) => (Some(d), None),
+            Err(e) => (None, Some(e)),
+        };
+
         Self {
             #[cfg(feature = "docker")]
-            docker: Self::init_docker(),
+            docker,
+            #[cfg(feature = "docker")]
+            init_error,
             
             prev_container_stats: HashMap::new(),
             last_update: Instant::now(),
@@ -34,16 +44,22 @@ impl ContainerMonitor {
     }
     
     #[cfg(feature = "docker")]
-    fn init_docker() -> Option<Docker> {
-        match Docker::connect_with_local_defaults() {
-            Ok(docker) => {
-                Some(docker)
-            },
-            Err(_e) => {
-                //eprintln!("Failed to connect to Docker: {}", e); no errors for TTY otherwise broken glass
-                None
-            },
+    fn init_docker() -> Result<Docker, String> {
+        if let Ok(docker) = Docker::connect_with_local_defaults() {
+             return Ok(docker);
         }
+
+        //Fallback
+        if let Ok(docker) = Docker::connect_with_socket("/var/run/docker.sock", 120, bollard::API_DEFAULT_VERSION) {
+             return Ok(docker);
+        }
+        
+        
+        if std::path::Path::new("/var/run/docker.sock").exists() {
+             return Err("Permission denied accessing /var/run/docker.sock. Add user to 'docker' group.".to_string());
+        }
+
+        Err("Docker daemon not found or connection failed.".to_string())
     }
     
     #[cfg(not(feature = "docker"))]

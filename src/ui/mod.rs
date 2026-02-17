@@ -37,6 +37,7 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
         9 => render_logs_tab(f, state, main_layout.content_area, translator, theme),
         10 => render_config_tab(f, state, main_layout.content_area, translator, theme),
         11 => render_containers_tab(f, state, main_layout.content_area, theme),
+        12 => render_sensors_tab(f, state, main_layout.content_area, theme),
         _ => {}
     }
     
@@ -52,6 +53,16 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     
     if let Some((action, name)) = &state.pending_service_action {
         render_service_action_confirmation(f, action, name, theme);
+    }
+    
+    if let Some((idx, new_value)) = &state.pending_config_confirmation {
+        if let Some(item) = state.config_items.get(*idx) {
+             render_config_confirmation_modal(f, &item.key, &item.value, new_value, theme);
+        }
+    }
+    
+    if let Some(log) = &state.viewing_log {
+        render_log_details_modal(f, log, theme);
     }
 }
 
@@ -135,7 +146,7 @@ fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, t
 
 fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let tab_keys = vec![
-        "tab.dashboard", "tab.process", "tab.cpu", "tab.memory", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config", "tab.containers"
+        "tab.dashboard", "tab.process", "tab.cpu", "tab.memory", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config", "tab.containers", "tab.sensors"
     ];
     let tab_titles: Vec<Line> = tab_keys
     .iter()
@@ -180,9 +191,18 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &
         ])
         .split(area);
     
-    render_cpu_gauge(f, usage.cpu, usage.load_average, layout[0], translator, theme);
+    let cpu_temp = state.dynamic_data.temperatures.cpu_temp;
     
-    render_memory_gauge(f, usage.mem_used, usage.mem_total, layout[1], translator, theme);
+    let mem_temp = state.dynamic_data.sensors.iter()
+        .find(|s| {
+            let label = s.label.to_lowercase();
+            label.contains("dimm") || label.contains("dram") || label.contains("memory")
+        })
+        .map(|s| s.temp);
+
+    render_cpu_gauge(f, usage.cpu, usage.load_average, cpu_temp, layout[0], translator, theme);
+    
+    render_memory_gauge(f, usage.mem_used, usage.mem_total, mem_temp, layout[1], translator, theme);
     
     render_gpu_gauge(f, usage.gpu_util, layout[2], translator, theme);
     
@@ -191,9 +211,10 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &
     render_disk_summary(f, usage, layout[4], translator, theme);
 }
 
-fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let color = get_usage_color(cpu_percent);
-    let label = format!("{:.1}% | Load: {:.1}", cpu_percent, load_avg.0);
+    let temp_str = temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+    let label = format!("{:.1}%{} | Load: {:.1}", cpu_percent, temp_str, load_avg.0);
     let gauge = Gauge::default()
         .block(Block::default()
             .title(translator.t("title.cpu"))
@@ -206,7 +227,7 @@ fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), 
     f.render_widget(gauge, area);
 }
 
-fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let mem_percent = if mem_total > 0 {
         (mem_used as f64 / mem_total as f64) * 100.0
     } else {
@@ -222,7 +243,8 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, area: Rect,
         _ => "health.healthy",
     };
     
-    let label = format!("{} ({}: {}%)", format_size(mem_used), translator.t(pressure), mem_percent as u16);
+    let temp_str = temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+    let label = format!("{} ({}: {}%){}", format_size(mem_used), translator.t(pressure), mem_percent as u16, temp_str);
     
     let gauge = Gauge::default()
         .block(Block::default()
@@ -358,11 +380,15 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     let cpu_efficiency = get_cpu_efficiency(usage.cpu, usage.load_average.0);
     let (mem_available, _availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
     
+    let cpu_temp = state.dynamic_data.temperatures.cpu_temp;
+    let cpu_temp_str = cpu_temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+
     let status_text = format!(
-        "Status {} | CPU: {:.0}% (Eff: {}) | Load: {:.2}/core | Mem: {:.0}% ({}) | Swap: {:.0}% | Up: {} | Procs: {}",
+        "Status {} | CPU: {:.0}% (Eff: {}){} | Load: {:.2}/core | Mem: {:.0}% ({}) | Swap: {:.0}% | Up: {} | Procs: {}",
         status_str,
         usage.cpu,
         cpu_efficiency,
+        cpu_temp_str,
         load_per_core.parse::<f64>().unwrap_or(0.0),
         mem_percent,
         format_size(mem_available),
@@ -695,6 +721,19 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
             Span::styled(format!("{:.1}%", usage.cpu), Style::default().fg(get_usage_color(usage.cpu))),
         ]),
         Line::from(vec![
+            Span::styled("Temperature: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                state.dynamic_data.temperatures.cpu_temp
+                    .map(|t| format!("{:.1}°C", t))
+                    .unwrap_or_else(|| "N/A".to_string()),
+                Style::default().fg(
+                    state.dynamic_data.temperatures.cpu_temp
+                        .map(|t| get_usage_color(t))
+                        .unwrap_or(theme.text_secondary)
+                )
+            ),
+        ]),
+        Line::from(vec![
              Span::styled("Load Average: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
              Span::styled(format!("{:.2} {:.2} {:.2}", usage.load_average.0, usage.load_average.1, usage.load_average.2), Style::default().fg(theme.text)),
         ]),
@@ -752,7 +791,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     }
     
     let row_constraints: Vec<Constraint> = (0..rows_needed)
-        .map(|_| Constraint::Length(2))
+        .map(|_| Constraint::Length(3))
         .collect();
     
     let rows_layout = Layout::default()
@@ -788,9 +827,11 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
             let core = &cores[actual_core_idx];
             let color = get_usage_color(core.usage);
             let freq_display = format_frequency(core.freq);
+            let temp_display = core.temp.map(|t| format!(" {:.0}°C", t)).unwrap_or_default();
             
             let gauge = Gauge::default()
-                .label(format!("C{} {} {:.1}%", actual_core_idx, freq_display, core.usage))
+                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+                .label(format!("C{} {} {:.1}%{}", actual_core_idx, freq_display, core.usage, temp_display))
                 .gauge_style(Style::default().fg(color))
                 .ratio((core.usage / 100.0) as f64);
             
@@ -801,7 +842,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
 
 fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let disks = &state.dynamic_data.disks;
-    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "R/s", "W/s", "R-Ops", "W-Ops"];
+    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "Temp", "Health", "Cycles", "Type"];
     
     let rows = disks.iter().map(|disk| {
         let usage_percent = if disk.total > 0 {
@@ -810,18 +851,27 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
             0.0
         };
         
+        let temp_display = disk.temp.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "-".to_string());
+        let health_display = disk.health_pct.map(|h| format!("{}%", h)).unwrap_or_else(|| "-".to_string());
+        let cycles_display = disk.power_cycles.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
+        let type_display = match disk.is_ssd {
+            Some(true) => if disk.device.to_lowercase().contains("nvme") { "NVMe" } else { "SSD" },
+            Some(false) => "HDD",
+            None => "-",
+        };
+        
         Row::new(vec![
             truncate_string(&disk.name, 15),
-            truncate_string(&disk.device, 25),
+            truncate_string(&disk.device, 20),
             disk.fs.clone(),
             format_size(disk.total),
             format_size(disk.used),
             format_size(disk.free),
             format_percentage(usage_percent),
-            format_rate(disk.read_rate),
-            format_rate(disk.write_rate),
-            disk.read_ops.to_string(),
-            disk.write_ops.to_string(),
+            temp_display,
+            health_display,
+            cycles_display,
+            type_display.to_string(),
         ]).style(Style::default().fg(
             if usage_percent > 90.0 { theme.error }
             else if usage_percent > 75.0 { theme.warning }
@@ -832,17 +882,17 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
     let table = Table::new(
         rows,
         [
-            Constraint::Min(12),     // Mount
-            Constraint::Length(25),  // Device
+            Constraint::Min(10),     // Mount
+            Constraint::Length(20),  // Device
             Constraint::Length(6),   // FS
             Constraint::Length(9),   // Total
             Constraint::Length(9),   // Used
             Constraint::Length(9),   // Free
             Constraint::Length(7),   // Use%
-            Constraint::Length(9),   // R/s
-            Constraint::Length(9),   // W/s
-            Constraint::Length(7),   // R-Ops
-            Constraint::Length(7),   // W-Ops
+            Constraint::Length(6),   // Temp
+            Constraint::Length(7),   // Health
+            Constraint::Length(8),   // Cycles
+            Constraint::Length(5),   // Type
         ]
     )
     .header(
@@ -851,7 +901,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
     )
     .block(
         Block::default()
-            .title("Disk Usage")
+            .title(" Disk Usage ")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -1668,11 +1718,21 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
     let free_mem_str = format_size(usage.mem_total.saturating_sub(usage.mem_used));
 
     let headers = vec!["Metric", "Value"];
+
+    let mem_temp_str = state.dynamic_data.sensors.iter()
+        .find(|s| {
+            let lbl = s.label.to_lowercase();
+            lbl.contains("dimm") || lbl.contains("dram") || lbl.contains("memory") || lbl.contains("sodimm")
+        })
+        .map(|s| format!("{:.1}°C", s.temp))
+        .unwrap_or_else(|| "N/A".to_string());
+
     let rows = vec![
         Row::new(vec!["Total Memory".to_string(), total_mem_str]), 
         Row::new(vec!["Used Memory".to_string(), used_mem_str]),
         Row::new(vec!["Cached / Buffers".to_string(), cached_mem_str]),
         Row::new(vec!["Free / Available".to_string(), free_mem_str]),
+        Row::new(vec!["Temperature".to_string(), mem_temp_str]),
     ];
     
     let table = Table::new(
@@ -1682,4 +1742,301 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
      .block(Block::default().title("Details").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
      
     f.render_widget(table, chunks[1]);
+}
+
+fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+    let sensors = &state.dynamic_data.sensors;
+    
+    if sensors.is_empty() {
+        let message = Paragraph::new("No sensor data available")
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .title(" Sensors ")
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border))
+            );
+        f.render_widget(message, area);
+        return;
+    }
+
+
+
+    let mut cpu_sensors = Vec::new();
+    let mut gpu_sensors = Vec::new();
+    let mut disk_sensors = Vec::new();
+    let mut fan_sensors = Vec::new();
+    let mut mem_sensors = Vec::new();
+    let mut other_sensors = Vec::new();
+    //i dont know anything about amdgpu or radeon gonna show as sensors, just hope and some small research
+
+    for sensor in sensors.iter() {
+        let lbl = sensor.label.to_lowercase();
+        if lbl.contains("fan") || lbl.contains("rpm") {
+            fan_sensors.push(sensor);
+        } else if lbl.contains("gpu") || lbl.contains("radeon") || lbl.contains("amdgpu") || lbl.contains("nvidia") || lbl.contains("edge") || lbl.contains("junction") || lbl.contains("mem_temp") {
+            gpu_sensors.push(sensor);
+        } else if lbl.contains("core") || lbl.contains("tctl") || lbl.contains("tdie") || lbl.contains("tccd") || lbl.contains("package") || lbl.contains("cpu") {
+            cpu_sensors.push(sensor);
+        } else if lbl.contains("nvme") || lbl.contains("composite") || lbl.contains("disk") || lbl.contains("ssd") || lbl.contains("hdd") {
+            disk_sensors.push(sensor);
+        } else if lbl.contains("dimm") || lbl.contains("dram") || lbl.contains("memory") || lbl.contains("sodimm") {
+            mem_sensors.push(sensor);
+        } else {
+            other_sensors.push(sensor);
+        }
+    }
+
+    let mut rows: Vec<Row> = Vec::new();
+
+    let categories: [(&str, &Vec<&crate::types::SensorInfo>); 6] = [
+        ("CPU Temperatures", &cpu_sensors),
+        ("GPU Temperatures", &gpu_sensors),
+        ("Memory Temperatures", &mem_sensors),
+        ("Disk / NVMe", &disk_sensors),
+        ("Fan Speeds", &fan_sensors),
+        ("Other Sensors", &other_sensors),
+    ];
+
+    for (cat_name, cat_sensors) in &categories {
+        if cat_sensors.is_empty() {
+            continue;
+        }
+
+        rows.push(
+            Row::new(vec![
+                format!("--- {} ---", cat_name),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+
+        for sensor in cat_sensors.iter() {
+            let temp = sensor.temp;
+            let is_fan = sensor.label.to_lowercase().contains("fan") || sensor.label.to_lowercase().contains("rpm");
+
+            let (color, status) = if is_fan {
+                if temp > 0.0 {
+                    (theme.success, "ACTIVE")
+                } else {
+                    (theme.text_secondary, "OFF")
+                }
+            } else {
+                let ratio = if let Some(crit) = sensor.critical {
+                    if crit > 0.0 { temp / crit } else { 0.0 }
+                } else {
+                    temp / 85.0
+                };
+                
+                if ratio > 0.9 {
+                    (theme.error, "CRITICAL")
+                } else if ratio > 0.75 {
+                    (theme.warning, "HIGH")
+                } else {
+                    (theme.success, "NORMAL")
+                }
+            };
+
+            let value_str = if is_fan {
+                format!("{:.0} RPM", temp)
+            } else {
+                format!("{:.1} C", temp)
+            };
+
+            let max_str = if is_fan {
+                sensor.max.map(|v| format!("{:.0} RPM", v)).unwrap_or_else(|| "-".to_string())
+            } else {
+                sensor.max.map(|v| format!("{:.1} C", v)).unwrap_or_else(|| "-".to_string())
+            };
+
+            let crit_str = if is_fan {
+                sensor.critical.map(|v| format!("{:.0} RPM", v)).unwrap_or_else(|| "-".to_string())
+            } else {
+                sensor.critical.map(|v| format!("{:.1} C", v)).unwrap_or_else(|| "-".to_string())
+            };
+
+            let bar = if !is_fan {
+                let ratio = if let Some(crit) = sensor.critical {
+                    if crit > 0.0 { (temp / crit).min(1.0) } else { 0.0 }
+                } else {
+                    (temp / 100.0).min(1.0)
+                };
+                let filled = (ratio * 10.0) as usize;
+                let empty = 10_usize.saturating_sub(filled);
+                format!("[{}{}] {}", "#".repeat(filled), ".".repeat(empty), status)
+            } else {
+                status.to_string()
+            };
+
+            rows.push(
+                Row::new(vec![
+                    format!("  {}", sensor.label),
+                    value_str,
+                    max_str,
+                    crit_str,
+                    bar,
+                ]).style(Style::default().fg(color))
+            );
+        }
+    }
+
+    let headers = ["Sensor", "Value", "Max", "Critical", "Status"];
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(30),
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
+            Constraint::Percentage(15),
+            Constraint::Percentage(25),
+        ]
+    )
+    .header(
+        Row::new(headers)
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+            .bottom_margin(1)
+    )
+    .block(
+        Block::default()
+            .title(" Hardware Sensors ")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.primary))
+    );
+    
+    f.render_widget(table, area);
+}
+
+fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, new_value: &str, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    
+    let popup_width = 80;
+    let popup_height = 14;
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    
+    let popup_area = Rect {
+        x: popup_x,
+        y: popup_y,
+        width: popup_width,
+        height: popup_height,
+    };
+    
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+    
+    let block = Block::default()
+        .title("Confirm Configuration Change")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
+        
+    let inner_area = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+    
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // Key
+            Constraint::Length(4), // Changes
+            Constraint::Min(2),    // Prompt
+        ])
+        .margin(1)
+        .split(inner_area);
+        
+    let key_text = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("Setting: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(key, Style::default().fg(theme.text)),
+        ])
+    ]);
+    f.render_widget(key_text, layout[0]);
+    
+    let change_text = Paragraph::new(vec![
+        Line::from(Span::styled("Current Value:", Style::default().fg(theme.text_secondary))),
+        Line::from(Span::styled(format!("  {}", old_value), Style::default().fg(theme.text))),
+        Line::from(""),
+        Line::from(Span::styled("New Value:", Style::default().fg(theme.success).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(format!("  {}", new_value), Style::default().fg(theme.highlight))),
+    ]);
+    f.render_widget(change_text, layout[1]);
+    
+    let prompt = Paragraph::new(vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("[Enter/Y] Confirm", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
+            Span::raw("   "),
+            Span::styled("[Esc/N] Cancel", Style::default().fg(theme.error).add_modifier(Modifier::BOLD)),
+        ]),
+    ])
+    .alignment(Alignment::Center);
+    f.render_widget(prompt, layout[2]);
+}
+
+fn render_log_details_modal(f: &mut Frame, log: &crate::types::LogEntry, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    
+    let popup_area = Rect {
+        x: area.width / 10,
+        y: area.height / 10,
+        width: area.width * 8 / 10,
+        height: area.height * 8 / 10,
+    };
+    
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let level_color = match log.level.as_str() {
+        "ERROR" => theme.error,
+        "WARNING" => theme.warning,
+        "INFO" => theme.success,
+        "DEBUG" => theme.text_secondary,
+        _ => theme.text,
+    };
+
+    let level_str = format!("[{}]", log.level);
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Timestamp: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(&log.timestamp, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("Level:     ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(&level_str, Style::default().fg(level_color).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled("Service:   ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(&log.service, Style::default().fg(theme.text)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Message:", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+    ];
+
+    for msg_line in log.message.lines() {
+        lines.push(Line::from(Span::styled(msg_line, Style::default().fg(theme.text))));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("[Esc/Enter] Close", Style::default().fg(theme.text_secondary)),
+    ]));
+
+    let block = Block::default()
+        .title(format!(" Log: {} (Esc to close) ", log.service))
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.highlight));
+        
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .wrap(ratatui::widgets::Wrap { trim: false });
+        
+    f.render_widget(paragraph, popup_area);
 }

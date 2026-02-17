@@ -107,6 +107,9 @@ pub struct DetailedDiskInfo {
     pub read_ops: u64,
     pub write_ops: u64,
     pub is_ssd: Option<bool>,
+    pub temp: Option<f32>,
+    pub health_pct: Option<u8>,
+    pub power_cycles: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -191,6 +194,15 @@ impl Default for GlobalUsage {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
+pub struct SensorInfo {
+    pub label: String,
+    pub temp: f32,
+    pub max: Option<f32>,
+    pub critical: Option<f32>,
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct DynamicData {
@@ -203,6 +215,7 @@ pub struct DynamicData {
     pub gpus: Result<Vec<GpuInfo>, String>,
     pub global_usage: GlobalUsage,
     pub temperatures: SystemTemperatures,
+    pub sensors: Vec<SensorInfo>,
     pub last_update: std::time::Instant,
     pub docker_error: Option<String>,
 }
@@ -223,6 +236,7 @@ impl Default for DynamicData {
                 gpu_temps: Vec::new(),
                 motherboard_temp: None,
             },
+            sensors: Vec::new(),
             last_update: std::time::Instant::now(),
             docker_error: None,
         }
@@ -267,6 +281,8 @@ pub struct AppState {
     pub docker_error: Option<String>,
     pub current_theme: usize,
     pub pending_kill_pid: Option<sysinfo::Pid>,
+    pub viewing_log: Option<LogEntry>,
+    pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,
 }
 

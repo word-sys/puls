@@ -378,7 +378,7 @@ impl SystemManager {
         configs
     }
 
-    pub fn set_grub_config(&self, key: &str, value: &str) -> Result<(), String> {
+    pub fn set_grub_config(&self, key: &str, value: &str) -> Result<String, String> {
         if !self.has_sudo {
             return Err("Insufficient privileges (root required)".to_string());
         }
@@ -426,7 +426,7 @@ impl SystemManager {
         }
 
         child.wait().map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(backup_file)
     }
 
     pub fn set_hostname(&self, new_hostname: &str) -> Result<(), String> {
