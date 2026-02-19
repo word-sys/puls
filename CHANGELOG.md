@@ -10,7 +10,6 @@ All notable changes to this project will be documented in this file.
 - **Docker Change**: For some reason, to access Docker containers info for monitoring requires PULS ran with "sudo". Until i find a solution to that problem users has Docker containers and wants to monitor them needed to run PULS with "sudo"
 - **Color Fix**: Some places used secondary color instead of primary color, all fixed now
 
-
 ## [v0.7.0] - 2026-02-18
 
 ### Added
