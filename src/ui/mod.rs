@@ -453,7 +453,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     .block(
         Block::default()
             .title(translator.t("title.processes"))
-            .title_style(Style::default().fg(theme.primary))
+            .title_style(Style::default().fg(theme.text))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -1787,7 +1787,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Temperatures ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &temp_sensors {
             let ratio = if let Some(crit) = s.critical {
@@ -1814,7 +1814,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Fan Speeds ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &fan_sensors {
             let color = if s.value > 0.0 { theme.success } else { theme.text_secondary };
@@ -1834,7 +1834,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Voltages ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &voltage_sensors {
             let color = theme.text;
@@ -1853,7 +1853,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Power ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &power_sensors {
             let color = if s.value > 100.0 { theme.warning } else { theme.text };
@@ -1872,7 +1872,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Current ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &current_sensors {
             let color = theme.text;
@@ -1891,7 +1891,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             Row::new(vec![
                 " ═══ Other ═══".to_string(),
                 String::new(), String::new(), String::new(),
-            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+            ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &other_sensors {
             rows.push(Row::new(vec![
@@ -1925,7 +1925,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             .title(format!(" Hardware Sensors ({}) ", count))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(theme.primary))
+            .border_style(Style::default().fg(theme.text))
     );
     
     f.render_widget(table, area);

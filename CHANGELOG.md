@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Sensors Tab**: Updated sensors tab to show all sensors
 - **CPU Temp N/A Issue**: CPU Temp monitoring now also looks into /sys/class/hwmon/*/name for k10temp, coretemp, k8temp, zenpower
-- **Docker Fix**: Untested but i think i fixed legacy client errors for newer Docker APIs, otherwise will be fixed in 0.7.2
+- **Docker Change**: For some reason, to access Docker containers info for monitoring requires PULS ran with "sudo". Until i find a solution to that problem users has Docker containers and wants to monitor them needed to run PULS with "sudo"
 
 ## [v0.7.0] - 2026-02-18
 
