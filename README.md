@@ -4,7 +4,7 @@
 
 PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI.
 
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png)
+![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshots/screenshot.png)
 
 ## Architecture
 
@@ -39,48 +39,6 @@ PULS provides control over `systemd` units:
 ### 5. Boot Configuration (GRUB)
 *   **Parameter Editing**: Modify kernel parameters in `/etc/default/grub`.
 *   **Safety Backup**: PULS automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
-
-## Screenshots
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot.png)
-
-PULS General Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot1.png)
-
-PULS Advanced Process Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot2.png)
-
-PULS CPU Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot3.png)
-
-PULS Memory Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot4.png)
-
-PULS Disk Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot5.png)
-
-PULS Network Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot6.png)
-
-PULS GPU Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot7.png)
-
-PULS System Services Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot8.png)
-
-PULS Logs Tab
-
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshot9.png)
-
-PULS Sensors Tab
 
 ## Installation
 

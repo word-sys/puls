@@ -198,7 +198,11 @@ impl Default for GlobalUsage {
 #[allow(dead_code)]
 pub struct SensorInfo {
     pub label: String,
-    pub temp: f32,
+    pub chip: String,
+    pub sensor_type: String, // "temp", "fan", "in", "power", "curr", "humidity", "intrusion"
+    pub value: f64,
+    pub unit: String,        // "°C", "RPM", "V", "W", "A", 
+    pub temp: f32,           
     pub max: Option<f32>,
     pub critical: Option<f32>,
 }

@@ -1761,138 +1761,158 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
         return;
     }
 
-
-
-    let mut cpu_sensors = Vec::new();
-    let mut gpu_sensors = Vec::new();
-    let mut disk_sensors = Vec::new();
+    let mut temp_sensors = Vec::new();
     let mut fan_sensors = Vec::new();
-    let mut mem_sensors = Vec::new();
+    let mut voltage_sensors = Vec::new();
+    let mut power_sensors = Vec::new();
+    let mut current_sensors = Vec::new();
     let mut other_sensors = Vec::new();
-    //i dont know anything about amdgpu or radeon gonna show as sensors, just hope and some small research
 
     for sensor in sensors.iter() {
-        let lbl = sensor.label.to_lowercase();
-        if lbl.contains("fan") || lbl.contains("rpm") {
-            fan_sensors.push(sensor);
-        } else if lbl.contains("gpu") || lbl.contains("radeon") || lbl.contains("amdgpu") || lbl.contains("nvidia") || lbl.contains("edge") || lbl.contains("junction") || lbl.contains("mem_temp") {
-            gpu_sensors.push(sensor);
-        } else if lbl.contains("core") || lbl.contains("tctl") || lbl.contains("tdie") || lbl.contains("tccd") || lbl.contains("package") || lbl.contains("cpu") {
-            cpu_sensors.push(sensor);
-        } else if lbl.contains("nvme") || lbl.contains("composite") || lbl.contains("disk") || lbl.contains("ssd") || lbl.contains("hdd") {
-            disk_sensors.push(sensor);
-        } else if lbl.contains("dimm") || lbl.contains("dram") || lbl.contains("memory") || lbl.contains("sodimm") {
-            mem_sensors.push(sensor);
-        } else {
-            other_sensors.push(sensor);
+        match sensor.sensor_type.as_str() {
+            "temp" => temp_sensors.push(sensor),
+            "fan" => fan_sensors.push(sensor),
+            "in" => voltage_sensors.push(sensor),
+            "power" => power_sensors.push(sensor),
+            "curr" => current_sensors.push(sensor),
+            _ => other_sensors.push(sensor),
         }
     }
 
+    
     let mut rows: Vec<Row> = Vec::new();
 
-    let categories: [(&str, &Vec<&crate::types::SensorInfo>); 6] = [
-        ("CPU Temperatures", &cpu_sensors),
-        ("GPU Temperatures", &gpu_sensors),
-        ("Memory Temperatures", &mem_sensors),
-        ("Disk / NVMe", &disk_sensors),
-        ("Fan Speeds", &fan_sensors),
-        ("Other Sensors", &other_sensors),
-    ];
-
-    for (cat_name, cat_sensors) in &categories {
-        if cat_sensors.is_empty() {
-            continue;
-        }
-
+    if !temp_sensors.is_empty() {
         rows.push(
             Row::new(vec![
-                format!("--- {} ---", cat_name),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
+                " ═══ Temperatures ═══".to_string(),
+                String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
         );
-
-        for sensor in cat_sensors.iter() {
-            let temp = sensor.temp;
-            let is_fan = sensor.label.to_lowercase().contains("fan") || sensor.label.to_lowercase().contains("rpm");
-
-            let (color, status) = if is_fan {
-                if temp > 0.0 {
-                    (theme.success, "ACTIVE")
-                } else {
-                    (theme.text_secondary, "OFF")
-                }
+        for s in &temp_sensors {
+            let ratio = if let Some(crit) = s.critical {
+                if crit > 0.0 { s.value as f32 / crit } else { 0.0 }
             } else {
-                let ratio = if let Some(crit) = sensor.critical {
-                    if crit > 0.0 { temp / crit } else { 0.0 }
-                } else {
-                    temp / 85.0
-                };
-                
-                if ratio > 0.9 {
-                    (theme.error, "CRITICAL")
-                } else if ratio > 0.75 {
-                    (theme.warning, "HIGH")
-                } else {
-                    (theme.success, "NORMAL")
-                }
+                s.value as f32 / 85.0
             };
-
-            let value_str = if is_fan {
-                format!("{:.0} RPM", temp)
-            } else {
-                format!("{:.1} C", temp)
-            };
-
-            let max_str = if is_fan {
-                sensor.max.map(|v| format!("{:.0} RPM", v)).unwrap_or_else(|| "-".to_string())
-            } else {
-                sensor.max.map(|v| format!("{:.1} C", v)).unwrap_or_else(|| "-".to_string())
-            };
-
-            let crit_str = if is_fan {
-                sensor.critical.map(|v| format!("{:.0} RPM", v)).unwrap_or_else(|| "-".to_string())
-            } else {
-                sensor.critical.map(|v| format!("{:.1} C", v)).unwrap_or_else(|| "-".to_string())
-            };
-
-            let bar = if !is_fan {
-                let ratio = if let Some(crit) = sensor.critical {
-                    if crit > 0.0 { (temp / crit).min(1.0) } else { 0.0 }
-                } else {
-                    (temp / 100.0).min(1.0)
-                };
-                let filled = (ratio * 10.0) as usize;
-                let empty = 10_usize.saturating_sub(filled);
-                format!("[{}{}] {}", "#".repeat(filled), ".".repeat(empty), status)
-            } else {
-                status.to_string()
-            };
-
-            rows.push(
-                Row::new(vec![
-                    format!("  {}", sensor.label),
-                    value_str,
-                    max_str,
-                    crit_str,
-                    bar,
-                ]).style(Style::default().fg(color))
-            );
+            let color = if ratio > 0.9 { theme.error } else if ratio > 0.75 { theme.warning } else { theme.success };
+            let filled = ((ratio.min(1.0)) * 12.0) as usize;
+            let empty = 12_usize.saturating_sub(filled);
+            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.1}°C", s.value),
+                s.max.map(|v| format!("{:.1}°C", v)).unwrap_or_else(|| "—".into()),
+                bar,
+            ]).style(Style::default().fg(color)));
         }
     }
 
-    let headers = ["Sensor", "Value", "Max", "Critical", "Status"];
+    if !fan_sensors.is_empty() {
+        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(
+            Row::new(vec![
+                " ═══ Fan Speeds ═══".to_string(),
+                String::new(), String::new(), String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+        for s in &fan_sensors {
+            let color = if s.value > 0.0 { theme.success } else { theme.text_secondary };
+            let status = if s.value > 0.0 { "● ACTIVE" } else { "○ OFF" };
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.0} RPM", s.value),
+                String::new(),
+                status.to_string(),
+            ]).style(Style::default().fg(color)));
+        }
+    }
+
+    if !voltage_sensors.is_empty() {
+        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(
+            Row::new(vec![
+                " ═══ Voltages ═══".to_string(),
+                String::new(), String::new(), String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+        for s in &voltage_sensors {
+            let color = theme.text;
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.3} V", s.value),
+                String::new(),
+                String::new(),
+            ]).style(Style::default().fg(color)));
+        }
+    }
+
+    if !power_sensors.is_empty() {
+        rows.push(Row::new(vec![String::new(); 4])); 
+        rows.push(
+            Row::new(vec![
+                " ═══ Power ═══".to_string(),
+                String::new(), String::new(), String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+        for s in &power_sensors {
+            let color = if s.value > 100.0 { theme.warning } else { theme.text };
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.2} W", s.value),
+                String::new(),
+                String::new(),
+            ]).style(Style::default().fg(color)));
+        }
+    }
+
+    if !current_sensors.is_empty() {
+        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(
+            Row::new(vec![
+                " ═══ Current ═══".to_string(),
+                String::new(), String::new(), String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+        for s in &current_sensors {
+            let color = theme.text;
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.3} A", s.value),
+                String::new(),
+                String::new(),
+            ]).style(Style::default().fg(color)));
+        }
+    }
+
+    if !other_sensors.is_empty() {
+        rows.push(Row::new(vec![String::new(); 4])); // spacer
+        rows.push(
+            Row::new(vec![
+                " ═══ Other ═══".to_string(),
+                String::new(), String::new(), String::new(),
+            ]).style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        );
+        for s in &other_sensors {
+            rows.push(Row::new(vec![
+                format!("  {}", s.label),
+                format!("{:.2} {}", s.value, s.unit),
+                String::new(),
+                String::new(),
+            ]).style(Style::default().fg(theme.text)));
+        }
+    }
+
+    let count = sensors.len();
+    let headers = ["Sensor", "Value", "Limit", "Status"];
     
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(30),
-            Constraint::Percentage(15),
-            Constraint::Percentage(15),
-            Constraint::Percentage(15),
-            Constraint::Percentage(25),
+            Constraint::Percentage(38),
+            Constraint::Percentage(18),
+            Constraint::Percentage(18),
+            Constraint::Percentage(26),
         ]
     )
     .header(
@@ -1902,7 +1922,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
     )
     .block(
         Block::default()
-            .title(" Hardware Sensors ")
+            .title(format!(" Hardware Sensors ({}) ", count))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.primary))

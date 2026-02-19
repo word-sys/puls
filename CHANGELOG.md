@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.7.1] - 2026-02-19
+
+### Fixed
+- **Sensors Tab**: Updated sensors tab to show all sensors
+- **CPU Temp N/A Issue**: CPU Temp monitoring now also looks into /sys/class/hwmon/*/name for k10temp, coretemp, k8temp, zenpower
+- **Docker Fix**: Untested but i think i fixed legacy client errors for newer Docker APIs, otherwise will be fixed in 0.7.2
+
 ## [v0.7.0] - 2026-02-18
 
 ### Added

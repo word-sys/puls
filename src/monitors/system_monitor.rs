@@ -199,10 +199,15 @@ impl SystemMonitor {
         let cpu_temp_global = components.iter()
             .find(|c| {
                 let label = c.label().to_lowercase();
-                label.contains("tctl") || label.contains("package") || label.contains("die")
+                label.contains("tctl") || label.contains("package") || label.contains("tdie")
             })
-
-            .and_then(|c| c.temperature());
+            .and_then(|c| c.temperature())
+            .or_else(|| {
+                components.iter()
+                    .find(|c| c.label().to_lowercase().contains("core 0"))
+                    .and_then(|c| c.temperature())
+            })
+            .or_else(|| Self::read_cpu_temp_from_hwmon());
 
         self.system.cpus().iter().enumerate().map(|(i, cpu)| {
             let core_temp = components.iter()
@@ -400,14 +405,22 @@ impl SystemMonitor {
         let cpu_temp = components.iter()
             .find(|c| {
                 let label = c.label().to_lowercase();
-                label.contains("tctl") || label.contains("package") || label.contains("die")
+                label.contains("tctl") || label.contains("package") || label.contains("tdie")
             })
-            .and_then(|c| c.temperature());
+            .and_then(|c| c.temperature())
+            .or_else(|| {
+                components.iter()
+                    .find(|c| c.label().to_lowercase().contains("core 0"))
+                    .and_then(|c| c.temperature())
+            })
+            .or_else(|| {
+                Self::read_cpu_temp_from_hwmon()
+            });
             
         let gpu_temps: Vec<f32> = components.iter()
              .filter(|c| {
                  let label = c.label().to_lowercase();
-                 label.contains("gpu") || label.contains("radeon") || label.contains("amdgpu")
+                 label.contains("gpu") || label.contains("radeon") || label.contains("amdgpu") || label.contains("edge") || label.contains("junction")
              })
              .filter_map(|c| c.temperature())
              .collect();
@@ -419,15 +432,169 @@ impl SystemMonitor {
         }
     }
 
+    fn read_cpu_temp_from_hwmon() -> Option<f32> {
+        let hwmon_base = "/sys/class/hwmon";
+        let entries = std::fs::read_dir(hwmon_base).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = std::fs::read_to_string(path.join("name")).unwrap_or_default();
+            let name = name.trim().to_lowercase();
+            // k10temp = AMD FX/Ryzen, coretemp = Intel, k8temp = older AMD, it87/nct* = some boards
+            if name == "k10temp" || name == "coretemp" || name == "k8temp" || name == "zenpower" {
+                let temp_file = path.join("temp1_input");
+                if let Ok(val) = std::fs::read_to_string(&temp_file) {
+                    if let Ok(millideg) = val.trim().parse::<f32>() {
+                        return Some(millideg / 1000.0);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
-        self.components.iter().map(|c| {
-            SensorInfo {
+        let mut sensors = Vec::new();
+        
+        for c in self.components.iter() {
+            sensors.push(SensorInfo {
                 label: c.label().to_string(),
+                chip: String::new(),
+                sensor_type: "temp".to_string(),
+                value: c.temperature().unwrap_or(0.0) as f64,
+                unit: "°C".to_string(),
                 temp: c.temperature().unwrap_or(0.0),
                 max: c.max(),
                 critical: c.critical(),
+            });
+        }
+        
+        if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
+            for entry in entries.flatten() {
+                let hwmon_path = entry.path();
+                let chip_name = std::fs::read_to_string(hwmon_path.join("name"))
+                    .unwrap_or_default().trim().to_string();
+                if let Ok(files) = std::fs::read_dir(&hwmon_path) {
+                    for file in files.flatten() {
+                        let fname = file.file_name().to_string_lossy().to_string();
+                        if fname.starts_with("fan") && fname.ends_with("_input") {
+                            let idx = fname.trim_start_matches("fan").trim_end_matches("_input");
+                            let label_file = hwmon_path.join(format!("fan{}_label", idx));
+                            let label = std::fs::read_to_string(&label_file)
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|_| format!("{} Fan {}", chip_name, idx));
+                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                                if let Ok(rpm) = val.trim().parse::<f64>() {
+                                    sensors.push(SensorInfo {
+                                        label,
+                                        chip: chip_name.clone(),
+                                        sensor_type: "fan".to_string(),
+                                        value: rpm,
+                                        unit: "RPM".to_string(),
+                                        temp: rpm as f32,
+                                        max: None,
+                                        critical: None,
+                                    });
+                                }
+                            }
+                        }
+                        
+                        if fname.starts_with("in") && fname.ends_with("_input") && fname[2..].starts_with(|c: char| c.is_ascii_digit()) {
+                            let idx = fname.trim_start_matches("in").trim_end_matches("_input");
+                            let label_file = hwmon_path.join(format!("in{}_label", idx));
+                            let label = std::fs::read_to_string(&label_file)
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|_| format!("{} Voltage {}", chip_name, idx));
+                            
+                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                                if let Ok(mv) = val.trim().parse::<f64>() {
+                                    let volts = mv / 1000.0;
+                                    sensors.push(SensorInfo {
+                                        label,
+                                        chip: chip_name.clone(),
+                                        sensor_type: "in".to_string(),
+                                        value: volts,
+                                        unit: "V".to_string(),
+                                        temp: volts as f32,
+                                        max: None,
+                                        critical: None,
+                                    });
+                                }
+                            }
+                        }
+                        
+                        if fname.starts_with("power") && (fname.ends_with("_input") || fname.ends_with("_average")) {
+                            let idx_end = if fname.ends_with("_input") { "_input" } else { "_average" };
+                            let idx = fname.trim_start_matches("power").trim_end_matches(idx_end);
+                            let label_file = hwmon_path.join(format!("power{}_label", idx));
+                            let label = std::fs::read_to_string(&label_file)
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|_| format!("{} Power {}", chip_name, idx));
+                            
+                            if sensors.iter().any(|s| s.label == label && s.sensor_type == "power") {
+                                continue;
+                            }
+                            
+                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                                if let Ok(uw) = val.trim().parse::<f64>() {
+                                    let watts = uw / 1_000_000.0;
+                                    sensors.push(SensorInfo {
+                                        label,
+                                        chip: chip_name.clone(),
+                                        sensor_type: "power".to_string(),
+                                        value: watts,
+                                        unit: "W".to_string(),
+                                        temp: watts as f32,
+                                        max: None,
+                                        critical: None,
+                                    });
+                                }
+                            }
+                        }
+                        
+                        if fname.starts_with("curr") && fname.ends_with("_input") {
+                            let idx = fname.trim_start_matches("curr").trim_end_matches("_input");
+                            let label_file = hwmon_path.join(format!("curr{}_label", idx));
+                            let label = std::fs::read_to_string(&label_file)
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|_| format!("{} Current {}", chip_name, idx));
+                            
+                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                                if let Ok(ma) = val.trim().parse::<f64>() {
+                                    let amps = ma / 1000.0;
+                                    sensors.push(SensorInfo {
+                                        label,
+                                        chip: chip_name.clone(),
+                                        sensor_type: "curr".to_string(),
+                                        value: amps,
+                                        unit: "A".to_string(),
+                                        temp: amps as f32,
+                                        max: None,
+                                        critical: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }).collect()
+        }
+        
+        let type_order = |t: &str| -> u8 {
+            match t {
+                "temp" => 0,
+                "fan" => 1,
+                "in" => 2,
+                "power" => 3,
+                "curr" => 4,
+                _ => 5,
+            }
+        };
+        sensors.sort_by(|a, b| {
+            type_order(&a.sensor_type).cmp(&type_order(&b.sensor_type))
+                .then_with(|| a.label.cmp(&b.label))
+        });
+        
+        sensors
     }
     
     pub fn refresh(&mut self) {

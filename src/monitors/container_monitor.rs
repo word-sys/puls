@@ -73,10 +73,16 @@ impl ContainerMonitor {
             let docker_clone = docker.clone();
             match self.get_docker_containers(&docker_clone, timeout_ms).await {
                 Ok(containers) => return Ok(containers),
-                Err(e) => return Err(format!("Docker error: {}", e)),
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("hyper") || err_str.contains("Connect") {
+                        return Err("Docker daemon is not running".to_string());
+                    }
+                    return Err(format!("Docker: {}", err_str));
+                }
             }
         } else {
-             return Err("Docker service not running".to_string());
+             return Err("Docker not available".to_string());
         }
         
         #[cfg(not(feature = "docker"))]
@@ -89,8 +95,16 @@ impl ContainerMonitor {
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         self.last_update = now;
         
-        if timeout(Duration::from_millis(timeout_ms / 4), docker.ping()).await.is_err() {
-            return Err("Docker daemon not accessible".into());
+        match timeout(Duration::from_millis(timeout_ms / 4), docker.ping()).await {
+            Ok(Ok(_)) => {},
+            Ok(Err(e)) => {
+                let err_str = e.to_string();
+                if err_str.contains("Connect") || err_str.contains("connection") {
+                    return Err("Docker daemon is not running or not accessible".into());
+                }
+                return Err(format!("Docker: {}", err_str).into());
+            }
+            Err(_) => return Err("Docker daemon not responding (timeout)".into()),
         }
         
         let options: Option<ListContainersOptions> = None;
