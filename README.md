@@ -2,7 +2,7 @@
 
 # PULS
 
-**A unified system monitoring and management tool for Linux.**
+**A unified system monitoring and management tool for Linux**
 
 PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI also lets you monitor your system results everything in one place.
 
