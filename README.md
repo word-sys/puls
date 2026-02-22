@@ -1,18 +1,20 @@
+<img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="256" height="256" alt="PULS Icon"/>
+
 # PULS
 
 **A unified system monitoring and management tool for Linux.**
 
-PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI.
+PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI also lets you monitor your system results everything in one place.
 
-![PULS Screenshot](https://github.com/word-sys/puls/blob/main/screenshots/screenshot.png)
+![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
 
 ## Architecture
 
-PULS is built in Rust using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
+PULS built with Rust, using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
 *   **Monitoring**: Uses `sysinfo` for host metrics, `nvidia-smi` for NVIDIA GPUs, and a native DRM parser for AMD/Intel GPU telemetry. Supports multi-GPU configurations.
 *   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
-*   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory metrics.
-*   **Configuration**: Parses and modifies `/etc/default/grub` and other system files with automatic backup generation.
+*   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory usage.
+*   **Configuration**: Parses and modifies `/etc/default/grub` and other system files with backup generation.
 
 ## Features
 
