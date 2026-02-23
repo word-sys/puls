@@ -1,3 +1,36 @@
+puls (0.7.1) buster; urgency=medium
+
+  * Updated sensors tab to show all sensors correctly
+  * CPU Temp monitoring now also looks into /sys/class/hwmon/*/name for k10temp, coretemp, k8temp, zenpower
+  * For some reason, to access Docker containers info for monitoring requires PULS ran with "sudo". Until i find a solution to that problem users has Docker containers and wants to monitor them needed to run PULS with "sudo"
+  * Some places used secondary color instead of primary color, all fixed now
+
+ -- word-sys <baringuzeldemir@gmail.com>  Mon, 23 Feb 2026 14:00:00 +0000
+
+puls (0.7.0) buster; urgency=medium
+
+  * Temperatures and sensor data refresh in real-time and used on different tabs
+  * NVMe health percentage, power cycle count, and disk type (NVMe/SSD/HDD) shown on Disks tab
+  * Sensors tried to be grouped by category (CPU, GPU, Memory, Disk, Fan, Other) with visual temperature bars
+  * Enlarged gauges with borders and temperature display in info panel
+  * Temperature row added to Memory tab details, not every computer gaves this info so dont expect much
+  * Styled to match service status modal (larger, consistent borders)
+  * Updated bollard to v0.19, fixed legacy client errors for newer Docker APIs
+  * (I hope again) Fixed 0Hz/0Usage on AMD cards with hwmon sensor fallback
+  * Added sysfs hwmon fallback when component label matching fails
+
+ -- word-sys <baringuzeldemir@gmail.com>  Wed, 18 Feb 2026 21:00:00 +0000
+
+puls (0.6.2) buster; urgency=medium
+
+  * Added a new feature to view Docker container logs directly in the UI (press 'l' in the containers tab)
+  * Release executable PULS file now opens terminal for itself, result is working like AppImage application but executable way
+  * Updated bollard to v0.19 and refactored codebase to fix legacy client errors and support newer Docker APIs
+  * (I hope) Fixed 0Hz/0Usage reporting on AMD cards by implementing a fallback to hwmon sensors when legacy pp_dpm_* files are missing
+  * Removed unused "add implementation later" code and parameters, resolving compiler warnings and lowering binary size
+
+ -- word-sys <baringuzeldemir@gmail.com>  Tue, 17 Feb 2026 19:00:00 +0000
+
 puls (0.6.1) buster; urgency=medium
 
   * Added GPU Memory Monitoring
@@ -26,3 +59,53 @@ puls (0.6.0) buster; urgency=medium
   * Improved system service management safety checks
 
  -- word-sys <baringuzeldemir@gmail.com>  Wed, 28 Jan 2026 15:00:00 +0000
+
+puls (0.5.1) buster; urgency=medium
+
+  * Added backwards compatibility, after this update from Debian 10 or Ubuntu 20.04 up to Bleeding Edge Linux distributions can use PULS.
+
+ -- word-sys <baringuzeldemir@gmail.com>  Wed, 21 Jan 2026 19:00:00 +0000
+
+puls (0.5.0) buster; urgency=medium
+
+  * Added Memory Tab (Key 4) with RAM/Swap usage and breakdown
+  * Restored Containers Tab (Key =) with graceful handling for inactive Docker services
+  * Added detailed CPU information block (Model, Cores) and usage chart to CPU tab
+  * Added Disk I/O rates and IOPS metrics to Disks tab
+  * Fixed "0 Running Processes" issue; active processes now tracked correctly
+  * Widened columns for Disk Devices and GPU names to fix text truncation
+  * Updated UI theme for better high-contrast support
+  * Standardized tab shortcuts and improved Turkish translations
+
+ -- word-sys <baringuzeldemir@gmail.com>  Tue, 20 Jan 2026 23:00:00 +0000
+
+puls (0.4.0) buster; urgency=medium
+
+  * Added Turkish language support
+  * Added system service editing, watching tool and system logs tool
+  * Added GRUB editing tool
+  * Corrected CPU Mhz calculation
+  * Improved stability
+
+ -- word-sys <baringuzeldemir@gmail.com>  Tue, 30 Dec 2025 23:00:00 +0000
+
+puls (0.3.0) buster; urgency=medium
+
+  * Corrected CPU usage calculation per process
+  * 1-second refresh rate with smooth 60 FPS UI
+  * Reduced memory footprint and eliminated memory leaks
+
+ -- word-sys <baringuzeldemir@gmail.com>  Tue, 19 Aug 2025 23:00:00 +0000
+
+puls (0.2.0) buster; urgency=medium
+
+  * Added Safe Mode (use --safe)
+  * Added Optimizations
+
+ -- word-sys <baringuzeldemir@gmail.com>  Thu, 7 Aug 2025 21:00:00 +0000
+
+puls (0.1.0) buster; urgency=medium
+
+  * Initial Release
+
+ -- word-sys <baringuzeldemir@gmail.com>  Thu, 7 Aug 2025 11:00:00 +0000
