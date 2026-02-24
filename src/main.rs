@@ -316,9 +316,7 @@ fn handle_key_event(
                     let pid_str = &state.dynamic_data.processes[idx].pid;
                     if let Ok(pid_num) = pid_str.parse::<usize>() {
                          let pid = sysinfo::Pid::from(pid_num);
-                         if state.has_sudo {
-                             state.pending_kill_pid = Some(pid);
-                         }
+                         state.pending_kill_pid = Some(pid);
                     }
                 }
             }

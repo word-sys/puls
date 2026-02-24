@@ -81,7 +81,22 @@ impl SystemMonitor {
         self.last_update = now;
         self.system.refresh_cpu_all();
         self.system.refresh_memory();
-        self.system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        
+        let process_refresh_kind = sysinfo::ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_disk_usage()
+            .with_user(sysinfo::UpdateKind::OnlyIfNotSet)
+            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
+            .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
+            .with_environ(sysinfo::UpdateKind::Never);
+        
+        self.system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All, 
+            true, 
+            process_refresh_kind
+        );
+        
         self.components.refresh(true);
         
         let total_cpu_count = self.system.cpus().len() as f32;
