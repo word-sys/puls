@@ -1,3 +1,17 @@
+puls (0.8.0) buster; urgency=medium
+
+  * Displays Memory Type, Generation, Speed (MT/s), and Temperature, may require sudo
+  * Added Read and Write rate columns for individual disks
+  * Restored Memory Clock and added PCIe version/width display
+  * Improved detection for NVMe health, power cycles, and temperature
+  * Added more fallback paths for utilization and clock reporting
+  * Normalized load average by core count for accurate efficiency ratings
+  * Fixed border color mismatch in dark themes
+  * Fixed layout to 8 columns for better visibility
+  * Resized graphs to accommodate more hardware details
+
+ -- word-sys <baringuzeldemir@gmail.com>  Thu, 26 Feb 2026 18:00:00 +0000
+
 puls (0.7.1) buster; urgency=medium
 
   * Updated sensors tab to show all sensors correctly
