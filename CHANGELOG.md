@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file
 ## [v0.8.0] - 2026-02-26
 
 ### Added
-- **Memory Tab**: Displays Memory Type, Generation, Speed (MT/s), and Temperature
+- **Memory Tab**: Displays Memory Type, Generation, Speed (MT/s), and Temperature, may require sudo
 - **Disks Tab**: Added Read and Write rate columns for individual disks
 - **GPU Tab**: Restored Memory Clock and added PCIe version/width display
 
