@@ -4,7 +4,7 @@ pub mod layouts;
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, Paragraph, Row, Sparkline, Table, Tabs, BorderType, Chart, Dataset, GraphType, Axis},
+    widgets::{Block, Borders, Gauge, Paragraph, Row, Cell, Sparkline, Table, Tabs, BorderType, Chart, Dataset, GraphType, Axis},
     symbols::Marker,
 };
 
@@ -377,7 +377,7 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
         0.0
     };
     
-    let cpu_efficiency = get_cpu_efficiency(usage.cpu, usage.load_average.0);
+    let cpu_efficiency = get_cpu_efficiency(usage.cpu, usage.load_average.0, cpu_cores);
     let (mem_available, _availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
     
     let cpu_temp = state.dynamic_data.temperatures.cpu_temp;
@@ -780,10 +780,10 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
         
-    let grid_area = block.inner(inner_area);
+    let _grid_area = block.inner(inner_area);
     f.render_widget(block, inner_area);
     
-    let cores_per_row = (grid_area.width / 25).max(1) as usize;
+    let cores_per_row = 8;
     let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
     
     if rows_needed == 0 {
@@ -802,15 +802,13 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     
     for (row_idx, row_area) in rows_layout.iter().enumerate() {
         let start_core = row_idx * cores_per_row;
-        let end_core = (start_core + cores_per_row).min(cores.len());
         
         if start_core >= cores.len() {
             break;
         }
         
-        let cores_in_row = end_core - start_core;
-        let core_constraints: Vec<Constraint> = (0..cores_in_row)
-            .map(|_| Constraint::Percentage((100 / cores_in_row) as u16))
+        let core_constraints: Vec<Constraint> = (0..cores_per_row)
+            .map(|_| Constraint::Ratio(1, cores_per_row as u32))
             .collect();
         
         let cores_layout = Layout::default()
@@ -842,7 +840,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
 
 fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let disks = &state.dynamic_data.disks;
-    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "Temp", "Health", "Cycles", "Type"];
+    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "Read", "Write", "Temp", "Health", "Cycles", "Type"];
     
     let rows = disks.iter().map(|disk| {
         let usage_percent = if disk.total > 0 {
@@ -868,6 +866,8 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
             format_size(disk.used),
             format_size(disk.free),
             format_percentage(usage_percent),
+            format_rate(disk.read_rate),
+            format_rate(disk.write_rate),
             temp_display,
             health_display,
             cycles_display,
@@ -883,12 +883,14 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
         rows,
         [
             Constraint::Min(10),     // Mount
-            Constraint::Length(20),  // Device
+            Constraint::Length(15),  // Device
             Constraint::Length(6),   // FS
             Constraint::Length(9),   // Total
             Constraint::Length(9),   // Used
             Constraint::Length(9),   // Free
             Constraint::Length(7),   // Use%
+            Constraint::Length(10),  // Read Rate
+            Constraint::Length(10),  // Write Rate
             Constraint::Length(6),   // Temp
             Constraint::Length(7),   // Health
             Constraint::Length(8),   // Cycles
@@ -1154,8 +1156,8 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),  // Gauge
-            Constraint::Percentage(40), // Utilization Chart
-            Constraint::Percentage(40), // Memory Chart
+            Constraint::Percentage(30), // Utilization Chart
+            Constraint::Percentage(30), // Memory Chart
             Constraint::Min(3),     // Details
         ])
         .split(inner_area);
@@ -1223,52 +1225,62 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         0.0
     };
     
-    let mut details = vec![
-        Line::from(vec![
-            Span::styled("Memory: ", Style::default().fg(theme.accent)),
-            Span::raw(format!("{} / {} ({:.1}%)",
-                format_size(gpu.memory_used),
-                format_size(gpu.memory_total),
-                mem_percent
-            ))
+    let pcie_str = match (gpu.pci_link_gen, gpu.pci_link_width) {
+        (Some(gen), Some(width)) => format!("PCIe Gen {} x{}", gen, width),
+        (Some(gen), None) => format!("PCIe Gen {}", gen),
+        _ => "N/A".to_string(),
+    };
+
+    let mut table_rows = vec![
+        Row::new(vec![
+            Cell::from(Span::styled("Memory Usage:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{} / {} ({:.1}%)", format_size(gpu.memory_used), format_size(gpu.memory_total), mem_percent)),
+            Cell::from(Span::styled("Graphics Clock:", Style::default().fg(theme.accent))),
+            Cell::from(format_frequency(gpu.graphics_clock as u64)),
         ]),
-        Line::from(vec![
-            Span::styled("Power: ", Style::default().fg(theme.accent)),
-            Span::raw(format!("{:.2} W", gpu.power_usage as f64 / 1000.0))
+        Row::new(vec![
+            Cell::from(Span::styled("Power Draw:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{:.2} W", gpu.power_usage as f64 / 1000.0)),
+            Cell::from(Span::styled("Memory Clock:", Style::default().fg(theme.accent))),
+            Cell::from(format_frequency(gpu.memory_clock as u64)),
         ]),
-        Line::from(vec![
-            Span::styled("Graphics Clock: ", Style::default().fg(theme.accent)),
-            Span::raw(format_frequency(gpu.graphics_clock as u64))
-        ]),
-        Line::from(vec![
-            Span::styled("Memory Clock: ", Style::default().fg(theme.accent)),
-            Span::raw(format_frequency(gpu.memory_clock as u64))
+        Row::new(vec![
+            Cell::from(Span::styled("PCIe Version:", Style::default().fg(theme.accent))),
+            Cell::from(pcie_str),
+            Cell::from(Span::styled("Driver Version:", Style::default().fg(theme.accent))),
+            Cell::from(gpu.driver_version.clone()),
         ]),
     ];
 
     if let Some(temp) = gpu.memory_temperature {
-        details.push(Line::from(vec![
-            Span::styled("Memory Temp: ", Style::default().fg(theme.accent)),
-            Span::raw(format!("{}°C", temp))
+        table_rows.push(Row::new(vec![
+            Cell::from(Span::styled("Memory Temp:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{}°C", temp)),
+            Cell::from(""),
+            Cell::from(""),
         ]));
     }
 
     if let Some(fan) = gpu.fan_speed {
-        details.push(Line::from(vec![
-            Span::styled("Fan Speed: ", Style::default().fg(theme.accent)),
-            Span::raw(format!("{}%", fan))
+        table_rows.push(Row::new(vec![
+            Cell::from(Span::styled("Fan Speed:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{}%", fan)),
+            Cell::from(""),
+            Cell::from(""),
         ]));
     }
 
-    if let (Some(gen), Some(width)) = (gpu.pci_link_gen, gpu.pci_link_width) {
-        details.push(Line::from(vec![
-            Span::styled("PCIe: ", Style::default().fg(theme.accent)),
-            Span::raw(format!("Gen {} x{}", gen, width))
-        ]));
-    }
-    
-    let details_paragraph = Paragraph::new(details).style(Style::default().fg(theme.text));
-    f.render_widget(details_paragraph, layout[3]);
+    let table = Table::new(
+        table_rows,
+        [
+            Constraint::Percentage(20),
+            Constraint::Percentage(30),
+            Constraint::Percentage(20),
+            Constraint::Percentage(30),
+        ]
+    ).block(Block::default().borders(Borders::NONE));
+
+    f.render_widget(table, layout[3]);
 }
 
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -1719,20 +1731,19 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
 
     let headers = vec!["Metric", "Value"];
 
-    let mem_temp_str = state.dynamic_data.sensors.iter()
-        .find(|s| {
-            let lbl = s.label.to_lowercase();
-            lbl.contains("dimm") || lbl.contains("dram") || lbl.contains("memory") || lbl.contains("sodimm")
-        })
-        .map(|s| format!("{:.1}°C", s.temp))
-        .unwrap_or_else(|| "N/A".to_string());
+
+    let (mem_type, mem_gen, mem_speed, mem_temp) = state.dynamic_data.global_usage.mem_details.clone()
+        .unwrap_or_else(|| ("Unknown".into(), "Unknown".into(), "N/A".into(), "N/A".into()));
 
     let rows = vec![
         Row::new(vec!["Total Memory".to_string(), total_mem_str]), 
         Row::new(vec!["Used Memory".to_string(), used_mem_str]),
         Row::new(vec!["Cached / Buffers".to_string(), cached_mem_str]),
         Row::new(vec!["Free / Available".to_string(), free_mem_str]),
-        Row::new(vec!["Temperature".to_string(), mem_temp_str]),
+        Row::new(vec!["Type".to_string(), mem_type]),
+        Row::new(vec!["Generation".to_string(), mem_gen]),
+        Row::new(vec!["Speed".to_string(), mem_speed]),
+        Row::new(vec!["Temperature".to_string(), mem_temp]),
     ];
     
     let table = Table::new(
@@ -1925,7 +1936,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
             .title(format!(" Hardware Sensors ({}) ", count))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(theme.text))
+            .border_style(Style::default().fg(theme.border))
     );
     
     f.render_widget(table, area);

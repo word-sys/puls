@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"

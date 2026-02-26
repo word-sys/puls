@@ -248,11 +248,21 @@ pub fn estimate_memory_per_core(mem_used: u64, cpu_cores: usize) -> u64 {
     }
 }
 
-pub fn get_cpu_efficiency(cpu_percent: f32, load_avg: f64) -> String {
-    let efficiency = if load_avg > 0.0 {
-        (cpu_percent as f64 / load_avg).min(100.0)
+pub fn get_cpu_efficiency(cpu_percent: f32, load_avg: f64, cpu_cores: usize) -> String {
+    if cpu_percent < 5.0 && load_avg < 0.2 * cpu_cores as f64 {
+        return "IDLE".to_string();
+    }
+
+    let load_per_core = if cpu_cores > 0 {
+        load_avg / cpu_cores as f64
     } else {
-        0.0
+        load_avg
+    };
+
+    let efficiency = if load_per_core > 0.0 {
+        ((cpu_percent as f64 / 100.0) / load_per_core * 100.0).min(100.0)
+    } else {
+        100.0
     };
     
     match efficiency {

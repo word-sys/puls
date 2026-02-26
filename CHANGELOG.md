@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.8.0] - 2026-02-26
+
+### Added
+- **Memory Tab**: Displays Memory Type, Generation, Speed (MT/s), and Temperature
+- **Disks Tab**: Added Read and Write rate columns for individual disks
+- **GPU Tab**: Restored Memory Clock and added PCIe version/width display
+
+### Fixed
+- **NVMe Detection**: Improved detection for NVMe health, power cycles, and temperature
+- **AMD GPU Support**: Added more fallback paths for utilization and clock reporting
+- **CPU Efficiency**: Normalized load average by core count for accurate efficiency ratings
+- **Sensors Tab**: Fixed border color mismatch in dark themes
+
+### Changed
+- **CPU Cores Tab**: Fixed layout to 8 columns for better visibility
+- **GPU Tab Layout**: Resized graphs to accommodate more hardware details
+
 ## [v0.7.1] - 2026-02-23
 
 ### Fixed

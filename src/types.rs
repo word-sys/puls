@@ -162,6 +162,7 @@ pub struct GlobalUsage {
     pub load_average: (f64, f64, f64),
     pub uptime: u64,
     pub boot_time: u64,
+    pub mem_details: Option<(String, String, String, String)>,
 }
 
 impl Default for GlobalUsage {
@@ -190,6 +191,7 @@ impl Default for GlobalUsage {
             load_average: (0.0, 0.0, 0.0),
             uptime: 0,
             boot_time: 0,
+            mem_details: None,
         }
     }
 }

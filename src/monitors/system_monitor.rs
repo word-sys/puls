@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
+use std::fs;
 use sysinfo::{DiskUsage, Networks, Pid, System, Components};
 use users::{Users, UsersCache};
 use chrono::prelude::*;
@@ -7,12 +8,21 @@ use chrono::prelude::*;
 use crate::types::*;
 use crate::utils::*;
 
+#[derive(Debug, Clone, Default)]
+struct DiskStatsData {
+    read_bytes: u64,
+    write_bytes: u64,
+    read_ops: u64,
+    write_ops: u64,
+}
+
 pub struct SystemMonitor {
     system: System,
     components: Components,
     users_cache: UsersCache,
     prev_disk_usage: HashMap<Pid, DiskUsage>,
     prev_net_usage: HashMap<String, NetworkStats>,
+    prev_disk_stats: HashMap<String, DiskStatsData>,
     last_update: Instant,
     self_pid: u32,
 }
@@ -30,6 +40,7 @@ impl SystemMonitor {
             users_cache: UsersCache::new(),
             prev_disk_usage: HashMap::new(),
             prev_net_usage: HashMap::new(),
+            prev_disk_stats: HashMap::new(),
             last_update: Instant::now(),
             self_pid: std::process::id(),
         }
@@ -73,6 +84,84 @@ impl SystemMonitor {
 
     pub fn get_total_memory(&self) -> u64 {
         self.system.total_memory()
+    }
+    
+    pub fn get_memory_details(&self) -> (String, String, String, String) {
+        let mut mem_type = "N/A".to_string();
+        let mut mem_gen = "N/A".to_string(); 
+        let mut mem_speed = "N/A".to_string();
+        let mut mem_temp = "N/A".to_string();
+
+        if let Ok(chassis) = fs::read_to_string("/sys/class/dmi/id/chassis_type") {
+            if let Ok(c) = chassis.trim().parse::<u32>() {
+                mem_type = if [8, 9, 10, 11, 14, 30, 31, 32].contains(&c) {
+                    "SODIMM".to_string()
+                } else {
+                    "DIMM".to_string()
+                };
+            }
+        }
+
+        if let Ok(output) = std::process::Command::new("dmidecode")
+            .args(["-t", "17"])
+            .output() 
+        {
+            if output.status.success() {
+                let content = String::from_utf8_lossy(&output.stdout);
+                
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.starts_with("Type:") {
+                        let t = line.split(':').last().unwrap_or("").trim();
+                        if !t.is_empty() && !["Unknown", "Other", "<OUT OF SPEC>"].contains(&t) {
+                            mem_gen = t.to_string();
+                        }
+                    } else if line.starts_with("Speed:") {
+                        let s = line.split(':').last().unwrap_or("").trim();
+                        if !s.is_empty() && !["Unknown", "Unknown Speed", "0 MT/s", "0 MHz"].contains(&s) {
+                            mem_speed = s.to_string();
+                        }
+                    } else if line.starts_with("Form Factor:") {
+                        let f = line.split(':').last().unwrap_or("").trim();
+                        if !f.is_empty() && f != "Unknown" {
+                            mem_type = f.to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        if mem_gen == "N/A" || mem_gen == "Unknown" {
+            if let Ok(entries) = fs::read_dir("/sys/devices/system/edac/mc") {
+                for entry in entries.flatten() {
+                    let mc_path = entry.path();
+                    if let Ok(dimm_entries) = fs::read_dir(&mc_path) {
+                        for dimm_entry in dimm_entries.flatten() {
+                            let fname = dimm_entry.file_name().to_string_lossy().into_owned();
+                            if fname.starts_with("dimm") || fname.starts_with("rank") {
+                                if let Ok(dtype) = fs::read_to_string(dimm_entry.path().join("dimm_dev_type")) {
+                                    let dt = dtype.trim();
+                                    if !dt.is_empty() && dt != "Unknown" {
+                                        mem_gen = dt.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if mem_gen != "N/A" && mem_gen != "Unknown" { break; }
+                }
+            }
+        }
+
+        if let Some(t) = self.components.iter().find(|c| {
+            let label = c.label().to_lowercase();
+            label.contains("mem") || label.contains("dimm") || label.contains("dram")
+        }).and_then(|c| c.temperature()) {
+            mem_temp = format!("{:.1}°C", t);
+        }
+
+        (mem_type, mem_gen, mem_speed, mem_temp)
     }
     
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
@@ -238,104 +327,112 @@ impl SystemMonitor {
         }).collect()
     }
     
-    pub fn get_disks(&self) -> Vec<DetailedDiskInfo> {
+    pub fn get_disks(&mut self) -> Vec<DetailedDiskInfo> {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_update).as_secs_f64().max(0.1);
+        
+        let current_disk_stats = self.parse_disk_stats();
         let disks = sysinfo::Disks::new_with_refreshed_list();
-        disks.iter().map(|disk| {
-            let used = disk.total_space().saturating_sub(disk.available_space());
-            let disk_name = disk.name().to_string_lossy();
-            
-            let temp = self.components.iter()
-                .find(|c| {
-                    let label = c.label().to_string();
-                    label.contains(disk_name.as_ref()) || disk_name.contains(label.as_str())
-                })
-                .and_then(|c| c.temperature())
-                .or_else(|| {
-                    let dev_str_fb = disk_name.to_string();
-                    let block_dev_fb = dev_str_fb.split('/').last().unwrap_or(&dev_str_fb);
-                    let base_fb = if block_dev_fb.contains("nvme") {
-                        block_dev_fb.rfind('p')
-                            .and_then(|pos| {
-                                if pos > 0 && block_dev_fb[pos+1..].chars().all(|c| c.is_ascii_digit()) {
-                                    Some(&block_dev_fb[..pos])
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(block_dev_fb)
-                    } else {
-                        block_dev_fb.trim_end_matches(|c: char| c.is_ascii_digit())
-                    };
-                    // /sys/block/<dev>/device/hwmon/hwmon*/temp1_input
-                    let hwmon_path = format!("/sys/block/{}/device/hwmon", base_fb);
-                    std::fs::read_dir(&hwmon_path).ok().and_then(|entries| {
-                        for entry in entries.flatten() {
-                            let temp_file = entry.path().join("temp1_input");
-                            if let Ok(val) = std::fs::read_to_string(&temp_file) {
-                                if let Ok(millideg) = val.trim().parse::<f32>() {
-                                    return Some(millideg / 1000.0);
-                                }
+        
+        let generic_nvme_temp = if let Ok(hwmon_entries) = fs::read_dir("/sys/class/hwmon") {
+            hwmon_entries.flatten().find_map(|entry| {
+                let path = entry.path();
+                if let Ok(name) = fs::read_to_string(path.join("name")) {
+                    if name.trim() == "nvme" {
+                        if let Ok(val) = fs::read_to_string(path.join("temp1_input")) {
+                            if let Ok(mdeg) = val.trim().parse::<f32>() {
+                                return Some(mdeg / 1000.0);
                             }
                         }
-                        None
-                    })
-                });
+                    }
+                }
+                None
+            })
+        } else {
+            None
+        };
+
+        let result: Vec<DetailedDiskInfo> = disks.iter().map(|disk| {
+            let used = disk.total_space().saturating_sub(disk.available_space());
+            let dev_path = disk.name().to_string_lossy();
+            let block_dev = dev_path.split('/').last().unwrap_or(&dev_path);
             
-            let dev_str = disk_name.to_string();
-            let block_dev = dev_str.split('/').last().unwrap_or(&dev_str);
-            let base_dev = if block_dev.contains("nvme") {
-                block_dev.rfind('p')
-                    .and_then(|pos| {
-                        if pos > 0 && block_dev[pos+1..].chars().all(|c| c.is_ascii_digit()) {
-                            Some(&block_dev[..pos])
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(block_dev)
+            let base_dev = if block_dev.starts_with("nvme") {
+                if let Some(pos) = block_dev.find('p') {
+                    if block_dev[pos+1..].chars().all(|c| c.is_ascii_digit()) {
+                        &block_dev[..pos]
+                    } else {
+                        block_dev
+                    }
+                } else {
+                    block_dev
+                }
             } else {
                 block_dev.trim_end_matches(|c: char| c.is_ascii_digit())
             };
 
+            let temp = self.components.iter()
+                .find(|c| {
+                    let label = c.label().to_lowercase();
+                    label.contains(block_dev) || block_dev.contains(&label)
+                })
+                .and_then(|c| c.temperature())
+                .or(generic_nvme_temp);
+
             let mut health_pct: Option<u8> = None;
             let mut power_cycles: Option<u64> = None;
-            let is_nvme = base_dev.starts_with("nvme");
             
-            if is_nvme {
-                // /sys/block/nvme0n1/device/percentage_used
-                if let Ok(val) = std::fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
+            if base_dev.starts_with("nvme") {
+                if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
                     if let Ok(pct) = val.trim().parse::<u8>() {
                         health_pct = Some(100u8.saturating_sub(pct));
                     }
                 }
-                // /sys/block/nvme0n1/device/power_cycles  
-                if let Ok(val) = std::fs::read_to_string(format!("/sys/block/{}/device/power_cycles", base_dev)) {
+                if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/power_cycles", base_dev)) {
                     power_cycles = val.trim().parse::<u64>().ok();
                 }
             }
 
-            let is_ssd = std::fs::read_to_string(format!("/sys/block/{}/queue/rotational", base_dev))
+            let is_ssd = fs::read_to_string(format!("/sys/block/{}/queue/rotational", base_dev))
                 .ok()
                 .and_then(|v| v.trim().parse::<u8>().ok())
                 .map(|v| v == 0);
+
+            let mut read_rate = 0;
+            let mut write_rate = 0;
+            let mut read_ops = 0;
+            let mut write_ops = 0;
+
+            if let Some(curr) = current_disk_stats.get(block_dev) {
+                if let Some(prev) = self.prev_disk_stats.get(block_dev) {
+                    read_rate = ((curr.read_bytes.saturating_sub(prev.read_bytes)) as f64 / elapsed) as u64;
+                    write_rate = ((curr.write_bytes.saturating_sub(prev.write_bytes)) as f64 / elapsed) as u64;
+                    read_ops = ((curr.read_ops.saturating_sub(prev.read_ops)) as f64 / elapsed) as u64;
+                    write_ops = ((curr.write_ops.saturating_sub(prev.write_ops)) as f64 / elapsed) as u64;
+                }
+            }
             
             DetailedDiskInfo {
                 name: disk.mount_point().to_string_lossy().into_owned(),
-                device: disk.name().to_string_lossy().into_owned(),
+                device: dev_path.into_owned(),
                 fs: disk.file_system().to_string_lossy().to_string(),
                 total: disk.total_space(),
                 free: disk.available_space(),
                 used,
-                read_rate: 0,
-                write_rate: 0,
-                read_ops: 0,
-                write_ops: 0,
+                read_rate,
+                write_rate,
+                read_ops,
+                write_ops,
                 is_ssd,
                 temp,
                 health_pct,
                 power_cycles,
             }
-        }).collect()
+        }).collect();
+
+        self.prev_disk_stats = current_disk_stats;
+        self.last_update = now;
+        result
     }
     
     pub fn get_networks(&mut self) -> Vec<DetailedNetInfo> {
@@ -411,6 +508,7 @@ impl SystemMonitor {
             load_average: (load.one, load.five, load.fifteen),
             uptime,
             boot_time,
+            mem_details: Some(self.get_memory_details()),
             ..Default::default()
         }
     }
@@ -465,6 +563,30 @@ impl SystemMonitor {
             }
         }
         None
+    }
+
+    fn parse_disk_stats(&self) -> HashMap<String, DiskStatsData> {
+        let mut stats = HashMap::new();
+        if let Ok(content) = fs::read_to_string("/proc/diskstats") {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 14 {
+                    let dev_name = parts[2].to_string();
+                    let reads_completed = parts[3].parse::<u64>().unwrap_or(0);
+                    let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
+                    let writes_completed = parts[7].parse::<u64>().unwrap_or(0);
+                    let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
+                    
+                    stats.insert(dev_name, DiskStatsData {
+                        read_bytes: sectors_read * 512,
+                        write_bytes: sectors_written * 512,
+                        read_ops: reads_completed,
+                        write_ops: writes_completed,
+                    });
+                }
+            }
+        }
+        stats
     }
 
     pub fn get_sensors(&self) -> Vec<SensorInfo> {

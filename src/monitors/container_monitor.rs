@@ -460,7 +460,7 @@ mod tests {
     
     #[test]
     fn test_container_monitor_creation() {
-        let monitor = ContainerMonitor::new();
+        let _monitor = ContainerMonitor::new();
         assert!(true);
     }
     
