@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.8.1] - 2026-04-26
+
+### Added
+- **Hardware Limits**: Thermal limit readings added to the Sensors tab directly from `hwmon`
+- **GPU Telemetry**: Added Memory Utilization, VRAM Temperature, and Fan RPM readouts for AMD, NVIDIA, and Intel architectures
+
+### Changed
+- **Rebrand**: The project has been completely rebranded from PULS to FOSPX SYSMON
+- **Sensors UI**: Renamed the old "Limit" column to "Max Seen" and introduced a new dedicated "Limit" column for actual hardware maximums
+
+### Removed
+- **Dependencies Cleaned**: Removed some unnecessary dependencies to reduce binary bloat and improve compile times, but this also means that some planned changes will not be added, sorry :( 
+
 ## [v0.8.0] - 2026-02-26
 
 ### Added
