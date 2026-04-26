@@ -54,12 +54,30 @@ sudo mv fospx-sysmon /usr/local/bin/fospx-sysmon
 ```
 
 ### Install Debian Package (.deb)
-For Debian, Ubuntu, and derivatives, you can download and install the pre-built `.deb` package directly from releases:
+This method is the easiest installation path for Linux distributions.
 
-```bash
-wget -O fospx-sysmon.deb https://github.com/fospx-org/fospx-sysmon/releases/latest/download/fospx-sysmon.deb
-sudo apt install ./fospx-sysmon.deb
-```
+1. Download the latest `.deb` package from the [GitHub Releases](https://github.com/fospx-org/fospx-sysmon/releases) page. The file will typically be named something like `fospx-sysmon_0.8.1-1_amd64.deb`.
+
+   > [!TIP] Use version 0.8.1 for the most stable experience: look for `fospx-sysmon_0.8.1-1_amd64.deb` on the releases page.
+
+2. Open a terminal in the directory where you downloaded the `.deb` file.
+
+3. Run the following command to install the package:
+
+   ```bash
+   sudo apt update
+   sudo apt install ./fospx-sysmon_0.8.1-1_amd64.deb
+   ```
+
+   *(Note: Replace `fospx-sysmon_0.8.1-1_amd64.deb` with the exact filename you downloaded if different.)*
+
+4. If you encounter a dependency error during installation, try running the following command to fix missing dependencies:
+
+   ```bash
+   sudo apt --fix-broken install
+   ```
+
+5. Once installation is complete, you can launch FOSPX SYSMON from your application menu or terminal.
 
 ### Build from Source
 To build the portable static binary:
