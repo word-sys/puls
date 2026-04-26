@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/word-sys/fospx-sysmon/main/fospx-sysmon_icon.svg" width="256" height="256" alt="FOSPX SYSMON Icon"/>
+<img src="https://raw.githubusercontent.com/fospx-org/fospx-sysmon/main/fospx-sysmon_icon.svg" width="256" height="256" alt="FOSPX SYSMON Icon"/>
 
 # FOSPX SYSMON
 
@@ -6,7 +6,7 @@
 
 FOSPX SYSMON combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI also lets you monitor your system results everything in one place.
 
-![FOSPX SYSMON Screenshot](https://raw.githubusercontent.com/fospx/fospx-sysmon/main/screenshots/screenshot.png)
+![FOSPX SYSMON Screenshot](https://raw.githubusercontent.com/fospx-org/fospx-sysmon/main/screenshots/screenshot.png)
 
 ## Architecture
 
@@ -48,7 +48,7 @@ FOSPX SYSMON provides control over `systemd` units:
 The recommended way to run FOSPX SYSMON on any Linux distribution (Debian, Fedora, Arch, Alpine) is using the statically linked MUSL binary. This avoids glibc version mismatches.
 
 ```bash
-wget -O fospx-sysmon https://github.com/fospx/fospx-sysmon/releases/latest/download/fospx-sysmon
+wget -O fospx-sysmon https://github.com/fospx-org/fospx-sysmon/releases/latest/download/fospx-sysmon
 chmod +x fospx-sysmon
 sudo mv fospx-sysmon /usr/local/bin/fospx-sysmon
 ```
