@@ -57,7 +57,7 @@ impl GpuMonitor {
     
     fn get_nvidia_gpus(&self) -> Result<Vec<GpuInfo>, String> {
         let output = Command::new("nvidia-smi")
-            .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.gr,clocks.mem,fan.speed,driver_version,pcie.link.gen.current,pcie.link.width.current")
+            .arg("--query-gpu=name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,temperature.memory,power.draw,clocks.gr,clocks.mem,fan.speed,driver_version,pcie.link.gen.current,pcie.link.width.current")
             .arg("--format=csv,noheader,nounits")
             .output()
             .map_err(|e| e.to_string())?;
@@ -72,35 +72,40 @@ impl GpuMonitor {
         
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split(", ").collect();
-            if parts.len() < 11 { 
+            if parts.len() < 13 {
                 continue;
             }
             
-            let name = parts[0].to_string();
-            let utilization = parts[1].parse::<u32>().unwrap_or(0);
-            let memory_used = parts[2].parse::<u64>().unwrap_or(0) * 1024 * 1024;
-            let memory_total = parts[3].parse::<u64>().unwrap_or(0) * 1024 * 1024;
-            let temperature = parts[4].parse::<u32>().unwrap_or(0);
-            let power_usage = (parts[5].parse::<f32>().unwrap_or(0.0) * 1000.0) as u32;
-            let graphics_clock = parts[6].parse::<u32>().unwrap_or(0);
-            let memory_clock = parts[7].parse::<u32>().unwrap_or(0);
-            let fan_speed = parts[8].parse::<u32>().ok();
-            let driver_version = parts.get(9).unwrap_or(&"Unknown").to_string();
-            let pci_link_gen = parts.get(10).and_then(|s| s.parse::<u32>().ok());
-            let pci_link_width = parts.get(11).and_then(|s| s.parse::<u32>().ok());
+            let name            = parts[0].to_string();
+            let utilization     = parts[1].parse::<u32>().unwrap_or(0);
+            let mem_util        = parts[2].parse::<u32>().ok(); 
+            let memory_used     = parts[3].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+            let memory_total    = parts[4].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+            let temperature     = parts[5].parse::<u32>().unwrap_or(0);
+            let mem_temp        = parts[6].trim().parse::<u32>().ok();
+            let power_usage     = (parts[7].parse::<f32>().unwrap_or(0.0) * 1000.0) as u32;
+            let graphics_clock  = parts[8].parse::<u32>().unwrap_or(0);
+            let memory_clock    = parts[9].parse::<u32>().unwrap_or(0);
+            let fan_speed       = parts[10].trim().parse::<u32>().ok();
+            let driver_version  = parts.get(11).unwrap_or(&"Unknown").trim().to_string();
+            let pci_link_gen    = parts.get(12).and_then(|s| s.trim().parse::<u32>().ok());
+            let pci_link_width  = parts.get(13).and_then(|s| s.trim().parse::<u32>().ok());
             
             gpus.push(GpuInfo {
                 name,
                 brand: "NVIDIA".to_string(),
                 utilization,
+                memory_utilization: mem_util,
                 memory_used,
                 memory_total,
                 temperature,
-                memory_temperature: None,
+                memory_temperature: mem_temp,  
+                vram_temp: None,              
                 power_usage,
                 graphics_clock,
                 memory_clock,
                 fan_speed,
+                fan_rpm: None,                
                 pci_link_gen,
                 pci_link_width,
                 driver_version,
@@ -211,21 +216,44 @@ impl GpuMonitor {
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok());
 
+        let memory_utilization = fs::read_to_string(device_path.join("mem_busy_percent"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .or_else(|| {
+                fs::read_to_string(device_path.join("device/mem_busy_percent"))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+            });
+
+        let (fan_rpm, fan_percent) = self.find_hwmon_fan(device_path);
+
+        let (edge_temp, junction_temp, vram_temp) = self.find_amd_hwmon_temps(device_path);
+        let temperature = edge_temp.unwrap_or(temperature); 
+        let memory_temperature = vram_temp;  
+        let vram_temp_val = junction_temp;    
+
+        let driver_ver = fs::read_to_string(device_path.join("driver_version"))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "amdgpu".to_string());
+
         Ok(GpuInfo {
             name,
             brand: "AMD".to_string(),
             utilization,
+            memory_utilization,
             memory_used,
             memory_total,
             temperature,
-            memory_temperature: None,
+            memory_temperature,
+            vram_temp: vram_temp_val,
             power_usage,
             graphics_clock,
             memory_clock,
-            fan_speed: None, 
+            fan_speed: fan_percent,
+            fan_rpm,
             pci_link_gen,
             pci_link_width,
-            driver_version: "amdgpu".to_string(),
+            driver_version: driver_ver,
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
         })
@@ -330,24 +358,23 @@ impl GpuMonitor {
              .map(|id| format!("Intel Graphics ({})", id.trim()))
              .unwrap_or_else(|_| format!("Intel GPU ({})", card_name));
 
-        let freq_paths = [
+        let act_freq_paths = [
             card_path.join("gt/gt0/rps_act_freq_mhz"),
-            card_path.join("gt/gt0/rps_cur_freq_mhz"),
             card_path.join("gt/gt0/gt_act_freq_mhz"),
-            card_path.join("gt/gt0/gt_cur_freq_mhz"),
             card_path.join("gt_act_freq_mhz"),
-            card_path.join("gt_cur_freq_mhz"),
             device_path.join("gt_act_freq_mhz"),
+        ];
+        let cur_freq_paths = [
+            card_path.join("gt/gt0/rps_cur_freq_mhz"),
+            card_path.join("gt/gt0/gt_cur_freq_mhz"),
+            card_path.join("gt_cur_freq_mhz"),
             device_path.join("gt_cur_freq_mhz"),
         ];
 
-        let mut graphics_clock = 0;
-        for path in &freq_paths {
+        let mut graphics_clock = 0u32;
+        for path in act_freq_paths.iter().chain(cur_freq_paths.iter()) {
             if let Ok(s) = fs::read_to_string(path) {
                 if let Ok(val) = s.trim().parse::<u32>() {
-                     if graphics_clock == 0 {
-                         graphics_clock = val;
-                     }
                     if val > 0 {
                         graphics_clock = val;
                         break;
@@ -355,6 +382,36 @@ impl GpuMonitor {
                 }
             }
         }
+
+        let mem_clock_paths = [
+            card_path.join("gt/gt0/rps_act_freq_mhz"),
+            device_path.join("mem_act_freq_mhz"),
+            device_path.join("imc_cr_current_channel0_freq"),
+        ];
+        let mut memory_clock = 0u32;
+        for path in &mem_clock_paths {
+            if let Ok(s) = fs::read_to_string(path) {
+                if let Ok(val) = s.trim().parse::<u32>() {
+                    if val > 0 && val != graphics_clock {
+                        memory_clock = val;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let utilization = fs::read_to_string(
+                device_path.join("gt/gt0/engines/rcs0/busy"))
+            .or_else(|_| fs::read_to_string(
+                Path::new("/sys/kernel/debug/dri").join(card_name).join("i915_forcewake_user")))
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .unwrap_or(0);
+
+        let memory_total = fs::read_to_string(device_path.join("mem_info_vram_total"))
+            .ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
+        let memory_used = fs::read_to_string(device_path.join("mem_info_vram_used"))
+            .ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
              
         let temperature = self.find_hwmon_temp(device_path).unwrap_or(0);
         let power_usage = self.find_hwmon_power(device_path).unwrap_or(0);
@@ -362,18 +419,21 @@ impl GpuMonitor {
         Ok(GpuInfo {
             name,
             brand: "Intel".to_string(),
-            utilization: 0, 
-            memory_used: 0,
-            memory_total: 0,
+            utilization,
+            memory_utilization: None,
+            memory_used,
+            memory_total,
             temperature,
             memory_temperature: None,
+            vram_temp: None,
             power_usage,
             graphics_clock,
-            memory_clock: 0,
-            fan_speed: None,
+            memory_clock,
+            fan_speed: None, 
+            fan_rpm: self.find_hwmon_fan(device_path).0,
             pci_link_gen: None,
             pci_link_width: None,
-            driver_version: "i915".to_string(),
+            driver_version: "i915/xe".to_string(),
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
         })
@@ -401,6 +461,66 @@ impl GpuMonitor {
             }
         }
         None
+    }
+
+    fn find_amd_hwmon_temps(&self, device_path: &Path) -> (Option<u32>, Option<u32>, Option<u32>) {
+        let hwmon_dir = device_path.join("hwmon");
+        let mut edge: Option<u32> = None;
+        let mut junction: Option<u32> = None;
+        let mut vram: Option<u32> = None;
+        if let Ok(entries) = fs::read_dir(&hwmon_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() { continue; }
+                if edge.is_none() {
+                    if let Ok(s) = fs::read_to_string(path.join("temp1_input")) {
+                        if let Ok(val) = s.trim().parse::<u32>() {
+                            edge = Some(val / 1000);
+                        }
+                    }
+                }
+                if junction.is_none() {
+                    if let Ok(s) = fs::read_to_string(path.join("temp2_input")) {
+                        if let Ok(val) = s.trim().parse::<u32>() {
+                            junction = Some(val / 1000);
+                        }
+                    }
+                }
+                if vram.is_none() {
+                    if let Ok(s) = fs::read_to_string(path.join("temp3_input")) {
+                        if let Ok(val) = s.trim().parse::<u32>() {
+                            vram = Some(val / 1000);
+                        }
+                    }
+                }
+            }
+        }
+        (edge, junction, vram)
+    }
+
+    fn find_hwmon_fan(&self, device_path: &Path) -> (Option<u32>, Option<u32>) {
+        let hwmon_dir = device_path.join("hwmon");
+        let mut fan_rpm: Option<u32> = None;
+        let mut fan_pct: Option<u32> = None;
+        if let Ok(entries) = fs::read_dir(&hwmon_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() { continue; }
+                if fan_rpm.is_none() {
+                    if let Ok(s) = fs::read_to_string(path.join("fan1_input")) {
+                        fan_rpm = s.trim().parse::<u32>().ok();
+                    }
+                }
+                if fan_pct.is_none() {
+                    if let Ok(s) = fs::read_to_string(path.join("pwm1")) {
+                        if let Ok(pwm) = s.trim().parse::<u32>() {
+                            fan_pct = Some((pwm * 100) / 255);
+                        }
+                    }
+                }
+            }
+        }
+        (fan_rpm, fan_pct)
     }
     
     fn find_hwmon_power(&self, device_path: &Path) -> Option<u32> {

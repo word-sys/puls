@@ -1,14 +1,14 @@
 [package]
-name = "puls"
-version = "0.8.0"
+name = "fospx-sysmon"
+version = "0.8.1"
 edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"
 license = "GPL-3.0"
-repository = "https://github.com/word-sys/puls"
+repository = "https://github.com/fospx/fospx-sysmon"
 
 [[bin]]
-name = "puls"
+name = "fospx-sysmon"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,29 +16,24 @@ sysinfo = "0.33"
 users = "0.11"
 
 bollard = { version = "0.19", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 ratatui = "0.26"
 crossterm = "0.28"
 
 tokio = { version = "1.0", features = ["full"] }
-futures-util = "0.3"
 
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.0", features = ["derive"] }
-anyhow = "1.0"
-thiserror = "1.0"
 
-dashmap = "6.0"
 parking_lot = "0.12"
 
-atty = "0.2"
 env_logger = "0.11"
 log = "0.4"
-signal-hook = "0.3"
 
 [features]
 default = ["docker"]
-docker = ["dep:bollard"]
+docker = ["dep:bollard", "dep:futures-util"]
 full = ["docker"]
 
 [profile.release]
@@ -59,7 +54,7 @@ depends = "$auto"
 section = "utils"
 priority = "optional"
 extended-description = """\
-PULS is a terminal-based system monitoring tool.
+FOSPX SYSMON is a terminal-based system monitoring tool.
 Features:
 - CPU, Memory, Disk, Network monitoring
 - GPU monitoring (NVIDIA, AMD, Intel)
@@ -70,7 +65,7 @@ Features:
 - GRUB configuration
 """
 assets = [
-    ["target/release/puls", "usr/bin/", "755"],
-    ["puls.desktop", "usr/share/applications/", "644"],
-    ["puls_icon.svg", "usr/share/icons/hicolor/scalable/apps/puls.svg", "644"],
+    ["target/release/fospx-sysmon", "usr/bin/", "755"],
+    ["fospx-sysmon.desktop", "usr/share/applications/", "644"],
+    ["fospx-sysmon_icon.svg", "usr/share/icons/hicolor/scalable/apps/fospx-sysmon.svg", "644"],
 ]

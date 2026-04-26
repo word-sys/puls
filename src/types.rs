@@ -50,15 +50,18 @@ pub struct ContainerInfo {
 pub struct GpuInfo {
     pub name: String,
     pub brand: String,
-    pub utilization: u32,
+    pub utilization: u32,         
+    pub memory_utilization: Option<u32>, 
     pub memory_used: u64,
     pub memory_total: u64,
-    pub temperature: u32,
-    pub memory_temperature: Option<u32>,
+    pub temperature: u32,         
+    pub memory_temperature: Option<u32>, 
+    pub vram_temp: Option<u32>,   
     pub power_usage: u32,
-    pub graphics_clock: u32,
-    pub memory_clock: u32,
-    pub fan_speed: Option<u32>,
+    pub graphics_clock: u32,     
+    pub memory_clock: u32,       
+    pub fan_speed: Option<u32>, 
+    pub fan_rpm: Option<u32>,    
     pub utilization_history: Vec<u32>,
     pub memory_history: Vec<u32>,
     pub pci_link_gen: Option<u32>,
@@ -201,12 +204,13 @@ impl Default for GlobalUsage {
 pub struct SensorInfo {
     pub label: String,
     pub chip: String,
-    pub sensor_type: String, // "temp", "fan", "in", "power", "curr", "humidity", "intrusion"
+    pub sensor_type: String, 
     pub value: f64,
-    pub unit: String,        // "°C", "RPM", "V", "W", "A", 
-    pub temp: f32,           
-    pub max: Option<f32>,
-    pub critical: Option<f32>,
+    pub unit: String,        
+    pub temp: f32,
+    pub max: Option<f32>,    
+    pub limit: Option<f32>,
+    pub critical: Option<f32>, 
 }
 
 #[derive(Clone, Debug)]

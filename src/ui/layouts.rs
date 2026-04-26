@@ -174,208 +174,13 @@ pub fn create_summary_layout(area: Rect, sections: usize) -> Vec<Rect> {
         .to_vec()
 }
 
-#[allow(dead_code)]
-pub struct SidebarLayout {
-    pub sidebar: Rect,
-    pub main: Rect,
-}
-
-#[allow(dead_code)]
-pub fn create_sidebar_layout(area: Rect, sidebar_width: u16, left_sidebar: bool) -> SidebarLayout {
-    let chunks = if left_sidebar {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(sidebar_width),
-                Constraint::Min(0),
-            ])
-            .split(area)
-    } else {
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(0),
-                Constraint::Length(sidebar_width),
-            ])
-            .split(area)
-    };
-    
-    if left_sidebar {
-        SidebarLayout {
-            sidebar: chunks[0],
-            main: chunks[1],
-        }
-    } else {
-        SidebarLayout {
-            sidebar: chunks[1],
-            main: chunks[0],
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub struct ResponsiveLayout {
-    pub is_compact: bool,
-    pub areas: Vec<Rect>,
-}
-
-#[allow(dead_code)]
-pub fn create_responsive_layout(area: Rect, min_width: u16, min_height: u16) -> ResponsiveLayout {
-    let is_compact = area.width < min_width || area.height < min_height;
-    
-    if is_compact {
-        let constraints = vec![
-            Constraint::Length(3), // Header
-            Constraint::Min(0),    // Content
-        ];
-        
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(area);
-        
-        ResponsiveLayout {
-            is_compact: true,
-            areas: chunks.to_vec(),
-        }
-    } else {
-        let main_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),  // Header
-                Constraint::Length(4),  // Summary
-                Constraint::Min(0),     // Main content
-                Constraint::Length(1),  // Footer
-            ])
-            .split(area);
-        
-        ResponsiveLayout {
-            is_compact: false,
-            areas: main_chunks.to_vec(),    
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub fn create_tabbed_layout(area: Rect) -> (Rect, Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Tab bar
-            Constraint::Min(0),    // Tab content
-        ])
-        .split(area);
-    
-    (chunks[0], chunks[1])
-}
-
-#[allow(dead_code)]
-pub fn create_status_layout(area: Rect, status_items: usize) -> Vec<Rect> {
-    if status_items == 0 {
-        return vec![area];
-    }
-    
-    let constraints: Vec<Constraint> = (0..status_items)
-        .map(|_| Constraint::Ratio(1, status_items as u32))
-        .collect(); 
-    
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(constraints)
-        .split(area)
-        .to_vec()
-}
-
-pub mod utils {
-    use super::*;
-    
-    #[allow(dead_code)]
-    pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-        let popup_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage((100 - percent_y) / 2),
-                Constraint::Percentage(percent_y),
-                Constraint::Percentage((100 - percent_y) / 2),
-            ])
-            .split(area);
-        
-        Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ])
-            .split(popup_layout[1])[1]
-    }
-    
-    #[allow(dead_code)]
-    pub fn min_area_for_text(text: &str, margin: u16) -> (u16, u16) {
-        let lines: Vec<&str> = text.lines().collect();
-        let max_line_width = lines.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
-        let height = lines.len() as u16;
-        
-        (max_line_width + margin * 2, height + margin * 2)
-    }
-    
-    #[allow(dead_code)]
-    pub fn is_area_too_small(area: Rect, min_width: u16, min_height: u16) -> bool {
-        area.width < min_width || area.height < min_height
-    }
-    
-    #[allow(dead_code)]
-    pub fn split_evenly(area: Rect, parts: usize, direction: Direction, spacing: u16) -> Vec<Rect> {
-        if parts == 0 {
-            return vec![];
-        }
-        
-        let total_spacing = spacing * (parts.saturating_sub(1)) as u16;
-        let available = match direction {
-            Direction::Horizontal => area.width.saturating_sub(total_spacing),
-            Direction::Vertical => area.height.saturating_sub(total_spacing),
-        };
-        
-        let part_size = available / parts as u16;
-        let mut constraints = Vec::new();
-        
-        for i in 0..parts {
-            constraints.push(Constraint::Length(part_size));
-            if i < parts - 1 && spacing > 0 {
-                constraints.push(Constraint::Length(spacing));
-            }
-        }
-        
-        let chunks = Layout::default()
-            .direction(direction)
-            .constraints(constraints)
-            .split(area);
-        
-        chunks.into_iter()
-            .enumerate()
-            .filter(|(i, _)| spacing == 0 || i % 2 == 0)
-            .map(|(_, rect)| *rect)
-            .collect()
-    }
-    
-    #[allow(dead_code)]
-    pub fn add_margin(area: Rect, margin: u16) -> Rect {
-        Rect {
-            x: area.x + margin,
-            y: area.y + margin,
-            width: area.width.saturating_sub(margin * 2),
-            height: area.height.saturating_sub(margin * 2),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_main_layout() {
-        let area = Rect::new(0, 0, 80, 24);
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
         let layout = create_main_layout(area);
         
         assert_eq!(layout.tab_area.height, 3);
@@ -386,7 +191,7 @@ mod tests {
     
     #[test]
     fn test_two_column_layout() {
-        let area = Rect::new(0, 0, 80, 24);
+        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
         let (left, right) = create_two_column_layout(area, 30);
         
         assert!(left.width < right.width);
@@ -401,24 +206,5 @@ mod tests {
         let result = calculate_grid_dimensions(6, 80, 24);
         assert!(result.0 * result.1 >= 6);
         assert_eq!(calculate_grid_dimensions(1, 80, 24), (1, 1));
-    }
-    
-    #[test]
-    fn test_centered_rect() {
-        let area = Rect::new(0, 0, 100, 50);
-        let centered = utils::centered_rect(50, 50, area);
-        assert_eq!(centered.width, 50);
-        assert_eq!(centered.height, 25);
-        assert_eq!(centered.x, 25);
-        assert!(centered.y >= 12 && centered.y <= 13);
-    }
-    
-    #[test]
-    fn test_min_area_for_text() {
-        let text = "Hello\nWorld";
-        let (width, height) = utils::min_area_for_text(text, 2);
-        
-        assert_eq!(width, 9); 
-        assert_eq!(height, 6);
     }
 }

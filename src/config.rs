@@ -6,7 +6,7 @@ use crate::language::Language;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-#[command(name = "puls")]
+#[command(name = "fospx-sysmon")]
 #[command(about = "A unified system monitoring and management tool for Linux")]
 pub struct Cli {
     #[arg(short, long, default_value_t = false)]
@@ -100,67 +100,6 @@ impl Default for AppConfig {
             enable_gpu_monitoring: true,
             enable_network_monitoring: true,
             language: Language::English,
-        }
-    }
-}
-
-pub struct Features;
-
-impl Features {
-    #[cfg(feature = "docker")]
-    pub const DOCKER: bool = true;
-    #[cfg(not(feature = "docker"))]
-    pub const DOCKER: bool = false;
-    
-    pub const NVIDIA_GPU: bool = true;
-    pub const AMD_GPU: bool = true;
-    
-    pub fn has_gpu_support() -> bool {
-        true
-    }
-    
-    pub fn has_container_support() -> bool {
-        Self::DOCKER
-    }
-}
-
-pub struct PerformanceProfile {
-    pub update_interval_ms: u64,
-    pub history_size: usize,
-    pub enable_expensive_ops: bool,
-}
-
-impl PerformanceProfile {
-    pub fn detect() -> Self {
-        let sys = sysinfo::System::new_all();
-        let total_memory_gb = sys.total_memory() / (1024 * 1024 * 1024);
-        
-        if total_memory_gb >= 16 {
-            Self {
-                update_interval_ms: 500,
-                history_size: 120,
-                enable_expensive_ops: true,
-            }
-        } else if total_memory_gb >= 8 {
-            Self {
-                update_interval_ms: 1000,
-                history_size: 60,
-                enable_expensive_ops: true,
-            }
-        } else {
-            Self {
-                update_interval_ms: 2000,
-                history_size: 30,
-                enable_expensive_ops: false,
-            }
-        }
-    }
-    
-    pub fn safe_mode() -> Self {
-        Self {
-            update_interval_ms: 2000,
-            history_size: 30,
-            enable_expensive_ops: false,
         }
     }
 }

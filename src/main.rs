@@ -717,7 +717,8 @@ impl From<io::Error> for AppError {
 
 
 fn check_system_requirements() -> Result<(), AppError> {
-    if atty::is(atty::Stream::Stdout) {
+    use std::io::IsTerminal;
+    if std::io::stdout().is_terminal() {
         if let Ok((width, height)) = crossterm::terminal::size() {
             if width < 80 || height < 24 {
                 eprintln!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
@@ -759,7 +760,7 @@ fn check_system_requirements() -> Result<(), AppError> {
     }
 
     Err(AppError::Config(
-        "PULS is a terminal application. Please run it inside a terminal emulator.".to_string()
+        "FOSPX SYSMON is a terminal application. Please run it inside a terminal emulator.".to_string()
     ))
 }
 

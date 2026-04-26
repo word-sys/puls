@@ -1,10 +1,10 @@
 [Desktop Entry]
-Name=PULS
+Name=FOSPX SYSMON
 Comment=Unified System Monitoring Tool
-Exec=puls
-Icon=puls
+Exec=fospx-sysmon
+Icon=fospx-sysmon
 Terminal=true
 Type=Application
 Categories=System;Monitor;ConsoleOnly;
-Keywords=task;manager;monitor;system;
+Keywords=task;manager;monitor;system;fospx;sysmon;
 StartupNotify=true

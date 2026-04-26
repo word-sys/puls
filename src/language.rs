@@ -64,7 +64,7 @@ impl Translator {
         map.insert("tab.containers", "=:Docker");
         map.insert("tab.sensors", "+:Sensors");
         map.insert("title.config", "Configuration");
-        map.insert("title.puls", "PULS - System Monitor & Admin Tool");
+        map.insert("title.puls", "FOSPX SYSMON - System Monitor & Admin Tool");
         map.insert("title.cpu", "CPU");
         map.insert("title.memory", "Memory");
         map.insert("title.gpu", "GPU");
@@ -208,7 +208,7 @@ impl Translator {
         map.insert("tab.containers", "=:Konteynerler");
         map.insert("tab.sensors", "+:Sensörler");
         map.insert("title.config", "Ayarlar");
-        map.insert("title.puls", "PULS - Sistem İzleyici & Yönetim Aracı");
+        map.insert("title.puls", "FOSPX SYSMON - Sistem İzleyici & Yönetim Aracı");
         map.insert("title.cpu", "CPU");
         map.insert("title.memory", "Bellek");
         map.insert("title.gpu", "GPU");

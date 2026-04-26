@@ -1,16 +1,16 @@
-<img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="256" height="256" alt="PULS Icon"/>
+<img src="https://raw.githubusercontent.com/word-sys/fospx-sysmon/main/fospx-sysmon_icon.svg" width="256" height="256" alt="FOSPX SYSMON Icon"/>
 
-# PULS
+# FOSPX SYSMON
 
 **A unified system monitoring and management tool for Linux**
 
-PULS combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI also lets you monitor your system results everything in one place.
+FOSPX SYSMON combines resource monitoring with system administration capabilities. It allows control over system services, boot configurations, and logs directly from a TUI also lets you monitor your system results everything in one place.
 
-![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
+![FOSPX SYSMON Screenshot](https://raw.githubusercontent.com/fospx/fospx-sysmon/main/screenshots/screenshot.png)
 
 ## Architecture
 
-PULS built with Rust, using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
+FOSPX SYSMON built with Rust, using `ratatui` for the interface and leverages native Linux APIs and binaries for system interaction:
 *   **Monitoring**: Uses `sysinfo` for host metrics, `nvidia-smi` for NVIDIA GPUs, and a native DRM parser for AMD/Intel GPU telemetry. Supports multi-GPU configurations.
 *   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
 *   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory usage.
@@ -29,7 +29,7 @@ PULS built with Rust, using `ratatui` for the interface and leverages native Lin
 *   **Container Engine Integration**: Connects to the local Docker socket to monitor container lifecycles, resource usage (CPU/Mem limits), and health status.
 
 ### 3. Service Management Subsystem
-PULS provides control over `systemd` units:
+FOSPX SYSMON provides control over `systemd` units:
 *   **State Control**: Start, Stop, Restart services.
 *   **Boot Persistence**: Enable or Disable services at startup.
 *   **Status Inspection**: View full service definition and validation states.
@@ -40,17 +40,17 @@ PULS provides control over `systemd` units:
 
 ### 5. Boot Configuration (GRUB)
 *   **Parameter Editing**: Modify kernel parameters in `/etc/default/grub`.
-*   **Safety Backup**: PULS automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
+*   **Safety Backup**: FOSPX SYSMON automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
 
 ## Installation
 
 ### Static Binary (Portable)
-The recommended way to run PULS on any Linux distribution (Debian, Fedora, Arch, Alpine) is using the statically linked MUSL binary. This avoids glibc version mismatches.
+The recommended way to run FOSPX SYSMON on any Linux distribution (Debian, Fedora, Arch, Alpine) is using the statically linked MUSL binary. This avoids glibc version mismatches.
 
 ```bash
-wget -O puls https://github.com/word-sys/puls/releases/latest/download/puls
-chmod +x puls
-sudo mv puls /usr/local/bin/puls
+wget -O fospx-sysmon https://github.com/fospx/fospx-sysmon/releases/latest/download/fospx-sysmon
+chmod +x fospx-sysmon
+sudo mv fospx-sysmon /usr/local/bin/fospx-sysmon
 ```
 
 ### Build from Source
@@ -83,15 +83,15 @@ To create a Debian package compatible with older systems (Debian Buster/Bullseye
 
 ## Usage
 
-PULS operates in different modes depending on the privileges and flags provided:
+FOSPX SYSMON operates in different modes depending on the privileges and flags provided:
 
 | Command | Capabilities |
 | :--- | :--- |
-| `puls` | **Read-only**: Monitoring of user processes, CPU/GPU, and Containers. |
-| `sudo puls` | **Read/Write**: Full access to System Services (`systemctl`), Journals, and GRUB editing. |
-| `puls --safe` | **Safety Mode**: Explicitly disables write capability, preventing accidental edits. |
+| `fospx-sysmon` | **Read-only**: Monitoring of user processes, CPU/GPU, and Containers. |
+| `sudo fospx-sysmon` | **Read/Write**: Full access to System Services (`systemctl`), Journals, and GRUB editing. |
+| `fospx-sysmon --safe` | **Safety Mode**: Explicitly disables write capability, preventing accidental edits. |
 
 ---
 
-*For release notes and updates, please visit the [GitHub Releases](https://github.com/word-sys/puls/releases) page.*
+*For release notes and updates, please visit the [GitHub Releases](https://github.com/fospx/fospx-sysmon/releases) page.*
 *Verified on Ubuntu 20.04+ and Arch Linux.*

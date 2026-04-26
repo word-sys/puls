@@ -591,18 +591,12 @@ impl SystemMonitor {
 
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
         let mut sensors = Vec::new();
-        
+
+        // Build a map label -> (max_seen, critical) from sysinfo Components for running-max tracking
+        let mut sysinfo_max: std::collections::HashMap<String, (Option<f32>, Option<f32>)> =
+            std::collections::HashMap::new();
         for c in self.components.iter() {
-            sensors.push(SensorInfo {
-                label: c.label().to_string(),
-                chip: String::new(),
-                sensor_type: "temp".to_string(),
-                value: c.temperature().unwrap_or(0.0) as f64,
-                unit: "°C".to_string(),
-                temp: c.temperature().unwrap_or(0.0),
-                max: c.max(),
-                critical: c.critical(),
-            });
+            sysinfo_max.insert(c.label().to_string(), (c.max(), c.critical()));
         }
         
         if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
@@ -611,15 +605,81 @@ impl SystemMonitor {
                 let chip_name = std::fs::read_to_string(hwmon_path.join("name"))
                     .unwrap_or_default().trim().to_string();
                 if let Ok(files) = std::fs::read_dir(&hwmon_path) {
-                    for file in files.flatten() {
-                        let fname = file.file_name().to_string_lossy().to_string();
+                    let mut file_names: Vec<String> = files
+                        .flatten()
+                        .map(|f| f.file_name().to_string_lossy().to_string())
+                        .collect();
+                    file_names.sort();
+
+                    for fname in &file_names {
+                        // ---- Temperature sensors (hwmon direct read) ----
+                        if fname.starts_with("temp") && fname.ends_with("_input") {
+                            let idx = fname
+                                .trim_start_matches("temp")
+                                .trim_end_matches("_input");
+
+                            let current = std::fs::read_to_string(hwmon_path.join(fname))
+                                .ok()
+                                .and_then(|s| s.trim().parse::<f32>().ok())
+                                .map(|v| v / 1000.0)
+                                .unwrap_or(0.0);
+
+                            let label = std::fs::read_to_string(
+                                    hwmon_path.join(format!("temp{}_label", idx)))
+                                .map(|s| s.trim().to_string())
+                                .unwrap_or_else(|_| format!("{} temp{}", chip_name, idx));
+
+                            // Real hardware limit from hwmon temp*_max
+                            let hw_limit = std::fs::read_to_string(
+                                    hwmon_path.join(format!("temp{}_max", idx)))
+                                .ok()
+                                .and_then(|s| s.trim().parse::<f32>().ok())
+                                .map(|v| v / 1000.0);
+
+                            // Critical threshold from hwmon temp*_crit
+                            let hw_crit = std::fs::read_to_string(
+                                    hwmon_path.join(format!("temp{}_crit", idx)))
+                                .ok()
+                                .and_then(|s| s.trim().parse::<f32>().ok())
+                                .map(|v| v / 1000.0);
+
+                            // Running max from sysinfo, matching by label
+                            let (sysinfo_max_val, sysinfo_crit) = sysinfo_max
+                                .get(&label)
+                                .copied()
+                                .unwrap_or((None, None));
+
+                            let critical = hw_crit.or(sysinfo_crit);
+
+                            // Skip duplicate labels
+                            if sensors.iter().any(|s: &SensorInfo| {
+                                s.sensor_type == "temp" && s.label == label
+                            }) {
+                                continue;
+                            }
+
+                            sensors.push(SensorInfo {
+                                label,
+                                chip: chip_name.clone(),
+                                sensor_type: "temp".to_string(),
+                                value: current as f64,
+                                unit: "°C".to_string(),
+                                temp: current,
+                                max: sysinfo_max_val, // running max seen since start
+                                limit: hw_limit,      // real hardware limit (lm_sensors "high")
+                                critical,
+                            });
+                            continue;
+                        }
+
+                        // ---- Fan sensors ----
                         if fname.starts_with("fan") && fname.ends_with("_input") {
                             let idx = fname.trim_start_matches("fan").trim_end_matches("_input");
-                            let label_file = hwmon_path.join(format!("fan{}_label", idx));
-                            let label = std::fs::read_to_string(&label_file)
+                            let label = std::fs::read_to_string(
+                                    hwmon_path.join(format!("fan{}_label", idx)))
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_else(|_| format!("{} Fan {}", chip_name, idx));
-                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
                                 if let Ok(rpm) = val.trim().parse::<f64>() {
                                     sensors.push(SensorInfo {
                                         label,
@@ -629,20 +689,24 @@ impl SystemMonitor {
                                         unit: "RPM".to_string(),
                                         temp: rpm as f32,
                                         max: None,
+                                        limit: None,
                                         critical: None,
                                     });
                                 }
                             }
+                            continue;
                         }
-                        
-                        if fname.starts_with("in") && fname.ends_with("_input") && fname[2..].starts_with(|c: char| c.is_ascii_digit()) {
+
+                        // ---- Voltage sensors ----
+                        if fname.starts_with("in") && fname.ends_with("_input")
+                            && fname[2..].starts_with(|c: char| c.is_ascii_digit())
+                        {
                             let idx = fname.trim_start_matches("in").trim_end_matches("_input");
-                            let label_file = hwmon_path.join(format!("in{}_label", idx));
-                            let label = std::fs::read_to_string(&label_file)
+                            let label = std::fs::read_to_string(
+                                    hwmon_path.join(format!("in{}_label", idx)))
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_else(|_| format!("{} Voltage {}", chip_name, idx));
-                            
-                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
                                 if let Ok(mv) = val.trim().parse::<f64>() {
                                     let volts = mv / 1000.0;
                                     sensors.push(SensorInfo {
@@ -653,25 +717,28 @@ impl SystemMonitor {
                                         unit: "V".to_string(),
                                         temp: volts as f32,
                                         max: None,
+                                        limit: None,
                                         critical: None,
                                     });
                                 }
                             }
+                            continue;
                         }
-                        
-                        if fname.starts_with("power") && (fname.ends_with("_input") || fname.ends_with("_average")) {
+
+                        // ---- Power sensors ----
+                        if fname.starts_with("power")
+                            && (fname.ends_with("_input") || fname.ends_with("_average"))
+                        {
                             let idx_end = if fname.ends_with("_input") { "_input" } else { "_average" };
                             let idx = fname.trim_start_matches("power").trim_end_matches(idx_end);
-                            let label_file = hwmon_path.join(format!("power{}_label", idx));
-                            let label = std::fs::read_to_string(&label_file)
+                            let label = std::fs::read_to_string(
+                                    hwmon_path.join(format!("power{}_label", idx)))
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_else(|_| format!("{} Power {}", chip_name, idx));
-                            
                             if sensors.iter().any(|s| s.label == label && s.sensor_type == "power") {
                                 continue;
                             }
-                            
-                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
                                 if let Ok(uw) = val.trim().parse::<f64>() {
                                     let watts = uw / 1_000_000.0;
                                     sensors.push(SensorInfo {
@@ -682,20 +749,22 @@ impl SystemMonitor {
                                         unit: "W".to_string(),
                                         temp: watts as f32,
                                         max: None,
+                                        limit: None,
                                         critical: None,
                                     });
                                 }
                             }
+                            continue;
                         }
-                        
+
+                        // ---- Current sensors ----
                         if fname.starts_with("curr") && fname.ends_with("_input") {
                             let idx = fname.trim_start_matches("curr").trim_end_matches("_input");
-                            let label_file = hwmon_path.join(format!("curr{}_label", idx));
-                            let label = std::fs::read_to_string(&label_file)
+                            let label = std::fs::read_to_string(
+                                    hwmon_path.join(format!("curr{}_label", idx)))
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_else(|_| format!("{} Current {}", chip_name, idx));
-                            
-                            if let Ok(val) = std::fs::read_to_string(file.path()) {
+                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
                                 if let Ok(ma) = val.trim().parse::<f64>() {
                                     let amps = ma / 1000.0;
                                     sensors.push(SensorInfo {
@@ -706,6 +775,7 @@ impl SystemMonitor {
                                         unit: "A".to_string(),
                                         temp: amps as f32,
                                         max: None,
+                                        limit: None,
                                         critical: None,
                                     });
                                 }

@@ -1231,40 +1231,69 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         _ => "N/A".to_string(),
     };
 
+    let mem_util_str = gpu.memory_utilization
+        .map(|u| format!("{}% (eng)", u))
+        .unwrap_or_else(|| "N/A".to_string());
+
     let mut table_rows = vec![
         Row::new(vec![
             Cell::from(Span::styled("Memory Usage:", Style::default().fg(theme.accent))),
             Cell::from(format!("{} / {} ({:.1}%)", format_size(gpu.memory_used), format_size(gpu.memory_total), mem_percent)),
-            Cell::from(Span::styled("Graphics Clock:", Style::default().fg(theme.accent))),
-            Cell::from(format_frequency(gpu.graphics_clock as u64)),
+            Cell::from(Span::styled("Core Clock:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{} MHz", gpu.graphics_clock)),
+        ]),
+        Row::new(vec![
+            Cell::from(Span::styled("Mem Engine:", Style::default().fg(theme.accent))),
+            Cell::from(mem_util_str),
+            Cell::from(Span::styled("Mem Clock:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{} MHz", gpu.memory_clock)),
         ]),
         Row::new(vec![
             Cell::from(Span::styled("Power Draw:", Style::default().fg(theme.accent))),
             Cell::from(format!("{:.2} W", gpu.power_usage as f64 / 1000.0)),
-            Cell::from(Span::styled("Memory Clock:", Style::default().fg(theme.accent))),
-            Cell::from(format_frequency(gpu.memory_clock as u64)),
-        ]),
-        Row::new(vec![
             Cell::from(Span::styled("PCIe Version:", Style::default().fg(theme.accent))),
             Cell::from(pcie_str),
-            Cell::from(Span::styled("Driver Version:", Style::default().fg(theme.accent))),
+        ]),
+        Row::new(vec![
+            Cell::from(Span::styled("Driver:", Style::default().fg(theme.accent))),
             Cell::from(gpu.driver_version.clone()),
+            Cell::from(Span::styled("Brand:", Style::default().fg(theme.accent))),
+            Cell::from(gpu.brand.clone()),
         ]),
     ];
 
     if let Some(temp) = gpu.memory_temperature {
         table_rows.push(Row::new(vec![
-            Cell::from(Span::styled("Memory Temp:", Style::default().fg(theme.accent))),
+            Cell::from(Span::styled("VRAM Temp:", Style::default().fg(theme.accent))),
             Cell::from(format!("{}°C", temp)),
+            Cell::from(Span::styled("Junction Temp:", Style::default().fg(theme.accent))),
+            Cell::from(gpu.vram_temp.map(|t| format!("{}°C", t)).unwrap_or_else(|| "N/A".to_string())),
+        ]));
+    } else if let Some(junc) = gpu.vram_temp {
+        table_rows.push(Row::new(vec![
+            Cell::from(Span::styled("Junction Temp:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{}°C", junc)),
             Cell::from(""),
             Cell::from(""),
         ]));
     }
 
     if let Some(fan) = gpu.fan_speed {
+        let fan_str = if let Some(rpm) = gpu.fan_rpm {
+            format!("{}% ({} RPM)", fan, rpm)
+        } else {
+            format!("{}%", fan)
+        };
         table_rows.push(Row::new(vec![
             Cell::from(Span::styled("Fan Speed:", Style::default().fg(theme.accent))),
-            Cell::from(format!("{}%", fan)),
+            Cell::from(fan_str),
+            Cell::from(""),
+            Cell::from(""),
+        ]));
+    } else if let Some(rpm) = gpu.fan_rpm {
+        table_rows.push(Row::new(vec![
+            Cell::from(Span::styled("Fan RPM:", Style::default().fg(theme.accent))),
+            Cell::from(format!("{} RPM", rpm)),
             Cell::from(""),
             Cell::from(""),
         ]));
@@ -1797,11 +1826,13 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
         rows.push(
             Row::new(vec![
                 " ═══ Temperatures ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &temp_sensors {
-            let ratio = if let Some(crit) = s.critical {
+            let ratio = if let Some(lim) = s.limit {
+                if lim > 0.0 { s.value as f32 / lim } else { 0.0 }
+            } else if let Some(crit) = s.critical {
                 if crit > 0.0 { s.value as f32 / crit } else { 0.0 }
             } else {
                 s.value as f32 / 85.0
@@ -1814,17 +1845,20 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("  {}", s.label),
                 format!("{:.1}°C", s.value),
                 s.max.map(|v| format!("{:.1}°C", v)).unwrap_or_else(|| "—".into()),
+                s.limit.map(|v| format!("{:.1}°C", v))
+                    .or_else(|| s.critical.map(|v| format!("{:.1}°C (crit)", v)))
+                    .unwrap_or_else(|| "—".into()),
                 bar,
             ]).style(Style::default().fg(color)));
         }
     }
 
     if !fan_sensors.is_empty() {
-        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(Row::new(vec![String::new(); 5]));
         rows.push(
             Row::new(vec![
                 " ═══ Fan Speeds ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &fan_sensors {
@@ -1834,17 +1868,18 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("  {}", s.label),
                 format!("{:.0} RPM", s.value),
                 String::new(),
+                String::new(),
                 status.to_string(),
             ]).style(Style::default().fg(color)));
         }
     }
 
     if !voltage_sensors.is_empty() {
-        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(Row::new(vec![String::new(); 5]));
         rows.push(
             Row::new(vec![
                 " ═══ Voltages ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &voltage_sensors {
@@ -1854,16 +1889,17 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("{:.3} V", s.value),
                 String::new(),
                 String::new(),
+                String::new(),
             ]).style(Style::default().fg(color)));
         }
     }
 
     if !power_sensors.is_empty() {
-        rows.push(Row::new(vec![String::new(); 4])); 
+        rows.push(Row::new(vec![String::new(); 5]));
         rows.push(
             Row::new(vec![
                 " ═══ Power ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &power_sensors {
@@ -1873,16 +1909,17 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("{:.2} W", s.value),
                 String::new(),
                 String::new(),
+                String::new(),
             ]).style(Style::default().fg(color)));
         }
     }
 
     if !current_sensors.is_empty() {
-        rows.push(Row::new(vec![String::new(); 4]));
+        rows.push(Row::new(vec![String::new(); 5]));
         rows.push(
             Row::new(vec![
                 " ═══ Current ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &current_sensors {
@@ -1892,16 +1929,17 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("{:.3} A", s.value),
                 String::new(),
                 String::new(),
+                String::new(),
             ]).style(Style::default().fg(color)));
         }
     }
 
     if !other_sensors.is_empty() {
-        rows.push(Row::new(vec![String::new(); 4])); // spacer
+        rows.push(Row::new(vec![String::new(); 5])); // spacer
         rows.push(
             Row::new(vec![
                 " ═══ Other ═══".to_string(),
-                String::new(), String::new(), String::new(),
+                String::new(), String::new(), String::new(), String::new(),
             ]).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         );
         for s in &other_sensors {
@@ -1910,20 +1948,22 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
                 format!("{:.2} {}", s.value, s.unit),
                 String::new(),
                 String::new(),
+                String::new(),
             ]).style(Style::default().fg(theme.text)));
         }
     }
 
     let count = sensors.len();
-    let headers = ["Sensor", "Value", "Limit", "Status"];
+    let headers = ["Sensor", "Value", "Max Seen", "Limit", "Status"];
     
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(38),
-            Constraint::Percentage(18),
-            Constraint::Percentage(18),
-            Constraint::Percentage(26),
+            Constraint::Percentage(34),
+            Constraint::Percentage(14),
+            Constraint::Percentage(14),
+            Constraint::Percentage(14),
+            Constraint::Percentage(24),
         ]
     )
     .header(
