@@ -53,6 +53,14 @@ chmod +x fospx-sysmon
 sudo mv fospx-sysmon /usr/local/bin/fospx-sysmon
 ```
 
+### Install Debian Package (.deb)
+For Debian, Ubuntu, and derivatives, you can download and install the pre-built `.deb` package directly from releases:
+
+```bash
+wget -O fospx-sysmon.deb https://github.com/fospx-org/fospx-sysmon/releases/latest/download/fospx-sysmon.deb
+sudo apt install ./fospx-sysmon.deb
+```
+
 ### Build from Source
 To build the portable static binary:
 
@@ -93,5 +101,5 @@ FOSPX SYSMON operates in different modes depending on the privileges and flags p
 
 ---
 
-*For release notes and updates, please visit the [GitHub Releases](https://github.com/fospx/fospx-sysmon/releases) page.*
+*For release notes and updates, please visit the [GitHub Releases](https://github.com/fospx-org/fospx-sysmon/releases) page.*
 *Verified on Ubuntu 20.04+ and Arch Linux.*

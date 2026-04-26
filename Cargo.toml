@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"
 license = "GPL-3.0"
-repository = "https://github.com/fospx/fospx-sysmon"
+repository = "https://github.com/fospx-org/fospx-sysmon"
 
 [[bin]]
 name = "fospx-sysmon"
