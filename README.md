@@ -1,6 +1,6 @@
 <img src="https://raw.githubusercontent.com/fospx-org/fospx-sysmon/main/fospx-sysmon_icon.svg" width="256" height="256" alt="FOSPX SYSMON Icon"/>
 
-# FOSPX SYSMON
+# FOSPX System Monitor
 
 **A unified system monitoring and management tool for Linux**
 
