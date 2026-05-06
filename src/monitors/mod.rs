@@ -10,7 +10,7 @@ pub use container_monitor::ContainerMonitor;
 
 use std::sync::Arc;
 use parking_lot::Mutex;
-use tokio::time::{Duration, Instant};
+use tokio::time::Instant;
 
 use crate::types::{DynamicData, AppConfig, GlobalUsage};
 use crate::utils::update_history;
@@ -42,27 +42,40 @@ impl DataCollector {
         sort_by: &crate::types::ProcessSortBy,
         sort_ascending: bool,
         mut prev_global_usage: GlobalUsage,
+        active_tab: usize,
     ) -> DynamicData {
-        let now = Instant::now();
-        let collection_start = now;
-        let mut processes = self.system_monitor.update_processes(
-            show_system_processes,
-            filter
-        );
+        self.system_monitor.refresh_core_metrics();
         
-        crate::monitors::system_monitor::sort_processes(
-            &mut processes,
-            sort_by,
-            sort_ascending,
-            self.system_monitor.get_total_memory()
-        );    
- 
-        let detailed_process = selected_pid
-            .and_then(|pid| self.system_monitor.get_detailed_process(pid));
+        let processes = if active_tab == 0 || active_tab == 1 || active_tab == 7 {
+            let mut procs = self.system_monitor.update_processes(show_system_processes, filter);
+            crate::monitors::system_monitor::sort_processes(
+                &mut procs,
+                sort_by,
+                sort_ascending,
+                self.system_monitor.get_total_memory()
+            );
+            procs
+        } else {
+            Vec::new()
+        };
+
+        let detailed_process = if active_tab == 1 && selected_pid.is_some() {
+            selected_pid.and_then(|pid| self.system_monitor.get_detailed_process(pid))
+        } else {
+            None
+        };
         
-        let cores = self.system_monitor.get_cores();
+        let cores = if active_tab == 1 || active_tab == 2 {
+            self.system_monitor.get_cores()
+        } else {
+            Vec::new()
+        };
         
-        let disks = self.system_monitor.get_disks();
+        let disks = if active_tab == 4 || active_tab == 0 {
+            self.system_monitor.get_disks()
+        } else {
+            Vec::new()
+        };
         
         let networks = if self.config.enable_network_monitoring {
             self.system_monitor.get_networks()
@@ -74,9 +87,9 @@ impl DataCollector {
             .calculate_total_network_io(&networks);
         
         let (total_disk_read, total_disk_write) = self.system_monitor
-            .calculate_total_disk_io(&processes);
-        
-        let (containers, docker_error) = if self.config.enable_docker {
+            .get_global_disk_io();
+
+        let (containers, docker_error) = if self.config.enable_docker && (active_tab == 11 || active_tab == 0) {
             if self.container_monitor.is_available() {
                 match tokio::time::timeout(
                     self.config.get_operation_timeout(),
@@ -99,7 +112,7 @@ impl DataCollector {
         let gpus = if !self.config.enable_gpu_monitoring {
             Err("GPU monitoring disabled by configuration".to_string())
         } else if !self.gpu_monitor.is_available() {
-            Err("GPU monitoring unavailable (monitor reports not available)".to_string())
+            Err("GPU monitoring unavailable".to_string())
         } else {
             self.gpu_monitor.get_gpu_info()
         };
@@ -113,8 +126,19 @@ impl DataCollector {
             self.gpu_monitor.update_gpu_history(gpu_list, self.config.history_length);
         }
         
-        let temperatures = self.system_monitor.get_temperatures();
-        let sensors = self.system_monitor.get_sensors();
+        let (temperatures, sensors) = (self.system_monitor.get_temperatures(), self.system_monitor.get_sensors());
+
+        let networks = if active_tab == 5 || active_tab == 0 {
+            networks
+        } else {
+            Vec::new()
+        };
+
+        let gpus = if active_tab == 6 || active_tab == 0 {
+            gpus
+        } else {
+            Err("Not on GPU tab".to_string())
+        };
         
         let mut global_usage = self.system_monitor.get_global_usage(
             total_net_down,
@@ -144,14 +168,7 @@ impl DataCollector {
         global_usage.disk_read_history = prev_global_usage.disk_read_history;
         global_usage.disk_write_history = prev_global_usage.disk_write_history;
         global_usage.gpu_history = prev_global_usage.gpu_history;
-        
-        let collection_end = Instant::now();
-        let collection_duration = collection_end.duration_since(collection_start);
-        
-        if collection_duration > Duration::from_millis(self.config.refresh_rate_ms / 2) {
-            eprintln!("Slow data collection: {:?}", collection_duration);
-        }
-        
+
         DynamicData {
             processes,
             detailed_process,

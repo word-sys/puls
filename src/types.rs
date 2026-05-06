@@ -131,7 +131,7 @@ pub struct DetailedNetInfo {
     pub is_up: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct SystemTemperatures {
     pub cpu_temp: Option<f32>,

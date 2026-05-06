@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::types::AppState;
-use crate::utils::{format_size, format_rate, format_percentage, format_frequency, get_usage_color, truncate_string, get_system_health, get_cpu_efficiency, estimate_memory_availability};
+use crate::utils::{format_size, format_rate, format_percentage, get_usage_color, truncate_string, get_system_health, get_cpu_efficiency, estimate_memory_availability};
 use crate::language::Translator;
 
 pub use layouts::*;
@@ -26,7 +26,7 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     
     match state.active_tab {
         0 => render_dashboard_tab(f, state, main_layout.content_area, translator, theme),
-        1 => render_process_detail_tab(f, state, main_layout.content_area, translator, theme),
+        1 => render_processes_tab(f, state, main_layout.content_area, translator, theme),
         2 => render_cpu_cores_tab(f, state, main_layout.content_area, translator, theme),
         3 => render_memory_tab(f, state, main_layout.content_area, translator, theme),
         4 => render_disks_tab(f, state, main_layout.content_area, translator, theme),
@@ -342,17 +342,185 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     }
 }
 
-fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_dashboard_cpu_chart(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+    let history_data: Vec<(f64, f64)> = state.dynamic_data.global_usage.cpu_history
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v as f64))
+        .collect();
+
+    let datasets = vec![
+        Dataset::default()
+            .name("CPU Usage")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme.primary))
+            .data(&history_data)
+    ];
+    
+    let chart = Chart::new(datasets)
+        .block(Block::default()
+            .title(" CPU History (60s) ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+        )
+        .x_axis(Axis::default().bounds([0.0, 60.0]))
+        .y_axis(Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(vec![
+                Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                Span::styled("100%", Style::default().fg(theme.text_secondary)),
+            ])
+            .style(Style::default().fg(theme.text_secondary)));
+    f.render_widget(chart, area);
+}
+
+fn render_dashboard_mem_chart(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+    let history_data: Vec<(f64, f64)> = state.dynamic_data.global_usage.mem_history
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| (i as f64, v as f64))
+        .collect();
+
+    let datasets = vec![
+        Dataset::default()
+            .name("Mem Usage")
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme.accent))
+            .data(&history_data)
+    ];
+    
+    let chart = Chart::new(datasets)
+        .block(Block::default()
+            .title(" Memory History (60s) ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+        )
+        .x_axis(Axis::default().bounds([0.0, 60.0]))
+        .y_axis(Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(vec![
+                Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                Span::styled("100%", Style::default().fg(theme.text_secondary)),
+            ])
+            .style(Style::default().fg(theme.text_secondary)));
+    f.render_widget(chart, area);
+}
+
+fn render_top_processes(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let mut processes = state.dynamic_data.processes.clone();
+    processes.truncate(5);
+
+    let header_name = translator.t("header.name");
+    let header_cpu = translator.t("header.cpu");
+    let header_memory = translator.t("header.memory");
+
+    let rows = processes.iter().map(|p| {
+        Row::new(vec![
+            truncate_string(&p.name, 25),
+            p.cpu_display.clone(),
+            p.mem_display.clone(),
+        ]).style(Style::default().fg(theme.text))
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(20),     // Name
+            Constraint::Length(8),   // CPU
+            Constraint::Length(10),  // Memory
+        ]
+    )
+    .header(
+        Row::new(vec![header_name, header_cpu, header_memory])
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+            .bottom_margin(1)
+    )
+    .block(
+        Block::default()
+            .title(" Top Processes ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+    );
+
+    f.render_widget(table, area);
+}
+
+fn render_dashboard_storage(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+    let disks = &state.dynamic_data.disks;
+    let block = Block::default()
+        .title(" Storage ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+    
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let disk_count = disks.len().min(3);
+    if disk_count == 0 { return; }
+
+    let constraints: Vec<Constraint> = (0..disk_count).map(|_| Constraint::Length(3)).collect();
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Percentage(75), Constraint::Percentage(22)])
+        .constraints(constraints)
+        .split(inner_area);
+
+    for (i, disk) in disks.iter().take(disk_count).enumerate() {
+        let usage_percent = if disk.total > 0 {
+            (disk.used as f64 / disk.total as f64 * 100.0) as f32
+        } else {
+            0.0
+        };
+        let label = format!("{} ({:.1}%)", disk.name, usage_percent);
+        let gauge = Gauge::default()
+            .gauge_style(Style::default().fg(get_usage_color(usage_percent)))
+            .percent(usage_percent as u16)
+            .label(label);
+        f.render_widget(gauge, layout[i]);
+    }
+}
+
+fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),      // System Status
+            Constraint::Percentage(45), // Charts
+            Constraint::Min(10),        // Tables
+        ])
         .split(area);
     
-    render_system_status(f, state, layout[0], translator, theme);
+    render_system_status(f, state, chunks[0], translator, theme);
     
-    render_process_table(f, state, layout[1], translator, theme);
+    let chart_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
     
-    render_container_table(f, state, layout[2], translator, theme);
+    render_dashboard_cpu_chart(f, state, chart_chunks[0], theme);
+    render_dashboard_mem_chart(f, state, chart_chunks[1], theme);
+    
+    let bottom_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(35), Constraint::Percentage(35), Constraint::Percentage(30)])
+        .split(chunks[2]);
+    
+    render_top_processes(f, state, bottom_chunks[0], translator, theme);
+    render_dashboard_storage(f, state, bottom_chunks[1], theme);
+    render_container_table(f, state, bottom_chunks[2], translator, theme);
+}
+
+fn render_processes_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    if state.selected_pid.is_some() {
+        render_process_detail_tab(f, state, area, translator, theme);
+    } else {
+        render_process_table(f, state, area, translator, theme);
+    }
 }
 
 fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -384,7 +552,7 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     let cpu_temp_str = cpu_temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
 
     let status_text = format!(
-        "Status {} | CPU: {:.0}% (Eff: {}){} | Load: {:.2}/core | Mem: {:.0}% ({}) | Swap: {:.0}% | Up: {} | Procs: {}",
+        "Status {} | CPU: {:.0}% (Eff: {}){} | Load: {:.2}/core | Mem: {:.0}% ({} FREE) | Swap: {:.0}% | Up: {} | Procs: {}",
         status_str,
         usage.cpu,
         cpu_efficiency,
@@ -552,19 +720,27 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
 }
 
 fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(65), // Info
+            Constraint::Percentage(35), // Cores
+        ])
+        .split(area);
+
     let block = Block::default()
-        .title("Process Details")
+        .title(" Process Details (Esc to return) ")
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
     
-    let inner_area = block.inner(area);
-    f.render_widget(block, area);
+    let inner_area = block.inner(main_chunks[0]);
+    f.render_widget(block, main_chunks[0]);
     
     if let Some(ref process) = state.dynamic_data.detailed_process {
         let layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(inner_area);
         
         let info_lines = vec![
@@ -601,10 +777,6 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
                 Span::styled(format_size(process.memory_rss), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
                 Span::styled("Threads: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 Span::styled(process.threads.to_string(), Style::default().fg(theme.text))
             ]),
@@ -613,67 +785,98 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
         let final_info_lines: Vec<_> = if let Some(ref cwd) = process.cwd {
             info_lines.into_iter().chain(std::iter::once(
                 Line::from(vec![
-                    Span::styled("Working Dir: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("CWD: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                     Span::styled(cwd, Style::default().fg(theme.text))
                 ])
             )).collect::<Vec<_>>()
         } else {
             info_lines
         };
+
         let info_paragraph = Paragraph::new(final_info_lines)
-            .block(
-                Block::default()
-                    .title("Process Information")
-                    .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border))
-            )
+            .block(Block::default().borders(Borders::NONE))
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(info_paragraph, layout[0]);
         
         let mut cmd_env_lines = vec![
             Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-            Line::from(""),
             Line::from(Span::styled(&process.command, Style::default().fg(theme.text))),
             Line::from(""),
-            Line::from(Span::styled("Environment Variables:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-            Line::from(""),
+            Line::from(Span::styled("Environment (truncated):", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
         ];
         
         for (i, env) in process.environ.iter().enumerate() {
-            if i >= 20 {
-                cmd_env_lines.push(Line::from(Span::styled("... (truncated)", Style::default().fg(theme.text_secondary))));
+            if i >= 10 {
+                cmd_env_lines.push(Line::from(Span::styled("...", Style::default().fg(theme.text_secondary))));
                 break;
             }
             cmd_env_lines.push(Line::from(Span::styled(env, Style::default().fg(theme.text))));
         }
         
         let cmd_env_paragraph = Paragraph::new(cmd_env_lines)
-            .block(
-                Block::default()
-                    .title("Command & Environment")
-                    .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border))
-            )
+            .block(Block::default().borders(Borders::NONE))
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(cmd_env_paragraph, layout[1]);
         
     } else {
-        let message = Paragraph::new("Select a process from the Dashboard tab (↑↓ to navigate, Enter to select)")
+        let message = Paragraph::new("Loading process details...")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(theme.text_secondary))
-            .wrap(ratatui::widgets::Wrap { trim: true });
+            .style(Style::default().fg(theme.text_secondary));
         f.render_widget(message, inner_area);
+    }
+
+    let cores = &state.dynamic_data.cores;
+    let core_block = Block::default()
+        .title(" CPU Core Usage ")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+    
+    let core_inner = core_block.inner(main_chunks[1]);
+    f.render_widget(core_block, main_chunks[1]);
+
+    let cores_per_row = 8;
+    let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
+    if rows_needed > 0 {
+        let row_constraints: Vec<Constraint> = (0..rows_needed).map(|_| Constraint::Length(3)).collect();
+        let rows_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(row_constraints)
+            .margin(1)
+            .split(core_inner);
+
+        for (row_idx, row_area) in rows_layout.iter().enumerate() {
+            let start_core = row_idx * cores_per_row;
+            if start_core >= cores.len() { break; }
+            
+            let core_constraints: Vec<Constraint> = (0..cores_per_row).map(|_| Constraint::Ratio(1, cores_per_row as u32)).collect();
+            let cores_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(core_constraints)
+                .split(*row_area);
+            
+            for (core_idx, core_area) in cores_layout.iter().enumerate() {
+                let actual_core_idx = start_core + core_idx;
+                if actual_core_idx >= cores.len() { break; }
+                
+                let core = &cores[actual_core_idx];
+                let gauge = Gauge::default()
+                    .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+                    .label(format!("C{} {:.0}%", actual_core_idx, core.usage))
+                    .gauge_style(Style::default().fg(get_usage_color(core.usage)))
+                    .ratio((core.usage / 100.0) as f64);
+                f.render_widget(gauge, *core_area);
+            }
+        }
     }
 }
 
 fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    use ratatui::widgets::{Chart, Dataset, Axis, Paragraph, Gauge};
+    use ratatui::widgets::{Chart, Dataset, Axis, Paragraph};
     use ratatui::layout::{Layout, Constraint, Direction};
     use ratatui::text::{Line, Span};
     use ratatui::style::{Style, Modifier};
-    use ratatui::widgets::{Block, Borders};
+    use ratatui::widgets::{Block, Borders, BorderType};
 
     let cores = &state.dynamic_data.cores;
     
@@ -694,54 +897,107 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(8),
-            Constraint::Min(10),
+            Constraint::Percentage(50),
+            Constraint::Percentage(50),
         ])
         .split(area);
         
     let cpu_model = state.system_info.iter().find(|(k, _)| k == "CPU").map(|(_, v)| v.as_str()).unwrap_or("Unknown CPU");
-    let core_count = cores.len();
+    let core_details = state.system_info.iter().find(|(k, _)| k == "Cores").map(|(_, v)| v.as_str()).unwrap_or("Unknown");
+    let vendor = state.system_info.iter().find(|(k, _)| k == "Vendor").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let family = state.system_info.iter().find(|(k, _)| k == "Family").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let l3_cache = state.system_info.iter().find(|(k, _)| k == "L3 Cache").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let bogomips = state.system_info.iter().find(|(k, _)| k == "BogoMIPS").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let virt = state.system_info.iter().find(|(k, _)| k == "Virtualization").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    
     let usage = &state.dynamic_data.global_usage;
     
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[0]);
     
+    let avg_freq = if !cores.is_empty() {
+        cores.iter().map(|c| c.freq).sum::<u64>() as f64 / cores.len() as f64
+    } else {
+        0.0
+    };
+    
+    let package_temp = state.dynamic_data.temperatures.cpu_temp;
+    let max_core_temp = cores.iter().filter_map(|c| c.temp).fold(0.0f32, |a, b| a.max(b));
+    let avg_core_temp = if !cores.is_empty() {
+        let temps: Vec<f32> = cores.iter().filter_map(|c| c.temp).collect();
+        if !temps.is_empty() {
+            Some(temps.iter().sum::<f32>() / temps.len() as f32)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let info_text = vec![
         Line::from(vec![
             Span::styled("Model: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(cpu_model, Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
+            Span::styled("Vendor: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(vendor, Style::default().fg(theme.text)),
+            Span::raw(" | "),
+            Span::styled("Family: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(family, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
             Span::styled("Cores: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{} Logical", core_count), Style::default().fg(theme.text)),
+            Span::styled(core_details, Style::default().fg(theme.text)),
             Span::raw(" | "),
             Span::styled("Usage: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(format!("{:.1}%", usage.cpu), Style::default().fg(get_usage_color(usage.cpu))),
         ]),
         Line::from(vec![
-            Span::styled("Temperature: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("Frequency: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{:.2} GHz (Avg)", avg_freq / 1000.0), Style::default().fg(theme.text)),
+            Span::raw(" | "),
+            Span::styled("BogoMIPS: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(bogomips, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("L3 Cache: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(l3_cache, Style::default().fg(theme.text)),
+            Span::raw(" | "),
+            Span::styled("Virtualization: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(virt, Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("Package: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(
-                state.dynamic_data.temperatures.cpu_temp
-                    .map(|t| format!("{:.1}°C", t))
-                    .unwrap_or_else(|| "N/A".to_string()),
-                Style::default().fg(
-                    state.dynamic_data.temperatures.cpu_temp
-                        .map(|t| get_usage_color(t))
-                        .unwrap_or(theme.text_secondary)
-                )
+                package_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string()),
+                Style::default().fg(package_temp.map(get_usage_color).unwrap_or(theme.text_secondary))
             ),
+            Span::raw(" | "),
+            Span::styled("Avg Core: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                avg_core_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string()),
+                Style::default().fg(avg_core_temp.map(get_usage_color).unwrap_or(theme.text_secondary))
+            ),
+            Span::raw(" | "),
+            Span::styled("Max Core: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{:.1}°C", max_core_temp), Style::default().fg(get_usage_color(max_core_temp))),
         ]),
         Line::from(vec![
              Span::styled("Load Average: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
              Span::styled(format!("{:.2} {:.2} {:.2}", usage.load_average.0, usage.load_average.1, usage.load_average.2), Style::default().fg(theme.text)),
         ]),
+        Line::from(vec![
+            Span::styled("Uptime: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(crate::utils::format_duration(usage.uptime), Style::default().fg(theme.text)),
+        ]),
     ];
     
     let info_paragraph = Paragraph::new(info_text)
         .block(Block::default()
-            .title("CPU Information")
+            .title(" CPU Overview ")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -758,82 +1014,106 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
         Dataset::default()
             .name("Total Usage")
             .marker(ratatui::symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
             .style(Style::default().fg(theme.primary))
             .data(&history_data)
     ];
     
     let chart = Chart::new(datasets)
         .block(Block::default()
-            .title("Usage History")
+            .title(" Usage History (60s) ")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
         )
-        .x_axis(Axis::default().bounds([0.0, 60.0]))
-        .y_axis(Axis::default().bounds([0.0, 100.0]));
+        .x_axis(Axis::default().bounds([0.0, 60.0]).style(Style::default().fg(theme.text_secondary)))
+        .y_axis(Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(vec![
+                Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                Span::styled("100%", Style::default().fg(theme.text_secondary)),
+            ])
+            .style(Style::default().fg(theme.text_secondary)));
     f.render_widget(chart, top_chunks[0]);
     
     let inner_area = chunks[1];
     let block = Block::default()
-        .title(format!("Detailed Core Usage ({} cores)", cores.len()))
+        .title(format!(" Detailed Core Usage ({} cores) ", cores.len()))
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
         
-    let _grid_area = block.inner(inner_area);
+    let grid_area = block.inner(inner_area);
     f.render_widget(block, inner_area);
     
-    let cores_per_row = 8;
-    let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
+    let min_core_width = 24;
+    let cores_per_row = (grid_area.width / min_core_width).max(1);
+    let rows_needed = (cores.len() as u16 + cores_per_row - 1) / cores_per_row;
     
     if rows_needed == 0 {
         return;
     }
+
+    let core_height = (grid_area.height / rows_needed).max(3);
     
     let row_constraints: Vec<Constraint> = (0..rows_needed)
-        .map(|_| Constraint::Length(3))
+        .map(|_| Constraint::Length(core_height))
         .collect();
     
     let rows_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(row_constraints)
-        .margin(1)
-        .split(inner_area);
+        .split(grid_area);
     
     for (row_idx, row_area) in rows_layout.iter().enumerate() {
-        let start_core = row_idx * cores_per_row;
-        
+        let start_core = row_idx * cores_per_row as usize;
         if start_core >= cores.len() {
             break;
         }
         
-        let core_constraints: Vec<Constraint> = (0..cores_per_row)
-            .map(|_| Constraint::Ratio(1, cores_per_row as u32))
-            .collect();
+        let cores_in_this_row = (cores.len() - start_core).min(cores_per_row as usize);
+        let core_constraints = vec![Constraint::Ratio(1, cores_per_row as u32); cores_in_this_row];
         
         let cores_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(core_constraints)
             .split(*row_area);
         
-        for (core_idx, core_area) in cores_layout.iter().enumerate() {
-            let actual_core_idx = start_core + core_idx;
-            if actual_core_idx >= cores.len() {
-                break;
-            }
+        for (i, core_area) in cores_layout.iter().take(cores_in_this_row).enumerate() {
+            let core_idx = start_core + i;
+            let core = &cores[core_idx];
             
-            let core = &cores[actual_core_idx];
-            let color = get_usage_color(core.usage);
-            let freq_display = format_frequency(core.freq);
-            let temp_display = core.temp.map(|t| format!(" {:.0}°C", t)).unwrap_or_default();
+            let core_color = get_usage_color(core.usage as f32);
             
-            let gauge = Gauge::default()
-                .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
-                .label(format!("C{} {} {:.1}%{}", actual_core_idx, freq_display, core.usage, temp_display))
-                .gauge_style(Style::default().fg(color))
-                .ratio((core.usage / 100.0) as f64);
+            let temp_str = core.temp
+                .map(|t| format!(" {:.0}°C", t))
+                .unwrap_or_default();
             
-            f.render_widget(gauge, *core_area);
+            let content = Line::from(vec![
+                Span::styled(format!(" C{} ", core_idx), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {:.2}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
+                Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
+            ]);
+            
+            let core_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+                
+            let inner_core_area = core_block.inner(*core_area);
+            f.render_widget(core_block, *core_area);
+
+            let vertical_center = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(core_height.saturating_sub(1) / 2),
+                    Constraint::Length(1),
+                    Constraint::Min(0),
+                ])
+                .split(inner_core_area);
+                
+            f.render_widget(Paragraph::new(content), vertical_center[1]);
         }
     }
 }
@@ -1135,13 +1415,7 @@ fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect,
 }
 
 fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize, theme: &crate::ui::colors::ColorScheme) {
-    let title = format!(
-        "GPU {} - {} ({}) - {}°C",
-        index,
-        truncate_string(&gpu.name, 25),
-        gpu.brand,
-        gpu.temperature
-    );
+    let title = format!(" GPU {} - {}°C ", index, gpu.temperature);
     
     let block = Block::default()
         .title(title)
@@ -1155,6 +1429,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(1),  // Name
             Constraint::Length(1),  // Gauge
             Constraint::Percentage(30), // Utilization Chart
             Constraint::Percentage(30), // Memory Chart
@@ -1162,14 +1437,19 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         ])
         .split(inner_area);
     
+    let name_line = Line::from(vec![
+        Span::styled(format!("{} ", gpu.brand), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        Span::styled(&gpu.name, Style::default().fg(theme.text)),
+    ]);
+    f.render_widget(Paragraph::new(name_line), layout[0]);
+
     let util_color = get_usage_color(gpu.utilization as f32);
     let util_gauge = Gauge::default()
         .label(format!("Utilization: {}%", gpu.utilization))
         .gauge_style(Style::default().fg(util_color))
         .ratio(gpu.utilization as f64 / 100.0);
-    f.render_widget(util_gauge, layout[0]);
+    f.render_widget(util_gauge, layout[1]);
     
-    let history_len = gpu.utilization_history.len();
     let data: Vec<(f64, f64)> = gpu.utilization_history
         .iter()
         .enumerate()
@@ -1177,24 +1457,32 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .collect();
         
     let dataset = Dataset::default()
+        .name("Utilization")
         .marker(Marker::Braille)
         .graph_type(GraphType::Line)
         .style(Style::default().fg(util_color))
         .data(&data);
         
     let chart = Chart::new(vec![dataset])
-        .x_axis(Axis::default().bounds([0.0, history_len as f64]))
-        .y_axis(Axis::default().bounds([0.0, 100.0]))
+        .x_axis(Axis::default()
+            .bounds([0.0, 60.0])
+            .style(Style::default().fg(theme.text_secondary)))
+        .y_axis(Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(vec![
+                Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                Span::styled("100%", Style::default().fg(theme.text_secondary)),
+            ])
+            .style(Style::default().fg(theme.text_secondary)))
         .block(
              Block::default()
-                .title("Utilization History")
+                .title(" Utilization History ")
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
-    f.render_widget(chart, layout[1]);
+    f.render_widget(chart, layout[2]);
 
-    let mem_history_len = gpu.memory_history.len();
     let mem_data: Vec<(f64, f64)> = gpu.memory_history
         .iter()
         .enumerate()
@@ -1202,22 +1490,31 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         .collect();
         
     let mem_dataset = Dataset::default()
+        .name("VRAM Usage")
         .marker(Marker::Braille)
         .graph_type(GraphType::Line)
         .style(Style::default().fg(theme.accent))
         .data(&mem_data);
         
     let mem_chart = Chart::new(vec![mem_dataset])
-        .x_axis(Axis::default().bounds([0.0, mem_history_len as f64]))
-        .y_axis(Axis::default().bounds([0.0, 100.0]))
+        .x_axis(Axis::default()
+            .bounds([0.0, 60.0])
+            .style(Style::default().fg(theme.text_secondary)))
+        .y_axis(Axis::default()
+            .bounds([0.0, 100.0])
+            .labels(vec![
+                Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                Span::styled("100%", Style::default().fg(theme.text_secondary)),
+            ])
+            .style(Style::default().fg(theme.text_secondary)))
         .block(
              Block::default()
-                .title("Memory Usage History")
+                .title(" Memory Usage History ")
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
-    f.render_widget(mem_chart, layout[2]);
+    f.render_widget(mem_chart, layout[3]);
     
     let mem_percent = if gpu.memory_total > 0 {
         (gpu.memory_used as f64 / gpu.memory_total as f64 * 100.0) as f32
@@ -1309,7 +1606,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         ]
     ).block(Block::default().borders(Borders::NONE));
 
-    f.render_widget(table, layout[3]);
+    f.render_widget(table, layout[4]);
 }
 
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {

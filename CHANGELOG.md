@@ -2,10 +2,21 @@
 
 All notable changes to this project will be documented in this file
 
-## [v0.8.2] - 2026-05-06
+## [v0.9.0] - 2026-05-06
+
+### Added
+- **CPU Telemetry**: Added hardware metadata parsing for CPU Vendor, Family, L3 Cache, BogoMIPS, and Virtualization status to the CPU tab
+- **GPU Tab Refinements**: Restructured the GPU interface to prevent device name truncation and added PCIe link generation/width details
+- **Memory Visibility**: Explicitly labeled available memory as "FREE" in the Dashboard System Overview for better clarity
 
 ### Changed
-- **Rebrand**: The project has been rebranded back to **PULS** from FOSPX SYSMON.
+- **Aesthetic**: Standardized all history charts (CPU, Memory, GPU) to use high-fidelity Braille "dot" traces with simplified 0%/100% Y-axis labels for a cleaner, professional look
+- **Visual Stability**: Fixed GPU chart X-axis to a stable 60-second window, preventing "squashing" as history fills up
+- **Rebrand**: The project has been rebranded back to **PULS** from FOSPX SYSMON
+
+### Fixed
+- **Core Temperature Mapping**: Fixed core-to-sensor mapping for hyperthreaded systems, ensuring each logical thread reports accurate thermal data
+- **GPU Layout**: Fixed overlapping widgets and incorrect indexing in the GPU detail panels
 
 ## [v0.8.1] - 2026-04-26
 

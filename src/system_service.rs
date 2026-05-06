@@ -255,11 +255,14 @@ impl SystemManager {
         let mut logs = Vec::new();
 
         let mut args = vec![
-            "--lines".to_string(),
-            limit.to_string(),
             "--no-pager".to_string(),
             "--output=short".to_string(),
         ];
+
+        if limit > 0 {
+            args.push("--lines".to_string());
+            args.push(limit.to_string());
+        }
 
         if let Some(f) = filter {
             if !f.is_empty() {

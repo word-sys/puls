@@ -146,13 +146,13 @@ impl ContainerMonitor {
                     stats_map.insert(id, stats);
                 }
                 Ok(Some(Err(e))) => {
-                    eprintln!("Failed to get stats for container {}: {}", id, e);
+                    log::error!("Failed to get stats for container {}: {}", id, e);
                 }
                 Ok(None) => {
-                    eprintln!("No stats available for container {}", id);
+                    log::warn!("No stats available for container {}", id);
                 }
                 Err(_) => {
-                    eprintln!("Timeout getting stats for container {}", id);
+                    log::warn!("Timeout getting stats for container {}", id);
                 }
             }
         }

@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.services_table_state.select(Some(0));
         }
         
-        state.logs = sys_mgr.get_logs(50, None, None);
+        state.logs = sys_mgr.get_logs(1000, None, None);
         if !state.logs.is_empty() {
             state.logs_table_state.select(Some(0));
         }
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.show_cursor()?;
 
     if let Err(ref e) = result {
-        eprintln!("Application error: {}", e);
+        log::error!("Application error: {}", e);
         crate::error_logger::log_error(&e.to_string());
     }
 
@@ -180,6 +180,10 @@ fn handle_key_event(
                 state.edit_buffer.clear();
                 return Ok(false);
             }
+            if state.active_tab == 1 && state.selected_pid.is_some() {
+                state.selected_pid = None;
+                return Ok(false);
+            }
             return Ok(true);
         }
         
@@ -236,7 +240,7 @@ fn handle_key_event(
              state.editing_filter = false;
              state.edit_buffer.clear();
              let sys_mgr = system_service::SystemManager::new();
-             state.logs = sys_mgr.get_logs(50, Some(&state.log_filter), None);
+             state.logs = sys_mgr.get_logs(1000, Some(&state.log_filter), None);
              state.logs_table_state.select(Some(0));
         }
 
@@ -255,7 +259,7 @@ fn handle_key_event(
                     let sys_mgr = system_service::SystemManager::new();
                     let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
                     let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
-                    state.logs = sys_mgr.get_logs(50, filter, boot_id);
+                    state.logs = sys_mgr.get_logs(1000, filter, boot_id);
                     state.logs_table_state.select(Some(0));
                 }
             }
@@ -268,7 +272,7 @@ fn handle_key_event(
                     let sys_mgr = system_service::SystemManager::new();
                     let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
                     let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
-                    state.logs = sys_mgr.get_logs(50, filter, boot_id);
+                    state.logs = sys_mgr.get_logs(1000, filter, boot_id);
                     state.logs_table_state.select(Some(0));
                 }
             }
@@ -303,14 +307,14 @@ fn handle_key_event(
             state.current_theme = (state.current_theme + 1) % 3;
         }
         
-        KeyCode::Down if state.active_tab == 0 => {
+        KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_none() => {
             handle_process_navigation(&mut state, true);
         }
-        KeyCode::Up if state.active_tab == 0 => {
+        KeyCode::Up if state.active_tab == 1 && state.selected_pid.is_none() => {
             handle_process_navigation(&mut state, false);
         }
         
-        KeyCode::Char('k') | KeyCode::Char('K') if state.active_tab == 0 && state.pending_kill_pid.is_none() => {
+        KeyCode::Char('k') | KeyCode::Char('K') if state.active_tab == 1 && state.selected_pid.is_none() && state.pending_kill_pid.is_none() => {
             if let Some(idx) = state.process_table_state.selected() {
                 if idx < state.dynamic_data.processes.len() {
                     let pid_str = &state.dynamic_data.processes[idx].pid;
@@ -564,30 +568,29 @@ fn handle_key_event(
         
 
         
-        KeyCode::Enter if state.active_tab == 0 => {
+        KeyCode::Enter if state.active_tab == 1 && state.selected_pid.is_none() => {
             if let Some(selected_index) = state.process_table_state.selected() {
                 if let Some(process) = state.dynamic_data.processes.get(selected_index) {
                     if let Ok(pid_val) = process.pid.parse::<usize>() {
                         state.selected_pid = Some(sysinfo::Pid::from(pid_val));
-                        state.active_tab = 1;
                     }
                 }
             }
         }
         
-        KeyCode::Char('c') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('c') if state.active_tab == 1 && key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.sort_by = ProcessSortBy::Cpu;
             state.sort_ascending = !state.sort_ascending;
         }
-        KeyCode::Char('m') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('m') if state.active_tab == 1 && key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.sort_by = ProcessSortBy::Memory;
             state.sort_ascending = !state.sort_ascending;
         }
-        KeyCode::Char('n') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('n') if state.active_tab == 1 && key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.sort_by = ProcessSortBy::Name;
             state.sort_ascending = !state.sort_ascending;
         }
-        KeyCode::Char('g') if state.active_tab == 0 && key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('g') if state.active_tab == 1 && key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.sort_by = ProcessSortBy::General;
             state.sort_ascending = !state.sort_ascending;
         }
@@ -642,7 +645,7 @@ async fn data_collection_loop(
         
         let collection_start = Instant::now();
         
-        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending) = {
+        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab) = {
             let state = app_state.lock();
             (
                 state.selected_pid,
@@ -650,6 +653,7 @@ async fn data_collection_loop(
                 state.filter_text.clone(),
                 state.sort_by.clone(),
                 state.sort_ascending,
+                state.active_tab,
             )
         };
         
@@ -662,6 +666,7 @@ async fn data_collection_loop(
                 &sort_by,
                 sort_ascending,
                 prev_global_usage.clone(),
+                active_tab,
             ).await
         };
         
@@ -676,10 +681,11 @@ async fn data_collection_loop(
             }
         }
         
-        let collection_duration = collection_start.elapsed();
+        let collection_end = Instant::now();
+        let collection_duration = collection_end.duration_since(collection_start);
         
         if collection_duration > Duration::from_millis(config.refresh_rate_ms / 2) {
-            eprintln!("Slow data collection: {:?}", collection_duration);
+            log::warn!("Slow data collection: {:?}", collection_duration);
         }
         
         let remaining_time = config.get_collection_sleep_duration().saturating_sub(collection_duration);
@@ -721,13 +727,13 @@ fn check_system_requirements() -> Result<(), AppError> {
     if std::io::stdout().is_terminal() {
         if let Ok((width, height)) = crossterm::terminal::size() {
             if width < 80 || height < 24 {
-                eprintln!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
+                log::warn!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
             }
         }
         return Ok(());
     }
 
-    //okiedokie i dont know if this works on any systems :)
+    // okiedokie
     #[cfg(unix)]
     {
         use std::process::Command;

@@ -25,6 +25,7 @@ pub struct SystemMonitor {
     prev_disk_stats: HashMap<String, DiskStatsData>,
     last_update: Instant,
     self_pid: u32,
+    memory_details_cache: Option<(String, String, String, String)>,
 }
 
 impl SystemMonitor {
@@ -43,11 +44,12 @@ impl SystemMonitor {
             prev_disk_stats: HashMap::new(),
             last_update: Instant::now(),
             self_pid: std::process::id(),
+            memory_details_cache: None,
         }
     }
     
     pub fn get_system_info(&self) -> Vec<(String, String)> {
-        vec![
+        let mut info = vec![
             ("OS".into(), System::long_os_version().unwrap_or_default()),
             ("Kernel".into(), System::kernel_version().unwrap_or_default()),
             ("Hostname".into(), System::host_name().unwrap_or_default()),
@@ -56,6 +58,42 @@ impl SystemMonitor {
                 self.system.physical_core_count().unwrap_or(0), 
                 self.system.cpus().len())),
             ("Total Memory".into(), format_size(self.system.total_memory())),
+        ];
+
+        if let Ok(content) = fs::read_to_string("/proc/cpuinfo") {
+            let mut cache_size = "N/A".to_string();
+            let mut bogomips = "N/A".to_string();
+            let mut vendor = "N/A".to_string();
+            let mut virtualization = "Disabled/None".to_string();
+            let mut family = "N/A".to_string();
+
+            for line in content.lines() {
+                if line.starts_with("cache size") {
+                    cache_size = line.split(':').last().unwrap_or("").trim().to_string();
+                } else if line.starts_with("bogomips") {
+                    bogomips = line.split(':').last().unwrap_or("").trim().to_string();
+                } else if line.starts_with("vendor_id") {
+                    vendor = line.split(':').last().unwrap_or("").trim().to_string();
+                } else if line.starts_with("cpu family") {
+                    family = line.split(':').last().unwrap_or("").trim().to_string();
+                } else if line.starts_with("flags") && virtualization == "Disabled/None" {
+                    let flags = line.split(':').last().unwrap_or("");
+                    if flags.contains("vmx") {
+                        virtualization = "Intel VT-x".to_string();
+                    } else if flags.contains("svm") {
+                        virtualization = "AMD-V".to_string();
+                    }
+                }
+            }
+            
+            info.push(("Vendor".into(), vendor));
+            info.push(("Family".into(), family));
+            info.push(("L3 Cache".into(), cache_size));
+            info.push(("BogoMIPS".into(), bogomips));
+            info.push(("Virtualization".into(), virtualization));
+        }
+
+        info.extend(vec![
             ("Boot Time".into(), {
                 let boot_time = System::boot_time(); if boot_time > 0 {
                     if let chrono::LocalResult::Single(dt) = Utc.timestamp_opt(boot_time as i64, 0) {
@@ -79,7 +117,8 @@ impl SystemMonitor {
                 let load = System::load_average();
                 format!("{:.2}, {:.2}, {:.2}", load.one, load.five, load.fifteen)
             }),
-        ]
+        ]);
+        info
     }
 
     pub fn get_total_memory(&self) -> u64 {
@@ -164,12 +203,18 @@ impl SystemMonitor {
         (mem_type, mem_gen, mem_speed, mem_temp)
     }
     
+    pub fn refresh_core_metrics(&mut self) {
+        self.system.refresh_cpu_all();
+        self.system.refresh_memory();
+        self.components.refresh(true);
+    }
+
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
         let now = Instant::now();
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         self.last_update = now;
-        self.system.refresh_cpu_all();
-        self.system.refresh_memory();
+        
+        self.refresh_core_metrics();
         
         let process_refresh_kind = sysinfo::ProcessRefreshKind::nothing()
             .with_cpu()
@@ -185,8 +230,6 @@ impl SystemMonitor {
             true, 
             process_refresh_kind
         );
-        
-        self.components.refresh(true);
         
         let total_cpu_count = self.system.cpus().len() as f32;
         let mut current_disk_usage = HashMap::new();
@@ -298,8 +341,24 @@ impl SystemMonitor {
     
     pub fn get_cores(&self) -> Vec<CoreInfo> {
         let components = &self.components;
-        // k10temp coretemp zenpower
         
+        let mut core_sensors: Vec<(u32, f32)> = components.iter()
+            .filter(|c| {
+                let label = c.label().to_lowercase();
+                label.contains("core") && !label.contains("package")
+            })
+            .filter_map(|c| {
+                let label = c.label().to_lowercase();
+                let id = label.split_whitespace()
+                    .filter_map(|s| s.parse::<u32>().ok())
+                    .next()?;
+                let temp = c.temperature()?;
+                Some((id, temp))
+            })
+            .collect();
+        
+        core_sensors.sort_by_key(|(id, _)| *id);
+
         let cpu_temp_global = components.iter()
             .find(|c| {
                 let label = c.label().to_lowercase();
@@ -307,22 +366,28 @@ impl SystemMonitor {
             })
             .and_then(|c| c.temperature())
             .or_else(|| {
-                components.iter()
-                    .find(|c| c.label().to_lowercase().contains("core 0"))
-                    .and_then(|c| c.temperature())
+                core_sensors.first().map(|(_, t)| *t)
             })
             .or_else(|| Self::read_cpu_temp_from_hwmon());
 
         self.system.cpus().iter().enumerate().map(|(i, cpu)| {
-            let core_temp = components.iter()
-                .find(|c| c.label().to_lowercase().contains(&format!("core {}", i)))
-                .and_then(|c| c.temperature())
+            let temp = core_sensors.iter()
+                .find(|(id, _)| *id == i as u32)
+                .map(|(_, t)| *t)
+                .or_else(|| {
+                    if !core_sensors.is_empty() {
+                        let sensor_idx = (i * core_sensors.len() / self.system.cpus().len()).min(core_sensors.len() - 1);
+                        Some(core_sensors[sensor_idx].1)
+                    } else {
+                        None
+                    }
+                })
                 .or(cpu_temp_global);
 
             CoreInfo {
                 usage: cpu.cpu_usage(),
                 freq: cpu.frequency(),
-                temp: core_temp,
+                temp,
             }
         }).collect()
     }
@@ -480,7 +545,7 @@ impl SystemMonitor {
         networks
     }
     
-    pub fn get_global_usage(&self, total_net_down: u64, total_net_up: u64, 
+    pub fn get_global_usage(&mut self, total_net_down: u64, total_net_up: u64, 
                            total_disk_read: u64, total_disk_write: u64,
                            gpu_util: Option<u32>) -> GlobalUsage {
         let load = System::load_average();
@@ -490,6 +555,10 @@ impl SystemMonitor {
         let mem_available = self.system.available_memory();
         let mem_free = self.system.free_memory();
         let mem_cached = mem_available.saturating_sub(mem_free);
+
+        if self.memory_details_cache.is_none() {
+            self.memory_details_cache = Some(self.get_memory_details());
+        }
 
         GlobalUsage {
             cpu: self.system.global_cpu_usage(),
@@ -503,12 +572,12 @@ impl SystemMonitor {
             net_up: total_net_up,
             disk_read: total_disk_read,
             disk_write: total_disk_write,
-            disk_read_ops: 0, //will be
-            disk_write_ops: 0, //done 
+            disk_read_ops: 0,
+            disk_write_ops: 0,
             load_average: (load.one, load.five, load.fifteen),
             uptime,
             boot_time,
-            mem_details: Some(self.get_memory_details()),
+            mem_details: self.memory_details_cache.clone(),
             ..Default::default()
         }
     }
@@ -592,7 +661,6 @@ impl SystemMonitor {
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
         let mut sensors = Vec::new();
 
-        // Build a map label -> (max_seen, critical) from sysinfo Components for running-max tracking
         let mut sysinfo_max: std::collections::HashMap<String, (Option<f32>, Option<f32>)> =
             std::collections::HashMap::new();
         for c in self.components.iter() {
@@ -612,7 +680,6 @@ impl SystemMonitor {
                     file_names.sort();
 
                     for fname in &file_names {
-                        // ---- Temperature sensors (hwmon direct read) ----
                         if fname.starts_with("temp") && fname.ends_with("_input") {
                             let idx = fname
                                 .trim_start_matches("temp")
@@ -629,21 +696,18 @@ impl SystemMonitor {
                                 .map(|s| s.trim().to_string())
                                 .unwrap_or_else(|_| format!("{} temp{}", chip_name, idx));
 
-                            // Real hardware limit from hwmon temp*_max
                             let hw_limit = std::fs::read_to_string(
                                     hwmon_path.join(format!("temp{}_max", idx)))
                                 .ok()
                                 .and_then(|s| s.trim().parse::<f32>().ok())
                                 .map(|v| v / 1000.0);
 
-                            // Critical threshold from hwmon temp*_crit
                             let hw_crit = std::fs::read_to_string(
                                     hwmon_path.join(format!("temp{}_crit", idx)))
                                 .ok()
                                 .and_then(|s| s.trim().parse::<f32>().ok())
                                 .map(|v| v / 1000.0);
 
-                            // Running max from sysinfo, matching by label
                             let (sysinfo_max_val, sysinfo_crit) = sysinfo_max
                                 .get(&label)
                                 .copied()
@@ -651,7 +715,6 @@ impl SystemMonitor {
 
                             let critical = hw_crit.or(sysinfo_crit);
 
-                            // Skip duplicate labels
                             if sensors.iter().any(|s: &SensorInfo| {
                                 s.sensor_type == "temp" && s.label == label
                             }) {
@@ -665,14 +728,13 @@ impl SystemMonitor {
                                 value: current as f64,
                                 unit: "°C".to_string(),
                                 temp: current,
-                                max: sysinfo_max_val, // running max seen since start
-                                limit: hw_limit,      // real hardware limit (lm_sensors "high")
+                                max: sysinfo_max_val,
+                                limit: hw_limit,
                                 critical,
                             });
                             continue;
                         }
 
-                        // ---- Fan sensors ----
                         if fname.starts_with("fan") && fname.ends_with("_input") {
                             let idx = fname.trim_start_matches("fan").trim_end_matches("_input");
                             let label = std::fs::read_to_string(
@@ -697,7 +759,6 @@ impl SystemMonitor {
                             continue;
                         }
 
-                        // ---- Voltage sensors ----
                         if fname.starts_with("in") && fname.ends_with("_input")
                             && fname[2..].starts_with(|c: char| c.is_ascii_digit())
                         {
@@ -725,7 +786,6 @@ impl SystemMonitor {
                             continue;
                         }
 
-                        // ---- Power sensors ----
                         if fname.starts_with("power")
                             && (fname.ends_with("_input") || fname.ends_with("_average"))
                         {
@@ -757,7 +817,6 @@ impl SystemMonitor {
                             continue;
                         }
 
-                        // ---- Current sensors ----
                         if fname.starts_with("curr") && fname.ends_with("_input") {
                             let idx = fname.trim_start_matches("curr").trim_end_matches("_input");
                             let label = std::fs::read_to_string(
@@ -811,16 +870,40 @@ impl SystemMonitor {
     }
     
     pub fn calculate_total_disk_io(&self, processes: &[ProcessInfo]) -> (u64, u64) {
-        let total_read = processes.iter()
-            .map(|p| p.disk_read.trim_end_matches(" B/s").trim_end_matches(" KB/s").trim_end_matches(" MB/s")
-                .parse::<f64>().unwrap_or(0.0) as u64)
-            .sum();
-        let total_write = processes.iter()
-            .map(|p| p.disk_write.trim_end_matches(" B/s").trim_end_matches(" KB/s").trim_end_matches(" MB/s")
-                .parse::<f64>().unwrap_or(0.0) as u64)
-            .sum();
-        
+        let mut total_read = 0;
+        let mut total_write = 0;
+        for p in processes {
+             if let Some(r) = p.disk_read.split(' ').next().and_then(|s| s.parse::<f64>().ok()) {
+                 total_read += (r * if p.disk_read.contains("MB/s") { 1024.0 * 1024.0 } else if p.disk_read.contains("KB/s") { 1024.0 } else { 1.0 }) as u64;
+             }
+             if let Some(w) = p.disk_write.split(' ').next().and_then(|s| s.parse::<f64>().ok()) {
+                 total_write += (w * if p.disk_write.contains("MB/s") { 1024.0 * 1024.0 } else if p.disk_write.contains("KB/s") { 1024.0 } else { 1.0 }) as u64;
+             }
+        }
         (total_read, total_write)
+    }
+
+    pub fn get_global_disk_io(&mut self) -> (u64, u64) {
+        let current_stats = self.parse_disk_stats();
+        let mut total_read_rate = 0;
+        let mut total_write_rate = 0;
+        
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_update).as_secs_f64().max(0.1);
+        
+        for (dev, curr) in &current_stats {
+            if let Some(prev) = self.prev_disk_stats.get(dev) {
+                let read_rate = (curr.read_bytes.saturating_sub(prev.read_bytes) as f64 / elapsed) as u64;
+                let write_rate = (curr.write_bytes.saturating_sub(prev.write_bytes) as f64 / elapsed) as u64;
+                total_read_rate += read_rate;
+                total_write_rate += write_rate;
+            }
+        }
+        
+        self.prev_disk_stats = current_stats;
+        self.last_update = now;
+        
+        (total_read_rate, total_write_rate)
     }
     
     pub fn calculate_total_network_io(&self, networks: &[DetailedNetInfo]) -> (u64, u64) {

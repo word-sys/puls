@@ -8,6 +8,8 @@ pub struct GpuMonitor {
     gpu_history: VecDeque<Vec<u32>>,
     gpu_memory_history: VecDeque<Vec<u32>>,
     last_update: std::time::Instant,
+    nvidia_cache: Vec<GpuInfo>,
+    last_nvidia_update: Option<std::time::Instant>,
 }
 
 impl GpuMonitor {
@@ -16,6 +18,8 @@ impl GpuMonitor {
             gpu_history: VecDeque::new(),
             gpu_memory_history: VecDeque::new(),
             last_update: std::time::Instant::now(),
+            nvidia_cache: Vec::new(),
+            last_nvidia_update: None,
         }
     }
     
@@ -55,12 +59,23 @@ impl GpuMonitor {
         }
     }
     
-    fn get_nvidia_gpus(&self) -> Result<Vec<GpuInfo>, String> {
+    fn get_nvidia_gpus(&mut self) -> Result<Vec<GpuInfo>, String> {
+        let cache_timeout = std::time::Duration::from_millis(1500);
+        if let Some(last) = self.last_nvidia_update {
+            if last.elapsed() < cache_timeout && !self.nvidia_cache.is_empty() {
+                return Ok(self.nvidia_cache.clone());
+            }
+        }
+
         let output = Command::new("nvidia-smi")
             .arg("--query-gpu=name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,temperature.memory,power.draw,clocks.gr,clocks.mem,fan.speed,driver_version,pcie.link.gen.current,pcie.link.width.current")
             .arg("--format=csv,noheader,nounits")
-            .output()
-            .map_err(|e| e.to_string())?;
+            .output();
+
+        let output = match output {
+            Ok(o) => o,
+            Err(_) => return Err("nvidia-smi not found".to_string()),
+        };
             
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -114,6 +129,8 @@ impl GpuMonitor {
             });
         }
         
+        self.nvidia_cache = gpus.clone();
+        self.last_nvidia_update = Some(std::time::Instant::now());
         Ok(gpus)
     }
 
