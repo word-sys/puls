@@ -56,9 +56,9 @@ sudo mv puls /usr/local/bin/puls
 ### Install Debian Package (.deb)
 This method is the easiest installation path for Linux distributions.
 
-1. Download the latest `.deb` package from the [GitHub Releases](https://github.com/word-sys/puls/releases) page. The file will typically be named something like `puls_0.8.1-1_amd64.deb`.
+1. Download the latest `.deb` package from the [GitHub Releases](https://github.com/word-sys/puls/releases) page. The file will typically be named something like `puls_0.9.0-1_amd64.deb`.
 
-   > [!TIP] Use version 0.8.1 for the most stable experience: look for `puls_0.8.1-1_amd64.deb` on the releases page.
+   > [!TIP] Use version 0.9.0 for the most stable experience: look for `puls_0.9.0-1_amd64.deb` on the releases page.
 
 2. Open a terminal in the directory where you downloaded the `.deb` file.
 
@@ -66,10 +66,10 @@ This method is the easiest installation path for Linux distributions.
 
    ```bash
    sudo apt update
-   sudo apt install ./puls_0.8.1-1_amd64.deb
+   sudo apt install ./puls_0.9.0-1_amd64.deb
    ```
 
-   *(Note: Replace `puls_0.8.1-1_amd64.deb` with the exact filename you downloaded if different.)*
+   *(Note: Replace `puls_0.9.0-1_amd64.deb` with the exact filename you downloaded if different.)*
 
 4. If you encounter a dependency error during installation, try running the following command to fix missing dependencies:
 
