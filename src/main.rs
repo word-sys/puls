@@ -760,7 +760,7 @@ fn check_system_requirements() -> Result<(), AppError> {
     }
 
     Err(AppError::Config(
-        "FOSPX SYSMON is a terminal application. Please run it inside a terminal emulator.".to_string()
+        "PULS is a terminal application. Please run it inside a terminal emulator.".to_string()
     ))
 }
 

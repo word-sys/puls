@@ -6,7 +6,7 @@ use crate::language::Language;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-#[command(name = "fospx-sysmon")]
+#[command(name = "puls")]
 #[command(about = "A unified system monitoring and management tool for Linux")]
 pub struct Cli {
     #[arg(short, long, default_value_t = false)]

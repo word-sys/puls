@@ -463,24 +463,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fospx-sysmon"
-version = "0.8.1"
-dependencies = [
- "bollard",
- "chrono",
- "clap",
- "crossterm 0.28.1",
- "env_logger",
- "futures-util",
- "log",
- "parking_lot",
- "ratatui",
- "sysinfo",
- "tokio",
- "users",
-]
-
-[[package]]
 name = "futures-channel"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1125,6 +1107,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "puls"
+version = "0.8.2"
+dependencies = [
+ "bollard",
+ "chrono",
+ "clap",
+ "crossterm 0.28.1",
+ "env_logger",
+ "futures-util",
+ "log",
+ "parking_lot",
+ "ratatui",
+ "sysinfo",
+ "tokio",
+ "users",
 ]
 
 [[package]]
