@@ -9,7 +9,7 @@ pub use gpu_monitor::GpuMonitor;
 pub use container_monitor::ContainerMonitor;
 
 use std::sync::Arc;
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::types::{DynamicData, AppConfig, GlobalUsage};

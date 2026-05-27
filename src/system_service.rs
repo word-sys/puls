@@ -3,7 +3,6 @@ use std::path::Path;
 use std::io::Write;
 use std::collections::{HashMap, HashSet};
 use crate::types::{ServiceInfo, LogEntry, ConfigItem};
-use chrono::Local;
 
 pub struct SystemManager {
     has_sudo: bool,
@@ -20,7 +19,7 @@ impl SystemManager {
     }
 
     fn check_sudo() -> bool {
-        users::get_current_uid() == 0
+        crate::utils::get_current_uid() == 0
     }
 
     pub fn get_services(&self) -> Vec<ServiceInfo> {
@@ -222,6 +221,29 @@ impl SystemManager {
         }
     }
 
+    pub fn get_service_logs(&self, service_name: &str) -> String {
+        let output = Command::new("journalctl")
+            .args(&["-u", &format!("{}.service", service_name), "-n", "50", "--no-pager"])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.trim().is_empty() {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    if stderr.trim().is_empty() {
+                        "No logs found for this service.".to_string()
+                    } else {
+                        stderr.to_string()
+                    }
+                } else {
+                    stdout.to_string()
+                }
+            }
+            Err(e) => format!("Error getting service logs: {}", e),
+        }
+    }
+
     pub fn get_boots(&self) -> Vec<crate::types::BootInfo> {
         let mut boots = Vec::new();
         
@@ -342,7 +364,8 @@ impl SystemManager {
 
                         configs.push(ConfigItem {
                             key,
-                            value,
+                            value: value.clone(),
+                            original_value: value,
                             description: "GRUB boot parameter".to_string(),
                             category: "GRUB".to_string(),
                         });
@@ -356,6 +379,7 @@ impl SystemManager {
             configs.push(ConfigItem {
                 key: "hostname".to_string(),
                 value: hostname.trim().to_string(),
+                original_value: hostname.trim().to_string(),
                 description: "System hostname".to_string(),
                 category: "System".to_string(),
             });
@@ -371,7 +395,8 @@ impl SystemManager {
             if !tz.is_empty() {
                 configs.push(ConfigItem {
                     key: "timezone".to_string(),
-                    value: tz,
+                    value: tz.clone(),
+                    original_value: tz,
                     description: "System timezone".to_string(),
                     category: "System".to_string(),
                 });
@@ -381,55 +406,102 @@ impl SystemManager {
         configs
     }
 
-    pub fn set_grub_config(&self, key: &str, value: &str) -> Result<String, String> {
+    pub fn apply_config_changes(&self, changes: &[(String, String)]) -> Result<String, String> {
         if !self.has_sudo {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let grub_file = "/etc/default/grub";
-        
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
-        let backup_file = format!("{}.bak.{}", grub_file, timestamp);
-        
-        Command::new("cp")
-            .args(&[grub_file, &backup_file])
-            .output()
-            .map_err(|e| format!("Failed to create backup: {}", e))?;
+        let mut output_log = String::new();
+        let mut grub_changes = Vec::new();
 
-        let content = std::fs::read_to_string(grub_file)
-            .map_err(|e| e.to_string())?;
-
-        let mut new_content = String::new();
-        let mut found = false;
-
-        for line in content.lines() {
-            if line.starts_with(&format!("{}=", key)) {
-                new_content.push_str(&format!("{}=\"{}\"\n", key, value));
-                found = true;
-            } else {
-                new_content.push_str(line);
-                new_content.push('\n');
+        for (key, value) in changes {
+            if key == "hostname" {
+                self.set_hostname(value)
+                    .map_err(|e| format!("Failed to set hostname: {}", e))?;
+                output_log.push_str("[+] Successfully updated system hostname.\n");
+            } else if key == "timezone" {
+                self.set_timezone(value)
+                    .map_err(|e| format!("Failed to set timezone: {}", e))?;
+                output_log.push_str("[+] Successfully updated system timezone.\n");
+            } else if key.starts_with("GRUB_") {
+                grub_changes.push((key.clone(), value.clone()));
             }
         }
 
-        if !found {
-            new_content.push_str(&format!("{}=\"{}\"\n", key, value));
+        if !grub_changes.is_empty() {
+            let grub_file = "/etc/default/grub";
+            let timestamp = crate::utils::current_formatted_time("%Y%m%d_%H%M%S");
+            let backup_file = format!("{}.bak.{}", grub_file, timestamp);
+
+            Command::new("cp")
+                .args(&[grub_file, &backup_file])
+                .output()
+                .map_err(|e| format!("Failed to create backup of {}: {}", grub_file, e))?;
+
+            output_log.push_str(&format!("[+] Created GRUB backup at {}.\n", backup_file));
+
+            let content = std::fs::read_to_string(grub_file)
+                .map_err(|e| format!("Failed to read {}: {}", grub_file, e))?;
+
+            let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+
+            for (key, value) in &grub_changes {
+                let mut found = false;
+                for line in &mut lines {
+                    if line.starts_with(&format!("{}=", key)) {
+                        *line = format!("{}=\"{}\"", key, value);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    lines.push(format!("{}=\"{}\"", key, value));
+                }
+            }
+
+            let new_content = lines.join("\n") + "\n";
+
+            let mut child = Command::new("tee")
+                .arg(grub_file)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("Failed to spawn tee to write GRUB config: {}", e))?;
+
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(new_content.as_bytes())
+                    .map_err(|e| format!("Failed to write to GRUB config: {}", e))?;
+            }
+            child.wait().map_err(|e| format!("Failed waiting for tee: {}", e))?;
+
+            output_log.push_str("[+] Successfully wrote changes to /etc/default/grub.\n");
+
+            output_log.push_str("Compiling bootloader config...\n");
+            let update_output = if Command::new("update-grub").output().is_ok() {
+                let output = Command::new("update-grub")
+                    .output()
+                    .map_err(|e| format!("Failed to run update-grub: {}", e))?;
+                format!("update-grub succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
+            } else if Command::new("grub-mkconfig").output().is_ok() {
+                let output = Command::new("grub-mkconfig")
+                    .args(&["-o", "/boot/grub/grub.cfg"])
+                    .output()
+                    .map_err(|e| format!("Failed to run grub-mkconfig: {}", e))?;
+                format!("grub-mkconfig succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
+            } else if Command::new("grub2-mkconfig").output().is_ok() {
+                let output = Command::new("grub2-mkconfig")
+                    .args(&["-o", "/boot/grub2/grub.cfg"])
+                    .output()
+                    .map_err(|e| format!("Failed to run grub2-mkconfig: {}", e))?;
+                format!("grub2-mkconfig succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
+            } else {
+                return Err("No grub config update tool found (update-grub, grub-mkconfig, grub2-mkconfig)".to_string());
+            };
+
+            output_log.push_str(&update_output);
         }
 
-        let mut child = Command::new("tee")
-            .arg(grub_file)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(new_content.as_bytes())
-                .map_err(|e| e.to_string())?;
-        }
-
-        child.wait().map_err(|e| e.to_string())?;
-        Ok(backup_file)
+        Ok(output_log)
     }
 
     pub fn set_hostname(&self, new_hostname: &str) -> Result<(), String> {

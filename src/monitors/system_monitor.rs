@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::fs;
 use sysinfo::{DiskUsage, Networks, Pid, System, Components};
-use users::{Users, UsersCache};
-use chrono::prelude::*;
 
 use crate::types::*;
 use crate::utils::*;
@@ -26,6 +24,63 @@ pub struct SystemMonitor {
     last_update: Instant,
     self_pid: u32,
     memory_details_cache: Option<(String, String, String, String)>,
+}
+
+fn get_cpu_caches() -> (String, String, String) {
+    let mut l1 = String::new();
+    let mut l2 = String::new();
+    let mut l3 = String::new();
+
+    let mut l1i = None;
+    let mut l1d = None;
+
+    for i in 0..6 {
+        let dir = format!("/sys/devices/system/cpu/cpu0/cache/index{}", i);
+        let level_path = format!("{}/level", dir);
+        let type_path = format!("{}/type", dir);
+        let size_path = format!("{}/size", dir);
+
+        if let (Ok(lvl), Ok(typ), Ok(sz)) = (
+            fs::read_to_string(&level_path),
+            fs::read_to_string(&type_path),
+            fs::read_to_string(&size_path),
+        ) {
+            let level = lvl.trim();
+            let cache_type = typ.trim().to_lowercase();
+            let size = sz.trim().to_string();
+
+            if level == "1" {
+                if cache_type == "instruction" {
+                    l1i = Some(size);
+                } else if cache_type == "data" {
+                    l1d = Some(size);
+                } else {
+                    l1 = size;
+                }
+            } else if level == "2" {
+                l2 = size;
+            } else if level == "3" {
+                l3 = size;
+            }
+        }
+    }
+
+    if l1.is_empty() {
+        match (l1d, l1i) {
+            (Some(d), Some(i)) => l1 = format!("{} d / {} i", d, i),
+            (Some(d), None) => l1 = format!("{} d", d),
+            (None, Some(i)) => l1 = format!("{} i", i),
+            _ => l1 = "N/A".to_string(),
+        }
+    }
+    if l2.is_empty() {
+        l2 = "N/A".to_string();
+    }
+    if l3.is_empty() {
+        l3 = "N/A".to_string();
+    }
+
+    (l1, l2, l3)
 }
 
 impl SystemMonitor {
@@ -86,21 +141,25 @@ impl SystemMonitor {
                 }
             }
             
+            let (l1, l2, l3) = get_cpu_caches();
             info.push(("Vendor".into(), vendor));
             info.push(("Family".into(), family));
-            info.push(("L3 Cache".into(), cache_size));
+            info.push(("L1 Cache".into(), l1));
+            info.push(("L2 Cache".into(), l2));
+            if l3 != "N/A" {
+                info.push(("L3 Cache".into(), l3));
+            } else {
+                info.push(("L3 Cache".into(), cache_size));
+            }
             info.push(("BogoMIPS".into(), bogomips));
             info.push(("Virtualization".into(), virtualization));
         }
 
         info.extend(vec![
             ("Boot Time".into(), {
-                let boot_time = System::boot_time(); if boot_time > 0 {
-                    if let chrono::LocalResult::Single(dt) = Utc.timestamp_opt(boot_time as i64, 0) {
-                        dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()
-                    } else {
-                        "Unknown".to_string()
-                    }
+                let boot_time = System::boot_time();
+                if boot_time > 0 {
+                    format_timestamp(boot_time as i64, "%Y-%m-%d %H:%M:%S")
                 } else {
                     "Unknown".to_string()
                 }
@@ -277,7 +336,7 @@ impl SystemMonitor {
                 
                 let user = process.user_id()
                     .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
-                    .map_or("N/A".to_string(), |u| u.name().to_string_lossy().into_owned());
+                    .unwrap_or_else(|| "N/A".to_string());
                 
                 let raw_cpu = process.cpu_usage();
                 let normalized_cpu = (raw_cpu / total_cpu_count).clamp(0.0, 100.0);
@@ -309,16 +368,11 @@ impl SystemMonitor {
     
     pub fn get_detailed_process(&self, pid: Pid) -> Option<DetailedProcessInfo> {
         self.system.process(pid).map(|process| {
-            let start_time = if let chrono::LocalResult::Single(dt) = 
-                Utc.timestamp_opt(process.start_time() as i64, 0) {
-                dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string()
-            } else {
-                "Invalid time".to_string()
-            };
+            let start_time = format_timestamp(process.start_time() as i64, "%Y-%m-%d %H:%M:%S");
             
             let user = process.user_id()
                 .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
-                .map_or("N/A".to_string(), |u| u.name().to_string_lossy().into_owned());
+                .unwrap_or_else(|| "N/A".to_string());
             
             DetailedProcessInfo {
                 pid: process.pid().to_string(),

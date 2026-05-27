@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.9.1] - 2026-05-27
+
+### Added
+- **Language Auto-Detection**: PULS now reads `LANG`/`LC_ALL` on launch and automatically selects Turkish or English
+- **Interactive Process Filtering**: Press `/` on the Process tab to filter by name in real-time; `Esc` clears the filter
+- **Service Log Viewer**: Press `g` on the Services tab to view the last 50 `journald` log lines for the selected service
+- **Diagnostics Panel**: Dashboard now highlights system anomalies (high CPU temp, memory pressure, storage critical) inline
+- **GPU Dashboard Summary**: GPU utilization and temperature shown directly in the dashboard overview header
+- **L1/L2/L3 Cache Info**: CPU tab now shows L1 data/instruction, L2, and L3 cache sizes parsed from `/sys/devices/system/cpu/cpu0/cache/`
+- **Transactional GRUB Editor**: Edits are staged in memory; pressing `u` opens a comparison modal showing all pending changes before any write; requires sudo
+
+### Changed
+- **Dependency Reduction**: Replaced `users`, `chrono`, `clap`, and `parking_lot` with standard library code and custom Unix FFI helpers
+- **Tab Footer Hints**: Footer key indicators now show controls accurate to each active tab
+- **Config Column Layout**: Config table columns changed to percentage-based widths for better readability
+- **TTY-Safe Symbols**: All Unicode emoji/symbols replaced with ASCII alternatives (`[+]`, `[*]`, `[-]`, `->`, `v`, `^`) for terminal compatibility
+
+### Fixed
+- **Docker Tab Navigation**: Up/Down selection and automatic first-row focus now work correctly on the containers tab
+- **Number Keys During Edit**: Pressing digit keys while editing a config field no longer switches tabs
+
 ## [v0.9.0] - 2026-05-06
 
 ### Added

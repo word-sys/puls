@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 
-use parking_lot::Mutex;
+use std::sync::Mutex;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -22,7 +22,6 @@ use crossterm::{
 use ratatui::{prelude::*, Terminal};
 use tokio::time::sleep;
 
-use clap::Parser;
 use crate::config::{Cli};
 use crate::monitors::DataCollector;
 use crate::types::AppConfig;
@@ -45,12 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_collector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
     
     let system_info = {
-        let collector = data_collector.lock();
+        let collector = data_collector.lock().unwrap();
         collector.get_system_info()
     };
     
     {
-        let mut state = app_state.lock();
+        let mut state = app_state.lock().unwrap();
         state.system_info = system_info;
         
         if config.safe_mode {
@@ -129,7 +128,7 @@ async fn ui_loop(
         
         if now.duration_since(last_render) >= ui_refresh_interval {
             {
-                let mut state = app_state.lock();
+                let mut state = app_state.lock().unwrap();
                 let translator = crate::language::Translator::new(config.language);
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
@@ -145,9 +144,38 @@ fn handle_key_event(
     app_state: &Arc<Mutex<AppState>>,
     data_collector: &Arc<Mutex<DataCollector>>,
 ) -> io::Result<bool> {
-    let mut state = app_state.lock();
+    let mut state = app_state.lock().unwrap();
     
     match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') if state.pending_grub_update_confirmation => {
+            let sys_mgr = system_service::SystemManager::new();
+            let changes: Vec<(String, String)> = state.config_items.iter()
+                .filter(|item| item.value != item.original_value)
+                .map(|item| (item.key.clone(), item.value.clone()))
+                .collect();
+
+            match sys_mgr.apply_config_changes(&changes) {
+                Ok(msg) => {
+                    for item in &mut state.config_items {
+                        item.original_value = item.value.clone();
+                    }
+                    state.service_status_modal = Some(("Success".to_string(), msg));
+                }
+                Err(e) => {
+                    state.service_status_modal = Some(("Error".to_string(), e));
+                }
+            }
+            state.pending_grub_update_confirmation = false;
+        }
+
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc if state.pending_grub_update_confirmation => {
+            state.pending_grub_update_confirmation = false;
+        }
+
+        _ if state.pending_grub_update_confirmation => {
+            return Ok(false);
+        }
+
         KeyCode::Esc | KeyCode::Enter if state.viewing_log.is_some() => {
             state.viewing_log = None;
         }
@@ -184,6 +212,11 @@ fn handle_key_event(
                 state.selected_pid = None;
                 return Ok(false);
             }
+            if state.active_tab == 1 && !state.filter_text.is_empty() {
+                state.filter_text.clear();
+                state.process_table_state.select(Some(0));
+                return Ok(false);
+            }
             return Ok(true);
         }
         
@@ -194,18 +227,18 @@ fn handle_key_event(
                      let container_name = container.name.clone();
                      
                      let app_state_clone = app_state.clone();
-                     let data_collector_reader = data_collector.lock();
+                     let data_collector_reader = data_collector.lock().unwrap();
                      
                      #[cfg(feature = "docker")]
                      if let Some(client) = data_collector_reader.get_docker_client() {
                          tokio::task::spawn_local(async move {
                             match crate::monitors::container_monitor::fetch_container_logs(&client, &container_id).await {
                                 Ok(logs) => {
-                                    let mut state = app_state_clone.lock();
+                                    let mut state = app_state_clone.lock().unwrap();
                                     state.service_status_modal = Some((format!("Logs: {}", container_name), logs.join("\n")));
                                 }
                                 Err(e) => {
-                                    let mut state = app_state_clone.lock();
+                                    let mut state = app_state_clone.lock().unwrap();
                                     state.service_status_modal = Some(("Error fetching logs".to_string(), e));
                                 }
                             }
@@ -229,19 +262,41 @@ fn handle_key_event(
                 }
             }
         }
+        
+        KeyCode::Char('g') if state.active_tab == 8 && state.service_status_modal.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    let sys_mgr = system_service::SystemManager::new();
+                    let logs = sys_mgr.get_service_logs(&service.name);
+                    state.service_status_modal = Some((format!("Logs: {}", service.name), logs));
+                }
+            }
+        }
 
         KeyCode::Char('/') if state.active_tab == 9 && !state.editing_filter => {
              state.editing_filter = true;
              state.edit_buffer = state.log_filter.clone();
         }
 
+        KeyCode::Char('/') if state.active_tab == 1 && !state.editing_filter => {
+             state.editing_filter = true;
+             state.edit_buffer = state.filter_text.clone();
+        }
+
         KeyCode::Enter if state.editing_filter => {
-             state.log_filter = state.edit_buffer.clone();
-             state.editing_filter = false;
-             state.edit_buffer.clear();
-             let sys_mgr = system_service::SystemManager::new();
-             state.logs = sys_mgr.get_logs(1000, Some(&state.log_filter), None);
-             state.logs_table_state.select(Some(0));
+             if state.active_tab == 9 {
+                 state.log_filter = state.edit_buffer.clone();
+                 state.editing_filter = false;
+                 state.edit_buffer.clear();
+                 let sys_mgr = system_service::SystemManager::new();
+                 state.logs = sys_mgr.get_logs(1000, Some(&state.log_filter), None);
+                 state.logs_table_state.select(Some(0));
+             } else if state.active_tab == 1 {
+                 state.filter_text = state.edit_buffer.clone();
+                 state.editing_filter = false;
+                 state.edit_buffer.clear();
+                 state.process_table_state.select(Some(0));
+             }
         }
 
         KeyCode::Char(c) if state.editing_filter => {
@@ -289,19 +344,19 @@ fn handle_key_event(
             state.active_tab = (state.active_tab + 12) % 13;
         }
         
-        KeyCode::Char('1') => state.active_tab = 0,
-        KeyCode::Char('2') => state.active_tab = 1,
-        KeyCode::Char('3') => state.active_tab = 2,
-        KeyCode::Char('4') => state.active_tab = 3,
-        KeyCode::Char('5') => state.active_tab = 4,
-        KeyCode::Char('6') => state.active_tab = 5,
-        KeyCode::Char('7') => state.active_tab = 6,
-        KeyCode::Char('8') => state.active_tab = 7,
-        KeyCode::Char('9') => state.active_tab = 8,
-        KeyCode::Char('0') => state.active_tab = 9,
-        KeyCode::Char('-') => state.active_tab = 10,
-        KeyCode::Char('=') => state.active_tab = 11,
-        KeyCode::Char('+') if state.active_tab != 8 => state.active_tab = 12,
+        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 0,
+        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 1,
+        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 2,
+        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 3,
+        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 4,
+        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 5,
+        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 6,
+        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 7,
+        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 8,
+        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 9,
+        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 10,
+        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 11,
+        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => state.active_tab = 12,
         
         KeyCode::Char('t') | KeyCode::Char('T') => {
             state.current_theme = (state.current_theme + 1) % 3;
@@ -424,6 +479,21 @@ fn handle_key_event(
                 state.config_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
             }
         }
+
+        KeyCode::Down if state.active_tab == 11 => {
+            let len = state.dynamic_data.containers.len();
+            if len > 0 {
+                let current = state.container_table_state.selected().unwrap_or(0);
+                state.container_table_state.select(Some((current + 1) % len));
+            }
+        }
+        KeyCode::Up if state.active_tab == 11 => {
+            let len = state.dynamic_data.containers.len();
+            if len > 0 {
+                let current = state.container_table_state.selected().unwrap_or(0);
+                state.container_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            }
+        }
         
         KeyCode::Char('e') if state.active_tab == 8 => {
             if let Some(idx) = state.services_table_state.selected() {
@@ -519,35 +589,11 @@ fn handle_key_event(
             }
         }
         
-        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_config_confirmation.is_some() => {
-            if let Some((idx, new_value)) = state.pending_config_confirmation.clone() {
-                let has_sudo = state.has_sudo;
-                if let Some(item) = state.config_items.get_mut(idx) {
-                    if has_sudo {
-                         let sys_mgr = system_service::SystemManager::new();
-                         let key = item.key.clone();
-                         let result = match key.as_str() {
-                            "hostname" => sys_mgr.set_hostname(&new_value).map(|_| "Updated hostname".to_string()),
-                            "timezone" => sys_mgr.set_timezone(&new_value).map(|_| "Updated timezone".to_string()),
-                            _ if key.starts_with("GRUB_") => sys_mgr.set_grub_config(&key, &new_value).map(|back| format!("Backup: {}", back)),
-                            _ => Ok("".to_string()),
-                        };
-                        
-                        match result {
-                            Ok(msg) => {
-                                item.value = new_value.clone();
-                                state.service_status_modal = Some(("Success".to_string(), msg));
-                            },
-                            Err(e) => state.service_status_modal = Some(("Error".to_string(), e)),
-                        }
-                    }
-                }
+        KeyCode::Char('u') | KeyCode::Char('U') if state.active_tab == 10 && state.editing_config.is_none() && !state.pending_grub_update_confirmation => {
+            let has_changes = state.config_items.iter().any(|item| item.value != item.original_value);
+            if has_changes {
+                state.pending_grub_update_confirmation = true;
             }
-            state.pending_config_confirmation = None;
-        }
-
-        KeyCode::Char('n') | KeyCode::Char('N') if state.pending_config_confirmation.is_some() => {
-            state.pending_config_confirmation = None;
         }
 
         KeyCode::Char(c) if state.editing_service.is_some() || state.editing_config.is_some() => {
@@ -560,7 +606,10 @@ fn handle_key_event(
         
         KeyCode::Enter if state.editing_config.is_some() => {
             if let Some(idx) = state.editing_config {
-                state.pending_config_confirmation = Some((idx, state.edit_buffer.clone()));
+                let new_val = state.edit_buffer.clone();
+                if let Some(item) = state.config_items.get_mut(idx) {
+                    item.value = new_val;
+                }
             }
             state.editing_config = None;
             state.edit_buffer.clear();
@@ -635,9 +684,9 @@ async fn data_collection_loop(
         interval.tick().await;
         
         let is_paused = {
-            let state = app_state.lock();
-            state.paused
-        };
+                                    let state = app_state.lock().unwrap();
+                                    state.paused
+                                };
         
         if is_paused {
             continue;
@@ -646,7 +695,7 @@ async fn data_collection_loop(
         let collection_start = Instant::now();
         
         let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab) = {
-            let state = app_state.lock();
+            let state = app_state.lock().unwrap();
             (
                 state.selected_pid,
                 state.show_system_processes,
@@ -658,7 +707,7 @@ async fn data_collection_loop(
         };
         
         let new_data = {
-            let mut collector = data_collector.lock();
+            let mut collector = data_collector.lock().unwrap();
             collector.collect_data(
                 selected_pid,
                 show_system_processes,
@@ -673,11 +722,14 @@ async fn data_collection_loop(
         prev_global_usage = new_data.global_usage.clone();
         
         {
-            let mut state = app_state.lock();
+            let mut state = app_state.lock().unwrap();
             state.dynamic_data = new_data;
             
             if state.process_table_state.selected().is_none() && !state.dynamic_data.processes.is_empty() {
                 state.process_table_state.select(Some(0));
+            }
+            if state.container_table_state.selected().is_none() && !state.dynamic_data.containers.is_empty() {
+                state.container_table_state.select(Some(0));
             }
         }
         

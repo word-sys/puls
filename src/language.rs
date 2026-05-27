@@ -14,6 +14,22 @@ impl Language {
             _ => Language::English,
         }
     }
+
+    pub fn detect() -> Self {
+        if let Ok(lang_env) = std::env::var("LANG") {
+            let lang_env_lower = lang_env.to_lowercase();
+            if lang_env_lower.starts_with("tr") {
+                return Language::Turkish;
+            }
+        }
+        if let Ok(lc_env) = std::env::var("LC_ALL") {
+            let lc_env_lower = lc_env.to_lowercase();
+            if lc_env_lower.starts_with("tr") {
+                return Language::Turkish;
+            }
+        }
+        Language::English
+    }
 }
 
 impl fmt::Display for Language {
@@ -188,6 +204,39 @@ impl Translator {
         map.insert("label.efficiency", "Eff");
         map.insert("label.available", "Available");
         map.insert("label.na", "N/A");
+
+        map.insert("msg.no_cpu_info", "No CPU core information available");
+        map.insert("msg.network_disabled_safe", "Network monitoring is disabled in safe mode");
+        map.insert("msg.docker_disabled_or_none", "No containers running or Docker not detected");
+        map.insert("msg.docker_unavailable", "Docker Unavailable");
+        map.insert("msg.gpu_disabled_safe", "GPU monitoring is disabled in safe mode");
+        map.insert("msg.no_gpus_found", "No supported GPUs found");
+        map.insert("msg.no_services", "No services available");
+        map.insert("msg.no_logs", "No logs available");
+        map.insert("msg.no_config", "No configuration items available");
+        map.insert("msg.no_sensors", "No sensor data available");
+        map.insert("msg.loading_process_details", "Loading process details...");
+        
+        map.insert("title.confirm_config_change", "Confirm Configuration Change");
+        map.insert("title.process_filter", "Process Filter (Press Esc to Clear)");
+        map.insert("title.network_interfaces", "Network Interfaces");
+        map.insert("title.ram_usage", "RAM Usage");
+        map.insert("title.swap_usage", "Swap Usage");
+        map.insert("title.details", "Details");
+        map.insert("title.hardware_sensors", "Hardware Sensors");
+        map.insert("title.diagnostics", "Diagnostics");
+        map.insert("msg.diagnostics_nominal", "All parameters nominal. No active issues detected.");
+        map.insert("msg.failed_service", "Failed Service");
+        map.insert("msg.critical_storage", "Critical Storage");
+        map.insert("msg.high_cpu_temp", "High CPU Temperature");
+        map.insert("msg.high_mem_pressure", "High Memory Pressure");
+        
+        map.insert("help.dashboard", "q: Quit | Tab/1-9: Navigate | p: Pause | t: Theme");
+        map.insert("help.process", "q: Quit | ↑↓: Select | k: Kill | Enter: Details | Ctrl+c/m/n/g: Sort | Ctrl+s: Filter Sys | /: Filter");
+        map.insert("help.logs", "q: Quit | ↑↓: Navigate | Enter: View | /: Filter | </>: Switch Boot");
+        map.insert("help.config", "q: Quit | ↑↓: Navigate | Enter: Edit | u: Update GRUB | Esc: Cancel");
+        map.insert("help.containers", "q: Quit | ↑↓: Navigate | l: View Logs");
+        map.insert("help.sensors", "q: Quit | Tab/1-9: Navigate | p: Pause | t: Theme");
         map
     }
 
@@ -332,6 +381,39 @@ impl Translator {
         map.insert("label.efficiency", "Ver");
         map.insert("label.available", "Kullanılabilir");
         map.insert("label.na", "Yok");
+
+        map.insert("msg.no_cpu_info", "CPU çekirdek bilgisi mevcut değil");
+        map.insert("msg.network_disabled_safe", "Güvenli modda ağ izleme devre dışı");
+        map.insert("msg.docker_disabled_or_none", "Konteyner çalışmıyor veya Docker algılanmadı");
+        map.insert("msg.docker_unavailable", "Docker Kullanılamıyor");
+        map.insert("msg.gpu_disabled_safe", "Güvenli modda GPU izleme devre dışı");
+        map.insert("msg.no_gpus_found", "Desteklenen GPU bulunamadı");
+        map.insert("msg.no_services", "Kullanılabilir hizmet yok");
+        map.insert("msg.no_logs", "Kullanılabilir günlük yok");
+        map.insert("msg.no_config", "Kullanılabilir yapılandırma ögesi yok");
+        map.insert("msg.no_sensors", "Sensör verisi mevcut değil");
+        map.insert("msg.loading_process_details", "İşlem detayları yükleniyor...");
+        
+        map.insert("title.confirm_config_change", "Yapılandırma Değişikliğini Onayla");
+        map.insert("title.process_filter", "İşlem Filtresi (Temizlemek için Esc)");
+        map.insert("title.network_interfaces", "Ağ Arayüzleri");
+        map.insert("title.ram_usage", "RAM Kullanımı");
+        map.insert("title.swap_usage", "Takas Alanı Kullanımı");
+        map.insert("title.details", "Detaylar");
+        map.insert("title.hardware_sensors", "Donanım Sensörleri");
+        map.insert("title.diagnostics", "Tanılama");
+        map.insert("msg.diagnostics_nominal", "Tüm parametreler normal. Aktif sorun tespit edilmedi.");
+        map.insert("msg.failed_service", "Başarısız Hizmet");
+        map.insert("msg.critical_storage", "Kritik Depolama");
+        map.insert("msg.high_cpu_temp", "Yüksek CPU Sıcaklığı");
+        map.insert("msg.high_mem_pressure", "Yüksek Bellek Baskısı");
+        
+        map.insert("help.dashboard", "q: Çık | Tab/1-9: Gezin | p: Duraklat | t: Tema");
+        map.insert("help.process", "q: Çık | ↑↓: Seç | k: Sonlandır | Enter: Detaylar | Ctrl+c/m/n/g: Sırala | Ctrl+s: Sis Filtre | /: Filtrele");
+        map.insert("help.logs", "q: Çık | ↑↓: Gezin | Enter: Görüntüle | /: Filtrele | </>: Önyükleme Seç");
+        map.insert("help.config", "q: Çık | ↑↓: Gezin | Enter: Düzenle | u: GRUB Güncelle | Esc: İptal");
+        map.insert("help.containers", "q: Çık | ↑↓: Gezin | l: Günlükleri Gör");
+        map.insert("help.sensors", "q: Çık | Tab/1-9: Gezin | p: Duraklat | t: Tema");
         map
     }
 }

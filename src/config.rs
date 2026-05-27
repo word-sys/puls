@@ -1,52 +1,136 @@
 #![allow(dead_code)]
 
-use clap::Parser;
 use crate::types::AppConfig;
 use crate::language::Language;
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-#[command(name = "puls")]
-#[command(about = "A unified system monitoring and management tool for Linux")]
+#[derive(Debug, Clone)]
 pub struct Cli {
-    #[arg(short, long, default_value_t = false)]
     pub safe: bool,
-    
-    #[arg(short, long, default_value_t = 1000)]
     pub refresh: u64,
-    
-    #[arg(long, default_value_t = 60)]
     pub history: usize,
-    
-    #[arg(long, default_value_t = false)]
     pub show_system: bool,
-    
-    #[arg(long, default_value_t = false)]
     pub no_docker: bool,
-    
-    #[arg(long, default_value_t = false)]
     pub no_gpu: bool,
-    
-    #[arg(long, default_value_t = false)]
     pub no_network: bool,
-    
-    #[arg(long, default_value_t = false)]
     pub auto_scroll: bool,
-    
-    #[arg(long, default_value = "en")]
     pub lang: String,
-    
-    #[arg(long, default_value_t = false)]
     pub tr: bool,
-    
-    #[arg(short, long, default_value_t = false)]
     pub verbose: bool,
+}
+
+impl Cli {
+    pub fn parse() -> Self {
+        let mut cli = Self {
+            safe: false,
+            refresh: 1000,
+            history: 60,
+            show_system: false,
+            no_docker: false,
+            no_gpu: false,
+            no_network: false,
+            auto_scroll: false,
+            lang: "auto".to_string(),
+            tr: false,
+            verbose: false,
+        };
+
+        let args: Vec<String> = std::env::args().collect();
+        let mut i = 1;
+        while i < args.len() {
+            let arg = &args[i];
+            match arg.as_str() {
+                "-h" | "--help" => {
+                    println!("puls v{} - A unified system monitoring and management tool for Linux", env!("CARGO_PKG_VERSION"));
+                    println!("\nUsage: puls [OPTIONS]");
+                    println!("\nOptions:");
+                    println!("  -s, --safe           Enable safe mode (read-only diagnostics, disable destructive system commands)");
+                    println!("  -r, --refresh <MS>   Refresh rate in milliseconds (default: 1000)");
+                    println!("  --history <SIZE>     History log/chart length (default: 60)");
+                    println!("  --show-system        Show system processes (default: false)");
+                    println!("  --no-docker          Disable Docker containers monitoring");
+                    println!("  --no-gpu             Disable GPU usage queries");
+                    println!("  --no-network         Disable advanced network metrics collection");
+                    println!("  --auto-scroll        Enable automatic scroll for logs");
+                    println!("  --lang <LANG>        Language setting (\"auto\", \"en\", \"tr\")");
+                    println!("  --tr                 Shortcut for Turkish language");
+                    println!("  -v, --verbose        Enable verbose stderr error logging");
+                    println!("  -h, --help           Print help information");
+                    std::process::exit(0);
+                }
+                "-s" | "--safe" => {
+                    cli.safe = true;
+                }
+                "-r" | "--refresh" => {
+                    if i + 1 < args.len() {
+                        i += 1;
+                        if let Ok(r) = args[i].parse::<u64>() {
+                            cli.refresh = r;
+                        }
+                    }
+                }
+                "--history" => {
+                    if i + 1 < args.len() {
+                        i += 1;
+                        if let Ok(h) = args[i].parse::<usize>() {
+                            cli.history = h;
+                        }
+                    }
+                }
+                "--show-system" => {
+                    cli.show_system = true;
+                }
+                "--no-docker" => {
+                    cli.no_docker = true;
+                }
+                "--no-gpu" => {
+                    cli.no_gpu = true;
+                }
+                "--no-network" => {
+                    cli.no_network = true;
+                }
+                "--auto-scroll" => {
+                    cli.auto_scroll = true;
+                }
+                "--lang" => {
+                    if i + 1 < args.len() {
+                        i += 1;
+                        cli.lang = args[i].clone();
+                    }
+                }
+                "--tr" => {
+                    cli.tr = true;
+                }
+                "-v" | "--verbose" => {
+                    cli.verbose = true;
+                }
+                other if other.starts_with('-') && !other.starts_with("--") => {
+                    for c in other.chars().skip(1) {
+                        match c {
+                            's' => cli.safe = true,
+                            'v' => cli.verbose = true,
+                            'h' => {
+                                println!("puls v{} - A unified system monitoring and management tool for Linux", env!("CARGO_PKG_VERSION"));
+                                std::process::exit(0);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        cli
+    }
 }
 
 impl From<Cli> for AppConfig {
     fn from(cli: Cli) -> Self {
         let language = if cli.tr {
             Language::Turkish
+        } else if cli.lang == "auto" {
+            Language::detect()
         } else {
             Language::from_str(&cli.lang)
         };

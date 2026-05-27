@@ -349,6 +349,95 @@ pub fn get_memory_breakdown(mem_available: u64, mem_total: u64) -> (u64, u64) {
     (mem_used, mem_available)
 }
 
+use std::os::raw::{c_int, c_long, c_char};
+use std::collections::HashMap;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct tm {
+    pub tm_sec: c_int,
+    pub tm_min: c_int,
+    pub tm_hour: c_int,
+    pub tm_mday: c_int,
+    pub tm_mon: c_int,
+    pub tm_year: c_int,
+    pub tm_wday: c_int,
+    pub tm_yday: c_int,
+    pub tm_isdst: c_int,
+    pub tm_gmtoff: c_long,
+    pub tm_zone: *const c_char,
+}
+
+extern "C" {
+    pub fn localtime(timep: *const i64) -> *mut tm;
+    pub fn strftime(s: *mut c_char, max: usize, format: *const c_char, tm: *const tm) -> usize;
+    pub fn getuid() -> u32;
+}
+
+pub fn format_timestamp(timestamp: i64, format_str: &str) -> String {
+    unsafe {
+        let t_ptr = localtime(&timestamp);
+        if t_ptr.is_null() {
+            return "unknown time".to_string();
+        }
+        let mut buf = [0u8; 128];
+        let c_fmt = std::ffi::CString::new(format_str).unwrap_or_default();
+        let len = strftime(
+            buf.as_mut_ptr() as *mut std::os::raw::c_char,
+            buf.len(),
+            c_fmt.as_ptr(),
+            t_ptr,
+        );
+        if len > 0 {
+            String::from_utf8_lossy(&buf[..len]).into_owned()
+        } else {
+            "unknown time".to_string()
+        }
+    }
+}
+
+pub fn current_formatted_time(format_str: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format_timestamp(now as i64, format_str)
+}
+
+pub fn get_current_uid() -> u32 {
+    unsafe { getuid() }
+}
+
+#[derive(Clone)]
+pub struct UsersCache {
+    users: HashMap<u32, String>,
+}
+
+impl UsersCache {
+    pub fn new() -> Self {
+        let mut users = HashMap::new();
+        if let Ok(content) = std::fs::read_to_string("/etc/passwd") {
+            for line in content.lines() {
+                if line.starts_with('#') || line.trim().is_empty() {
+                    continue;
+                }
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    let username = parts[0].to_string();
+                    if let Ok(uid) = parts[2].parse::<u32>() {
+                        users.insert(uid, username);
+                    }
+                }
+            }
+        }
+        UsersCache { users }
+    }
+
+    pub fn get_user_by_uid(&self, uid: u32) -> Option<String> {
+        self.users.get(&uid).cloned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

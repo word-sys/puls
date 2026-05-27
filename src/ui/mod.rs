@@ -36,8 +36,8 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
         8 => render_services_tab(f, state, main_layout.content_area, translator, theme),
         9 => render_logs_tab(f, state, main_layout.content_area, translator, theme),
         10 => render_config_tab(f, state, main_layout.content_area, translator, theme),
-        11 => render_containers_tab(f, state, main_layout.content_area, theme),
-        12 => render_sensors_tab(f, state, main_layout.content_area, theme),
+        11 => render_containers_tab(f, state, main_layout.content_area, translator, theme),
+        12 => render_sensors_tab(f, state, main_layout.content_area, translator, theme),
         _ => {}
     }
     
@@ -57,12 +57,16 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     
     if let Some((idx, new_value)) = &state.pending_config_confirmation {
         if let Some(item) = state.config_items.get(*idx) {
-             render_config_confirmation_modal(f, &item.key, &item.value, new_value, theme);
+             render_config_confirmation_modal(f, &item.key, &item.value, new_value, translator, theme);
         }
     }
     
     if let Some(log) = &state.viewing_log {
         render_log_details_modal(f, log, theme);
+    }
+
+    if state.pending_grub_update_confirmation {
+        render_grub_update_modal(f, state, translator, theme);
     }
 }
 
@@ -103,7 +107,7 @@ fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, theme: &crate::ui:
     f.render_widget(ratatui::widgets::Clear, popup_area);
     
     let block = Block::default()
-        .title("⚠ Kill Process")
+        .title("[*] Kill Process")
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning));
@@ -128,7 +132,7 @@ fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, t
 
     f.render_widget(ratatui::widgets::Clear, popup_area);
 
-    let title = format!("⚠ {} Service", action.to_uppercase());
+    let title = format!("[*] {} Service", action.to_uppercase());
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -297,7 +301,7 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
         .constraints([Constraint::Length(1), Constraint::Min(0)])
         .split(inner_area);
     
-    let net_text = format!("▼{} ▲{}", format_rate(usage.net_down), format_rate(usage.net_up));
+    let net_text = format!("v{} ^{}", format_rate(usage.net_down), format_rate(usage.net_up));
     let net_paragraph = Paragraph::new(net_text)
         .alignment(Alignment::Left)
         .style(Style::default().fg(theme.accent));
@@ -490,17 +494,19 @@ fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, transla
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),      // System Status
-            Constraint::Percentage(45), // Charts
+            Constraint::Length(5),      // Diagnostics Panel
+            Constraint::Percentage(40), // Charts
             Constraint::Min(10),        // Tables
         ])
         .split(area);
     
     render_system_status(f, state, chunks[0], translator, theme);
+    render_dashboard_diagnostics(f, state, chunks[1], translator, theme);
     
     let chart_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[1]);
+        .split(chunks[2]);
     
     render_dashboard_cpu_chart(f, state, chart_chunks[0], theme);
     render_dashboard_mem_chart(f, state, chart_chunks[1], theme);
@@ -508,11 +514,78 @@ fn render_dashboard_tab(f: &mut Frame, state: &mut AppState, area: Rect, transla
     let bottom_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(35), Constraint::Percentage(35), Constraint::Percentage(30)])
-        .split(chunks[2]);
+        .split(chunks[3]);
     
     render_top_processes(f, state, bottom_chunks[0], translator, theme);
     render_dashboard_storage(f, state, bottom_chunks[1], theme);
     render_container_table(f, state, bottom_chunks[2], translator, theme);
+}
+
+fn render_dashboard_diagnostics(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let mut alerts = Vec::new();
+    
+    let failed_services: Vec<String> = state.services.iter()
+        .filter(|s| s.status == "Failed")
+        .map(|s| s.name.clone())
+        .collect();
+    if !failed_services.is_empty() {
+        alerts.push(format!("{}: {}", translator.t("msg.failed_service"), failed_services.join(", ")));
+    }
+    
+    let critical_disks: Vec<String> = state.dynamic_data.disks.iter()
+        .filter(|d| d.total > 0 && (d.used as f64 / d.total as f64) > 0.90)
+        .map(|d| format!("{} ({:.0}%)", d.name, (d.used as f64 / d.total as f64) * 100.0))
+        .collect();
+    if !critical_disks.is_empty() {
+        alerts.push(format!("{}: {}", translator.t("msg.critical_storage"), critical_disks.join(", ")));
+    }
+    
+    if let Some(temp) = state.dynamic_data.temperatures.cpu_temp {
+        if temp > 80.0 {
+            alerts.push(format!("{}: {:.0}°C", translator.t("msg.high_cpu_temp"), temp));
+        }
+    }
+    
+    let usage = &state.dynamic_data.global_usage;
+    let mem_percent = if usage.mem_total > 0 {
+        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    if mem_percent > 90.0 {
+        alerts.push(format!("{}: {:.0}%", translator.t("msg.high_mem_pressure"), mem_percent));
+    }
+    
+    let (widget_text, block_style, text_color) = if alerts.is_empty() {
+        (
+            format!(" * {}: {}", translator.t("title.diagnostics"), translator.t("msg.diagnostics_nominal")),
+            Style::default().fg(theme.success),
+            theme.success,
+        )
+    } else {
+        (
+            format!(" [*] {}: {} alerts active\n {}", 
+                translator.t("title.diagnostics"), 
+                alerts.len(), 
+                alerts.iter().map(|a| format!("- {}", a)).collect::<Vec<_>>().join(" | ")
+            ),
+            Style::default().fg(theme.error),
+            theme.error,
+        )
+    };
+    
+    let diagnostics_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(block_style);
+        
+    let paragraph = Paragraph::new(widget_text)
+        .block(diagnostics_block)
+        .style(Style::default().fg(text_color))
+        .alignment(Alignment::Left)
+        .wrap(ratatui::widgets::Wrap { trim: true });
+        
+    f.render_widget(paragraph, area);
 }
 
 fn render_processes_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -551,12 +624,23 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     let cpu_temp = state.dynamic_data.temperatures.cpu_temp;
     let cpu_temp_str = cpu_temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
 
+    let gpu_str = if let Ok(gpus) = &state.dynamic_data.gpus {
+        if let Some(gpu) = gpus.first() {
+            format!(" | GPU: {}% ({}°C)", gpu.utilization, gpu.temperature)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let status_text = format!(
-        "Status {} | CPU: {:.0}% (Eff: {}){} | Load: {:.2}/core | Mem: {:.0}% ({} FREE) | Swap: {:.0}% | Up: {} | Procs: {}",
+        "Status {} | CPU: {:.0}% (Eff: {}){}{} | Load: {:.2}/core | Mem: {:.0}% ({} FREE) | Swap: {:.0}% | Up: {} | Procs: {}",
         status_str,
         usage.cpu,
         cpu_efficiency,
         cpu_temp_str,
+        gpu_str,
         load_per_core.parse::<f64>().unwrap_or(0.0),
         mem_percent,
         format_size(mem_available),
@@ -589,6 +673,46 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     let header_disk_read = translator.t("header.disk_read");
     let header_disk_write = translator.t("header.disk_write");
     
+    let chunks = if state.editing_filter || !state.filter_text.is_empty() {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Filter input
+                Constraint::Min(0),    // Table
+            ])
+            .split(area)
+    } else {
+        std::rc::Rc::new([area])
+    };
+
+    let table_area = if state.editing_filter || !state.filter_text.is_empty() {
+        let filter_title = translator.t("title.process_filter");
+        let filter_prompt = if state.editing_filter {
+            format!("{}█", state.edit_buffer)
+        } else {
+            state.filter_text.clone()
+        };
+        
+        let filter_style = if state.editing_filter {
+            Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.success)
+        };
+        
+        let filter_widget = Paragraph::new(filter_prompt)
+            .style(filter_style)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(format!(" {} ", filter_title))
+                .border_style(Style::default().fg(if state.editing_filter { theme.primary } else { theme.border })));
+        
+        f.render_widget(filter_widget, chunks[0]);
+        chunks[1]
+    } else {
+        chunks[0]
+    };
+
     let rows = processes.iter().map(|p| {
         Row::new(vec![
             p.pid.clone(),
@@ -629,7 +753,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
     .highlight_symbol(">> ");
     
-    f.render_stateful_widget(table, area, &mut state.process_table_state);
+    f.render_stateful_widget(table, table_area, &mut state.process_table_state);
 }
 
 fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -719,7 +843,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
     f.render_widget(table, area);
 }
 
-fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -819,7 +943,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
         f.render_widget(cmd_env_paragraph, layout[1]);
         
     } else {
-        let message = Paragraph::new("Loading process details...")
+        let message = Paragraph::new(translator.t("msg.loading_process_details"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary));
         f.render_widget(message, inner_area);
@@ -871,7 +995,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, _trans
     }
 }
 
-fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     use ratatui::widgets::{Chart, Dataset, Axis, Paragraph};
     use ratatui::layout::{Layout, Constraint, Direction};
     use ratatui::text::{Line, Span};
@@ -881,11 +1005,11 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     let cores = &state.dynamic_data.cores;
     
     if cores.is_empty() {
-        let message = Paragraph::new("No CPU core information available")
+        let message = Paragraph::new(translator.t("msg.no_cpu_info"))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title("CPU Cores")
+                    .title(translator.t("title.cpu_cores"))
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
@@ -906,6 +1030,8 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
     let core_details = state.system_info.iter().find(|(k, _)| k == "Cores").map(|(_, v)| v.as_str()).unwrap_or("Unknown");
     let vendor = state.system_info.iter().find(|(k, _)| k == "Vendor").map(|(_, v)| v.as_str()).unwrap_or("N/A");
     let family = state.system_info.iter().find(|(k, _)| k == "Family").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let l1_cache = state.system_info.iter().find(|(k, _)| k == "L1 Cache").map(|(_, v)| v.as_str()).unwrap_or("N/A");
+    let l2_cache = state.system_info.iter().find(|(k, _)| k == "L2 Cache").map(|(_, v)| v.as_str()).unwrap_or("N/A");
     let l3_cache = state.system_info.iter().find(|(k, _)| k == "L3 Cache").map(|(_, v)| v.as_str()).unwrap_or("N/A");
     let bogomips = state.system_info.iter().find(|(k, _)| k == "BogoMIPS").map(|(_, v)| v.as_str()).unwrap_or("N/A");
     let virt = state.system_info.iter().find(|(k, _)| k == "Virtualization").map(|(_, v)| v.as_str()).unwrap_or("N/A");
@@ -963,9 +1089,16 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, _translator
             Span::styled(bogomips, Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
+            Span::styled("L1 Cache: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(l1_cache, Style::default().fg(theme.text)),
+            Span::raw(" | "),
+            Span::styled("L2 Cache: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(l2_cache, Style::default().fg(theme.text)),
+            Span::raw(" | "),
             Span::styled("L3 Cache: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(l3_cache, Style::default().fg(theme.text)),
-            Span::raw(" | "),
+        ]),
+        Line::from(vec![
             Span::styled("Virtualization: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(virt, Style::default().fg(theme.text)),
         ]),
@@ -1192,14 +1325,14 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
     f.render_widget(table, area);
 }
 
-fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     if is_safe_mode {
-        let message = Paragraph::new("Network monitoring is disabled in safe mode")
+        let message = Paragraph::new(translator.t("msg.network_disabled_safe"))
             .style(Style::default().fg(theme.text_secondary))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title("Network Interfaces")
+                    .title(translator.t("title.network_interfaces"))
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.text_secondary))
@@ -1243,7 +1376,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     )
     .block(
         Block::default()
-            .title("Network Interfaces")
+            .title(translator.t("title.network_interfaces"))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -1252,7 +1385,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     f.render_widget(table, area);
 }
 
-fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     use ratatui::widgets::BorderType; 
     if let Some(err) = &state.dynamic_data.docker_error {
         let text = Paragraph::new(format!("Docker Error: {}", err))
@@ -1263,14 +1396,14 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &cr
                      .borders(Borders::ALL)
                      .border_type(BorderType::Rounded)
                      .style(Style::default().fg(theme.border))
-                     .title("Docker Unavailable")
+                     .title(translator.t("msg.docker_unavailable"))
              );
         f.render_widget(text, area);
         return;
     }
 
     if state.dynamic_data.containers.is_empty() {
-        let text = Paragraph::new("No containers running or Docker not detected")
+        let text = Paragraph::new(translator.t("msg.docker_disabled_or_none"))
              .style(Style::default().fg(theme.text_secondary))
              .alignment(Alignment::Center)
              .block(
@@ -1278,7 +1411,7 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &cr
                      .borders(Borders::ALL)
                      .border_type(BorderType::Rounded)
                      .style(Style::default().fg(theme.border))
-                     .title("Containers")
+                     .title(translator.t("title.containers"))
              );
         f.render_widget(text, area);
         return;
@@ -1335,6 +1468,8 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &cr
         Row::new(headers)
             .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
+    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+    .highlight_symbol(">> ")
     .block(
         Block::default()
             .title(format!("Containers ({} running)", containers.len()))
@@ -1343,17 +1478,18 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &cr
             .border_style(Style::default().fg(theme.border))
     );
     
-    f.render_widget(table, area);
+    let mut container_state = state.container_table_state.clone();
+    f.render_stateful_widget(table, area, &mut container_state);
 }
 
-fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     if is_safe_mode {
-        let message = Paragraph::new("GPU monitoring is disabled in safe mode")
+        let message = Paragraph::new(translator.t("msg.gpu_disabled_safe"))
             .style(Style::default().fg(theme.text_secondary))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title("GPU Information")
+                    .title(translator.t("title.gpu"))
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.text_secondary))
@@ -1363,7 +1499,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     }
     
     let block = Block::default()
-        .title("GPU Information")
+        .title(translator.t("title.gpu"))
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
@@ -1373,7 +1509,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     
     match &state.dynamic_data.gpus {
         Ok(gpus) if gpus.is_empty() => {
-            let message = Paragraph::new("No supported GPUs found")
+            let message = Paragraph::new(translator.t("msg.no_gpus_found"))
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(theme.warning));
             f.render_widget(message, inner_area);
@@ -1609,7 +1745,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     f.render_widget(table, layout[4]);
 }
 
-fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
@@ -1625,7 +1761,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translat
     )
     .block(
         Block::default()
-            .title("System Information")
+            .title(translator.t("title.system_info"))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -1648,7 +1784,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, _translat
         .style(Style::default().fg(theme.text))
         .block(
             Block::default()
-                .title("Process Statistics")
+                .title(translator.t("title.process_stats"))
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
@@ -1690,8 +1826,13 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         translator.t("help.paused")
     } else {
         match state.active_tab {
-            0 => "q: Quit | ↑↓: Select | k: Kill | p: Pause | t: Theme | /: Search | Tab/1-9: Navigate | Ctrl+g: Sort General".to_string(),
-            8 => "↑↓: Navigate | s: Start | x: Stop | r: Restart | +: Enable | _: Disable | l: Status".to_string(),
+            0 => translator.t("help.dashboard"),
+            1 => translator.t("help.process"),
+            8 => translator.t("help.services"),
+            9 => translator.t("help.logs"),
+            10 => translator.t("help.config"),
+            11 => translator.t("help.containers"),
+            12 => translator.t("help.sensors"),
             _ => translator.t("help.main"),
         }
     };
@@ -1721,7 +1862,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
     let services = &state.services;
     
     if services.is_empty() {
-        let paragraph = Paragraph::new("No services available")
+        let paragraph = Paragraph::new(translator.t("msg.no_services"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
@@ -1744,7 +1885,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
     ];
     
     let rows = services.iter().enumerate().map(|(i, s)| {
-        let enabled = if s.enabled { "✓" } else { "✗" };
+        let enabled = if s.enabled { "[+]" } else { "[-]" };
         let name_display = if state.has_sudo {
             s.name.clone()
         } else {
@@ -1871,7 +2012,7 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
     let logs = &state.logs;
     
     if logs.is_empty() {
-        let paragraph = Paragraph::new("No logs available")
+        let paragraph = Paragraph::new(translator.t("msg.no_logs"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
@@ -1938,7 +2079,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let configs = &state.config_items;
     
     if configs.is_empty() {
-        let paragraph = Paragraph::new("No configuration items available")
+        let paragraph = Paragraph::new(translator.t("msg.no_config"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
@@ -1969,9 +2110,15 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             Style::default().fg(theme.text)
         };
         
+        let display_val = if state.editing_config == Some(i) && state.has_sudo {
+            format!("{}█", state.edit_buffer)
+        } else {
+            c.value.clone()
+        };
+        
         Row::new(vec![
             c.key.clone(),
-            c.value.clone(),
+            display_val,
             c.description.clone(),
         ]).style(style)
     });
@@ -1979,9 +2126,9 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let table = Table::new(
         rows,
         [
-            Constraint::Length(25),
-            Constraint::Length(20),
-            Constraint::Min(35),
+            Constraint::Percentage(35),
+            Constraint::Percentage(45),
+            Constraint::Percentage(20),
         ]
     )
     .header(
@@ -2009,7 +2156,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     f.render_stateful_widget(table, area, &mut config_state.clone());
 }
 
-fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -2033,7 +2180,7 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
     } else { 0.0 };
     
     let mem_gauge = Gauge::default()
-        .block(Block::default().title("RAM Usage").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .block(Block::default().title(translator.t("title.ram_usage")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(get_usage_color(mem_percent as f32)))
         .percent(mem_percent as u16)
         .label(format!("{:.1}% ({} / {})", mem_percent, format_size(usage.mem_used), format_size(usage.mem_total)));
@@ -2044,7 +2191,7 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
     } else { 0.0 }; 
     
     let swap_gauge = Gauge::default()
-        .block(Block::default().title("Swap Usage").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .block(Block::default().title(translator.t("title.swap_usage")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(theme.primary))
         .percent(swap_percent as u16)
         .label(format!("{:.1}% ({} / {})", swap_percent, format_size(usage.swap_used), format_size(usage.swap_total)));
@@ -2076,20 +2223,20 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &
         rows,
         [Constraint::Percentage(50), Constraint::Percentage(50)]
     ).header(Row::new(headers).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)))
-     .block(Block::default().title("Details").borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
+     .block(Block::default().title(translator.t("title.details")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
      
     f.render_widget(table, chunks[1]);
 }
 
-fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate::ui::colors::ColorScheme) {
+fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let sensors = &state.dynamic_data.sensors;
     
     if sensors.is_empty() {
-        let message = Paragraph::new("No sensor data available")
+        let message = Paragraph::new(translator.t("msg.no_sensors"))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
-                    .title(" Sensors ")
+                    .title(translator.t("title.sensors"))
                     .borders(Borders::ALL)
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
@@ -2160,7 +2307,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
         );
         for s in &fan_sensors {
             let color = if s.value > 0.0 { theme.success } else { theme.text_secondary };
-            let status = if s.value > 0.0 { "● ACTIVE" } else { "○ OFF" };
+            let status = if s.value > 0.0 { "* ACTIVE" } else { "o OFF" };
             rows.push(Row::new(vec![
                 format!("  {}", s.label),
                 format!("{:.0} RPM", s.value),
@@ -2270,7 +2417,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
     )
     .block(
         Block::default()
-            .title(format!(" Hardware Sensors ({}) ", count))
+            .title(format!(" {} ({}) ", translator.t("title.hardware_sensors"), count))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -2279,7 +2426,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, theme: &crate
     f.render_widget(table, area);
 }
 
-fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, new_value: &str, theme: &crate::ui::colors::ColorScheme) {
+fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, new_value: &str, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let area = f.size();
     
     let popup_width = 80;
@@ -2297,7 +2444,7 @@ fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, n
     f.render_widget(ratatui::widgets::Clear, popup_area);
     
     let block = Block::default()
-        .title("Confirm Configuration Change")
+        .title(translator.t("title.confirm_config_change"))
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
@@ -2400,6 +2547,95 @@ fn render_log_details_modal(f: &mut Frame, log: &crate::types::LogEntry, theme: 
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.highlight));
+        
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .wrap(ratatui::widgets::Wrap { trim: false });
+        
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_grub_update_modal(f: &mut Frame, state: &AppState, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    
+    let popup_area = Rect {
+        x: area.width / 10,
+        y: area.height / 10,
+        width: area.width * 8 / 10,
+        height: area.height * 8 / 10,
+    };
+    
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("[*] WARNING: System Configuration Changes Pending", Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("You are about to write changes directly to system files and rebuild the bootloader config."),
+        ]),
+        Line::from(vec![
+            Span::raw("Please review the proposed parameter transformations below:"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Pending Transformations:", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(""),
+    ];
+
+    let mut has_changes = false;
+    for item in &state.config_items {
+        if item.value != item.original_value {
+            has_changes = true;
+            lines.push(Line::from(vec![
+                Span::styled(format!("  - {}: ", item.key), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("\"{}\"", item.original_value), Style::default().fg(theme.text_secondary)),
+                Span::styled(" -> ", Style::default().fg(theme.warning)),
+                Span::styled(format!("\"{}\"", item.value), Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
+            ]));
+        }
+    }
+
+    if !has_changes {
+        lines.push(Line::from(vec![
+            Span::styled("  (No changes detected)", Style::default().fg(theme.text_secondary)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("--------------------------------------------------------------------------------"),
+    ]));
+    lines.push(Line::from(""));
+    
+    if state.has_sudo {
+        lines.push(Line::from(vec![
+            Span::styled("Are you sure you want to write these changes and rebuild GRUB? ", Style::default().fg(theme.text)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("[y] Yes, Apply & Rebuild", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
+            Span::raw("   |   "),
+            Span::styled("[n/Esc] Cancel", Style::default().fg(theme.error).add_modifier(Modifier::BOLD)),
+        ]));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("Root/Sudo privileges are required to apply these changes.", Style::default().fg(theme.error).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("[Esc] Close", Style::default().fg(theme.text_secondary)),
+        ]));
+    }
+
+    let block = Block::default()
+        .title(" Rebuild & Update Bootloader (GRUB) ")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
         
     let paragraph = Paragraph::new(lines)
         .block(block)

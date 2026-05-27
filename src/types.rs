@@ -294,6 +294,7 @@ pub struct AppState {
     pub viewing_log: Option<LogEntry>,
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,
+    pub pending_grub_update_confirmation: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -345,6 +346,7 @@ impl Default for LogEntry {
 pub struct ConfigItem {
     pub key: String,
     pub value: String,
+    pub original_value: String,
     pub description: String,
     pub category: String,
 }
@@ -354,6 +356,7 @@ impl Default for ConfigItem {
         Self {
             key: String::new(),
             value: String::new(),
+            original_value: String::new(),
             description: String::new(),
             category: String::new(),
         }

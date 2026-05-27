@@ -14,18 +14,19 @@ PULS built with Rust, using `ratatui` for the interface and leverages native Lin
 *   **Monitoring**: Uses `sysinfo` for host metrics, `nvidia-smi` for NVIDIA GPUs, and a native DRM parser for AMD/Intel GPU telemetry. Supports multi-GPU configurations.
 *   **System Control**: Interfaces directly with `systemd` (via `systemctl`) and `journald` (via `journalctl`) for service and log management.
 *   **Process Management**: Advanced sorting logic including a "General" resource usage score combining CPU and Memory usage.
-*   **Configuration**: Parses and modifies `/etc/default/grub` and other system files with backup generation.
+*   **Configuration**: Parses and modifies `/etc/default/grub` and other system files with backup generation. Changes are staged in memory and only written after explicit confirmation.
+
 
 ## Features
 
 ### 1. Resource Monitoring
-*   **CPU & Memory**: Per-core visualization and memory page breakdown.
+*   **CPU & Memory**: Per-core visualization with L1/L2/L3 cache info and memory page breakdown.
 *   **Disk I/O**: Read/Write monitoring per partition.
-*   **Network**: Real-time upload/download rates for selected interfaces.
-*   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. Visual history tracking included.
+*   **Network**: Real-time upload (`^`) / download (`v`) rates for selected interfaces.
+*   **NVIDIA, AMD & Intel GPUs**: Multi-vendor support with utilization, VRAM usage, temperature, and power telemetry. GPU summary shown directly on the Dashboard.
 
 ### 2. Process & Container Architecture
-*   **Process Tree**: Sortable process list exposing PID, user, priority, and resource consumption.
+*   **Process Tree**: Sortable process list exposing PID, user, priority, and resource consumption. Press `/` to filter by name in real-time.
 *   **Container Engine Integration**: Connects to the local Docker socket to monitor container lifecycles, resource usage (CPU/Mem limits), and health status.
 
 ### 3. Service Management Subsystem
@@ -33,14 +34,20 @@ PULS provides control over `systemd` units:
 *   **State Control**: Start, Stop, Restart services.
 *   **Boot Persistence**: Enable or Disable services at startup.
 *   **Status Inspection**: View full service definition and validation states.
+*   **Log Viewer**: Press `g` to display the last 50 `journald` log lines for any selected service.
 
 ### 4. Journal & Logging
 *   **Aggregated Logs**: View `journald` logs directly within the TUI.
 *   **Filtering**: Filter logs by specific system services, priority levels (Error/Warning), or specific boot sessions.
 
 ### 5. Boot Configuration (GRUB)
-*   **Parameter Editing**: Modify kernel parameters in `/etc/default/grub`.
-*   **Safety Backup**: PULS automatically creates a timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) before applying any changes to boot configurations.
+*   **Transactional Editing**: Edit GRUB parameters in-memory. Press `u` to review a full diff of all pending changes before anything is written to disk.
+*   **Safety Backup**: A timestamped backup (e.g., `/etc/default/grub.bak.<timestamp>`) is created automatically before applying changes.
+*   **Requires sudo**: Write operations are blocked for non-root users.
+
+### 6. Diagnostics
+*   **Dashboard Panel**: Inline anomaly detection for high CPU temperature, memory pressure, and critical storage.
+*   **Language Detection**: Automatically selects Turkish or English based on `LANG`/`LC_ALL` at launch.
 
 ## Installation
 
@@ -56,9 +63,9 @@ sudo mv puls /usr/local/bin/puls
 ### Install Debian Package (.deb)
 This method is the easiest installation path for Linux distributions.
 
-1. Download the latest `.deb` package from the [GitHub Releases](https://github.com/word-sys/puls/releases) page. The file will typically be named something like `puls_0.9.0-1_amd64.deb`.
+1. Download the latest `.deb` package from the [GitHub Releases](https://github.com/word-sys/puls/releases) page. The file will typically be named something like `puls_0.9.1-1_amd64.deb`.
 
-   > [!TIP] Use version 0.9.0 for the most stable experience: look for `puls_0.9.0-1_amd64.deb` on the releases page.
+   > [!TIP] Use version 0.9.1 for the most stable experience: look for `puls_0.9.1-1_amd64.deb` on the releases page.
 
 2. Open a terminal in the directory where you downloaded the `.deb` file.
 
@@ -66,10 +73,10 @@ This method is the easiest installation path for Linux distributions.
 
    ```bash
    sudo apt update
-   sudo apt install ./puls_0.9.0-1_amd64.deb
+   sudo apt install ./puls_0.9.1-1_amd64.deb
    ```
 
-   *(Note: Replace `puls_0.9.0-1_amd64.deb` with the exact filename you downloaded if different.)*
+   *(Note: Replace `puls_0.9.1-1_amd64.deb` with the exact filename you downloaded if different.)*
 
 4. If you encounter a dependency error during installation, try running the following command to fix missing dependencies:
 
