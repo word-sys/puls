@@ -16,6 +16,7 @@ pub struct Cli {
     pub lang: String,
     pub tr: bool,
     pub verbose: bool,
+    pub telemetry: bool,
 }
 
 impl Cli {
@@ -32,6 +33,7 @@ impl Cli {
             lang: "auto".to_string(),
             tr: false,
             verbose: false,
+            telemetry: false,
         };
 
         let args: Vec<String> = std::env::args().collect();
@@ -54,6 +56,7 @@ impl Cli {
                     println!("  --lang <LANG>        Language setting (\"auto\", \"en\", \"tr\")");
                     println!("  --tr                 Shortcut for Turkish language");
                     println!("  -v, --verbose        Enable verbose stderr error logging");
+                    println!("  --telemetry          Show initialization telemetry");
                     println!("  -h, --help           Print help information");
                     std::process::exit(0);
                 }
@@ -103,6 +106,9 @@ impl Cli {
                 "-v" | "--verbose" => {
                     cli.verbose = true;
                 }
+                "--telemetry" => {
+                    cli.telemetry = true;
+                }
                 other if other.starts_with('-') && !other.starts_with("--") => {
                     for c in other.chars().skip(1) {
                         match c {
@@ -143,6 +149,7 @@ impl From<Cli> for AppConfig {
             enable_gpu_monitoring: !cli.safe && !cli.no_gpu,
             enable_network_monitoring: !cli.safe && !cli.no_network,
             language,
+            telemetry: cli.telemetry,
         }
     }
 }
@@ -184,6 +191,7 @@ impl Default for AppConfig {
             enable_gpu_monitoring: true,
             enable_network_monitoring: true,
             language: Language::English,
+            telemetry: false,
         }
     }
 }

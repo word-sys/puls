@@ -294,6 +294,8 @@ impl SystemManager {
         
         if let Some(bid) = boot_id {
             args.push(format!("--boot={}", bid));
+        } else {
+            args.push("--boot=0".to_string());
         }
 
         let output = match Command::new("journalctl")

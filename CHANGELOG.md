@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.9.2] - 2026-06-04
+
+### Added
+- **Initialization Telemetry**: Added a `--telemetry` command line option to print startup initialization logs 
+
+### Changed
+- **Lazy Loading**: Deferred retrieval of system services, logs, boot history, and GRUB config until their respective tabs are actively opened
+- **Fast Journal Queries**: Added the `--boot=0` parameter to journalctl logs command by default to only load log entries from the current boot state, drastically increasing query performance
+
+### Fixed
+- **Shortcut Interference**: Protected global TUI keyboard shortcuts (such as `p` for pausing, `t` for theme cycles, etc.) in editing states, allowing typing these characters in the process filter, log filter, and GRUB/System configuration fields
+
 ## [v0.9.1] - 2026-05-27
 
 ### Added

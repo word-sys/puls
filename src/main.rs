@@ -34,6 +34,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     check_system_requirements()?;
     let config = AppConfig::from(cli);
     
+    let telemetry = config.telemetry;
+    if telemetry {
+        println!("[TELEMETRY] Starting initialization...");
+    }
+    let startup_start = Instant::now();
+    
+    let coll_start = Instant::now();
+    let data_collector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
+    let coll_duration = coll_start.elapsed();
+    if telemetry {
+        println!("[TELEMETRY] Collector creation took {:?}", coll_duration);
+    }
+    
+    let sys_info_start = Instant::now();
+    let system_info = {
+        let collector = data_collector.lock().unwrap();
+        collector.get_system_info()
+    };
+    let sys_info_duration = sys_info_start.elapsed();
+    if telemetry {
+        println!("[TELEMETRY] System info collection took {:?}", sys_info_duration);
+    }
+    
+    let total_startup_duration = startup_start.elapsed();
+    if telemetry {
+        println!("[TELEMETRY] Total startup took {:?}", total_startup_duration);
+        println!("[TELEMETRY] Entering UI mode in 2 seconds...");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -41,12 +71,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
     
     let app_state = Arc::new(Mutex::new(AppState::default()));
-    let data_collector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
-    
-    let system_info = {
-        let collector = data_collector.lock().unwrap();
-        collector.get_system_info()
-    };
     
     {
         let mut state = app_state.lock().unwrap();
@@ -58,26 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         let sys_mgr = system_service::SystemManager::new();
         state.has_sudo = sys_mgr.has_sudo_privileges();
-        
-        state.services = sys_mgr.get_services();
-        if !state.services.is_empty() {
-            state.services_table_state.select(Some(0));
-        }
-        
-        state.logs = sys_mgr.get_logs(1000, None, None);
-        if !state.logs.is_empty() {
-            state.logs_table_state.select(Some(0));
-        }
-
-        state.config_items = sys_mgr.get_grub_config();
-        if !state.config_items.is_empty() {
-            state.config_table_state.select(Some(0));
-        }
-        
-        state.boots = sys_mgr.get_boots();
-        if !state.boots.is_empty() {
-            state.current_boot_idx = 0;
-        }
     }
     
     let local = tokio::task::LocalSet::new();
@@ -105,6 +109,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     result.map_err(|e| e.into())
 }
 
+fn check_and_load_lazy_data(state: &mut AppState) {
+    let sys_mgr = system_service::SystemManager::new();
+    
+    if state.active_tab == 8 && !state.services_loaded {
+        state.services = sys_mgr.get_services();
+        if !state.services.is_empty() {
+            state.services_table_state.select(Some(0));
+        }
+        state.services_loaded = true;
+    }
+    
+    if state.active_tab == 9 && !state.logs_loaded {
+        state.boots = sys_mgr.get_boots();
+        if !state.boots.is_empty() {
+            state.current_boot_idx = 0;
+        }
+        state.boots_loaded = true;
+        
+        let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+        state.logs = sys_mgr.get_logs(1000, None, boot_id);
+        if !state.logs.is_empty() {
+            state.logs_table_state.select(Some(0));
+        }
+        state.logs_loaded = true;
+    }
+    
+    if state.active_tab == 10 && !state.config_loaded {
+        state.config_items = sys_mgr.get_grub_config();
+        if !state.config_items.is_empty() {
+            state.config_table_state.select(Some(0));
+        }
+        state.config_loaded = true;
+    }
+}
+
 async fn ui_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app_state: Arc<Mutex<AppState>>,
@@ -129,6 +168,7 @@ async fn ui_loop(
         if now.duration_since(last_render) >= ui_refresh_interval {
             {
                 let mut state = app_state.lock().unwrap();
+                check_and_load_lazy_data(&mut state);
                 let translator = crate::language::Translator::new(config.language);
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
@@ -145,6 +185,60 @@ fn handle_key_event(
     data_collector: &Arc<Mutex<DataCollector>>,
 ) -> io::Result<bool> {
     let mut state = app_state.lock().unwrap();
+    
+    let is_editing = state.editing_config.is_some() || state.editing_service.is_some() || state.editing_filter;
+    if is_editing {
+        match key.code {
+            KeyCode::Esc => {
+                if state.editing_filter {
+                    state.editing_filter = false;
+                    state.edit_buffer.clear();
+                } else {
+                    state.editing_config = None;
+                    state.editing_service = None;
+                    state.edit_buffer.clear();
+                }
+            }
+            KeyCode::Enter => {
+                if state.editing_filter {
+                    if state.active_tab == 9 {
+                        state.log_filter = state.edit_buffer.clone();
+                        state.editing_filter = false;
+                        state.edit_buffer.clear();
+                        let sys_mgr = system_service::SystemManager::new();
+                        let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+                        state.logs = sys_mgr.get_logs(1000, Some(&state.log_filter), boot_id);
+                        state.logs_table_state.select(Some(0));
+                    } else if state.active_tab == 1 {
+                        state.filter_text = state.edit_buffer.clone();
+                        state.editing_filter = false;
+                        state.edit_buffer.clear();
+                        state.process_table_state.select(Some(0));
+                    }
+                } else if let Some(idx) = state.editing_config {
+                    let new_val = state.edit_buffer.clone();
+                    if let Some(item) = state.config_items.get_mut(idx) {
+                        item.value = new_val;
+                    }
+                    state.editing_config = None;
+                    state.edit_buffer.clear();
+                } else if state.editing_service.is_some() {
+                    state.editing_service = None;
+                    state.edit_buffer.clear();
+                }
+            }
+            KeyCode::Backspace => {
+                state.edit_buffer.pop();
+            }
+            KeyCode::Char(c) => {
+                if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                    state.edit_buffer.push(c);
+                }
+            }
+            _ => {}
+        }
+        return Ok(false);
+    }
     
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') if state.pending_grub_update_confirmation => {
@@ -283,29 +377,7 @@ fn handle_key_event(
              state.edit_buffer = state.filter_text.clone();
         }
 
-        KeyCode::Enter if state.editing_filter => {
-             if state.active_tab == 9 {
-                 state.log_filter = state.edit_buffer.clone();
-                 state.editing_filter = false;
-                 state.edit_buffer.clear();
-                 let sys_mgr = system_service::SystemManager::new();
-                 state.logs = sys_mgr.get_logs(1000, Some(&state.log_filter), None);
-                 state.logs_table_state.select(Some(0));
-             } else if state.active_tab == 1 {
-                 state.filter_text = state.edit_buffer.clone();
-                 state.editing_filter = false;
-                 state.edit_buffer.clear();
-                 state.process_table_state.select(Some(0));
-             }
-        }
-
-        KeyCode::Char(c) if state.editing_filter => {
-            state.edit_buffer.push(c);
-        }
-
-        KeyCode::Backspace if state.editing_filter => {
-            state.edit_buffer.pop();
-        }
+        // Filter and edit keys are now handled in the early is_editing check at the top of handle_key_event
 
         KeyCode::Char('>') | KeyCode::Right if state.active_tab == 9 && !state.editing_filter => {
             if !state.boots.is_empty() {
@@ -596,24 +668,7 @@ fn handle_key_event(
             }
         }
 
-        KeyCode::Char(c) if state.editing_service.is_some() || state.editing_config.is_some() => {
-            state.edit_buffer.push(c);
-        }
-        
-        KeyCode::Backspace if state.editing_service.is_some() || state.editing_config.is_some() => {
-            state.edit_buffer.pop();
-        }
-        
-        KeyCode::Enter if state.editing_config.is_some() => {
-            if let Some(idx) = state.editing_config {
-                let new_val = state.edit_buffer.clone();
-                if let Some(item) = state.config_items.get_mut(idx) {
-                    item.value = new_val;
-                }
-            }
-            state.editing_config = None;
-            state.edit_buffer.clear();
-        }
+        // Config and service edit keys are now handled in the early is_editing check at the top of handle_key_event
         
 
         
