@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl tools
+        run: sudo apt-get install -y musl-tools
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build static MUSL binary
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Package tar.gz archive
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/puls dist/puls
+          tar -czf dist/puls-${VERSION}-x86_64-linux-musl.tar.gz \
+            -C dist puls \
+            -C ${{ github.workspace }} README.md README_TR.md LICENSE
+
+      - name: Build .deb package
+        run: |
+          cargo deb --no-build --target x86_64-unknown-linux-musl
+
+      - name: Collect artifacts
+        id: artifacts
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          TARBALL=dist/puls-${VERSION}-x86_64-linux-musl.tar.gz
+          DEB=$(ls target/x86_64-unknown-linux-musl/debian/*.deb | head -n1)
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "deb=${DEB}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PULS ${{ github.ref_name }}"
+          body_path: CHANGELOG.md
+          files: |
+            ${{ steps.artifacts.outputs.tarball }}
+            ${{ steps.artifacts.outputs.deb }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
