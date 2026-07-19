@@ -1,4 +1,4 @@
-![Dil TR](https://github.com/word-sys/puls/README_TR.md)
+![Dil TR](https://github.com/word-sys/puls/blob/main/README_TR.md)
 
 
 <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="256" height="256" alt="PULS Icon"/>
