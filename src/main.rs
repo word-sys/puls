@@ -169,7 +169,7 @@ async fn ui_loop(
             {
                 let mut state = app_state.lock().unwrap();
                 check_and_load_lazy_data(&mut state);
-                let translator = crate::language::Translator::new(config.language);
+                let translator = crate::language::Translator::new(state.language);
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
             last_render = now;
@@ -432,6 +432,18 @@ fn handle_key_event(
         
         KeyCode::Char('t') | KeyCode::Char('T') => {
             state.current_theme = (state.current_theme + 1) % 3;
+        }
+        KeyCode::Char('L') => {
+            state.language = match state.language {
+                crate::language::Language::English => crate::language::Language::Turkish,
+                crate::language::Language::Turkish => crate::language::Language::English,
+            };
+        }
+        KeyCode::Char('l') if state.active_tab != 8 && state.active_tab != 11 => {
+            state.language = match state.language {
+                crate::language::Language::English => crate::language::Language::Turkish,
+                crate::language::Language::Turkish => crate::language::Language::English,
+            };
         }
         
         KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_none() => {

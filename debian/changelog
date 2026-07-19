@@ -1,3 +1,9 @@
+puls (0.9.3) buster; urgency=medium
+
+  * Added full Turkish language support
+
+ -- word-sys <baringuzeldemir@gmail.com>  Sun, 19 Jul 2026 19:45:00 +0300
+
 puls (0.9.2) buster; urgency=medium
 
   * Fixed keyboard shortcut interference with active editing states

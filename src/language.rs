@@ -1,8 +1,9 @@
 use std::fmt;
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Language {
+    #[default]
     English,
     Turkish,
 }
@@ -138,7 +139,7 @@ impl Translator {
         map.insert("alert.critical_memory", "CRITICAL MEMORY!");
         map.insert("alert.disk_critical", "DISK CRITICAL!");
         map.insert("alert.service_down", "SERVICE DOWN!");
-        map.insert("help.main", "q:Quit | Tab/1-9:Navigate | ↑↓:Select | p:Pause | t:Theme | k:Kill | /:Search");
+        map.insert("help.main", "q:Quit | Tab/1-9:Navigate | ↑↓:Select | p:Pause | t:Theme | L:Lang | k:Kill | /:Search");
         map.insert("help.paused", "[PAUSED] Resume: p | Quit: q | Tabs: 1-9,0 | Navigate: ↑↓ | Details: Enter");
         map.insert("help.services", "↑↓: Navigate | Start: s | Stop: x | Restart: r | Enable: e | Disable: d | Edit: v | Quit: q");
         map.insert("help.logs", "↑↓: Navigate | Filter: f | Clear: c | Export: e | Search: / | Quit: q");
@@ -315,7 +316,7 @@ impl Translator {
         map.insert("alert.critical_memory", "KRİTİK BELLEK!");
         map.insert("alert.disk_critical", "DISK KRİTİK!");
         map.insert("alert.service_down", "HİZMET KAPALI!");
-        map.insert("help.main", "q:Çık | Tab/1-9:Gezin | ↑↓:Seç | p:Duraklat | t:Tema | k:Sonlandır | /:Ara");
+        map.insert("help.main", "q:Çık | Tab/1-9:Gezin | ↑↓:Seç | p:Duraklat | t:Tema | L:Dil | k:Sonlandır | /:Ara");
         map.insert("help.paused", "[DURAKLATILDI] Devam: p | Çık: q | Sekmeler: 1-9,0 | Gezin: ↑↓ | Detaylar: Enter");
         map.insert("help.services", "↑↓: Gezin | Başlat: s | Durdur: x | Yeniden Başlat: r | Etkinleştir: e | Devre Dışı: d | Düzenle: v | Çık: q");
         map.insert("help.logs", "↑↓: Gezin | Filtre: f | Temizle: c | Dışa Aktar: e | Ara: / | Çık: q");

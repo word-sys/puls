@@ -299,6 +299,7 @@ pub struct AppState {
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,
     pub pending_grub_update_confirmation: bool,
+    pub language: crate::language::Language,
 }
 
 #[derive(Clone, Debug)]
@@ -397,6 +398,7 @@ pub struct AppConfig {
     pub enable_docker: bool,
     pub enable_gpu_monitoring: bool,
     pub enable_network_monitoring: bool,
+    #[allow(dead_code)]
     pub language: crate::language::Language,
     pub telemetry: bool,
 }

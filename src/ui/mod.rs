@@ -172,7 +172,7 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
         .block(Block::default()
             .title(translator.t("title.puls"))
             .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
-            .title(ratatui::widgets::block::Title::from(format!(" v{} ", env!("CARGO_PKG_VERSION"))).alignment(Alignment::Right))
+            .title(ratatui::widgets::block::Title::from(format!(" [L: {}] v{} ", if state.language == crate::language::Language::English { "EN" } else { "TR" }, env!("CARGO_PKG_VERSION"))).alignment(Alignment::Right))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
