@@ -127,6 +127,10 @@ pub struct DetailedProcessInfo {
     pub thread_list: Vec<ProcessThreadInfo>,
     pub cwd: Option<String>,
     pub nice: i32,
+    pub io_read_bytes: u64,
+    pub io_write_bytes: u64,
+    pub io_read_chars: u64,
+    pub io_write_chars: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -154,6 +158,10 @@ pub struct DetailedDiskInfo {
     pub temp: Option<f32>,
     pub health_pct: Option<u8>,
     pub power_cycles: Option<u64>,
+    pub inodes_total: Option<u64>,
+    pub inodes_free: Option<u64>,
+    pub inodes_used: Option<u64>,
+    pub mount_options: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]

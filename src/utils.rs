@@ -96,6 +96,18 @@ pub fn format_percentage(value: f32) -> String {
     format!("{:.1}%", value)
 }
 
+pub fn format_count(n: u64) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 pub fn format_temperature(celsius: f32) -> String {
     format!("{:.1}°C", celsius)
 }
@@ -464,6 +476,15 @@ mod tests {
         assert_eq!(safe_percentage(50, 100), 50.0);
         assert_eq!(safe_percentage(0, 0), 0.0);
         assert_eq!(safe_percentage(100, 0), 0.0);
+    }
+
+    #[test]
+    fn test_format_count() {
+        assert_eq!(format_count(0), "0");
+        assert_eq!(format_count(999), "999");
+        assert_eq!(format_count(1_500), "1.5K");
+        assert_eq!(format_count(2_500_000), "2.5M");
+        assert_eq!(format_count(3_500_000_000), "3.5B");
     }
 
     #[test]

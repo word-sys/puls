@@ -383,6 +383,7 @@ impl SystemMonitor {
             let open_files = fds.iter().map(|f| f.target.clone()).collect();
             let thread_list = Self::get_process_threads(pid);
             let nice = Self::get_process_nice(pid);
+            let (io_read_bytes, io_write_bytes, io_read_chars, io_write_chars) = Self::get_process_io(pid);
 
             let mut environ: Vec<String> = process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect();
             if environ.is_empty() {
@@ -416,6 +417,10 @@ impl SystemMonitor {
                 thread_list,
                 cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
                 nice,
+                io_read_bytes,
+                io_write_bytes,
+                io_read_chars,
+                io_write_chars,
             }
         })
     }
@@ -498,10 +503,15 @@ impl SystemMonitor {
             None
         };
 
+        let mount_options_map = Self::get_mount_options();
+
         let result: Vec<DetailedDiskInfo> = disks.iter().map(|disk| {
             let used = disk.total_space().saturating_sub(disk.available_space());
             let dev_path = disk.name().to_string_lossy();
             let block_dev = dev_path.split('/').last().unwrap_or(&dev_path);
+            let mount_point = disk.mount_point().to_string_lossy();
+            let (inodes_total, inodes_free, inodes_used) = Self::get_mount_inodes(&mount_point);
+            let mount_options = mount_options_map.get(mount_point.as_ref()).cloned();
             
             let base_dev = if block_dev.starts_with("nvme") {
                 if let Some(pos) = block_dev.find('p') {
@@ -573,6 +583,10 @@ impl SystemMonitor {
                 temp,
                 health_pct,
                 power_cycles,
+                inodes_total,
+                inodes_free,
+                inodes_used,
+                mount_options,
             }
         }).collect();
 
@@ -1103,6 +1117,85 @@ impl SystemMonitor {
         });
         thread_list
     }
+
+    pub fn get_process_io(pid: Pid) -> (u64, u64, u64, u64) {
+        let path = format!("/proc/{}/io", pid);
+        if let Ok(content) = fs::read_to_string(path) {
+            let mut read_bytes = 0;
+            let mut write_bytes = 0;
+            let mut rchar = 0;
+            let mut wchar = 0;
+            for line in content.lines() {
+                if let Some((k, v)) = line.split_once(':') {
+                    let v = v.trim().parse::<u64>().unwrap_or(0);
+                    match k.trim() {
+                        "read_bytes" => read_bytes = v,
+                        "write_bytes" => write_bytes = v,
+                        "rchar" => rchar = v,
+                        "wchar" => wchar = v,
+                        _ => {}
+                    }
+                }
+            }
+            (read_bytes, write_bytes, rchar, wchar)
+        } else {
+            (0, 0, 0, 0)
+        }
+    }
+
+    pub fn get_mount_inodes(mount_point: &str) -> (Option<u64>, Option<u64>, Option<u64>) {
+        use std::ffi::CString;
+        if let Ok(c_path) = CString::new(mount_point) {
+            let mut stat = std::mem::MaybeUninit::<StatVfs>::zeroed();
+            unsafe {
+                if statvfs(c_path.as_ptr(), stat.as_mut_ptr()) == 0 {
+                    let s = stat.assume_init();
+                    if s.f_files > 0 {
+                        let total = s.f_files;
+                        let free = s.f_ffree;
+                        let used = total.saturating_sub(free);
+                        return (Some(total), Some(free), Some(used));
+                    }
+                }
+            }
+        }
+        (None, None, None)
+    }
+
+    pub fn get_mount_options() -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        if let Ok(content) = fs::read_to_string("/proc/mounts") {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let mount_point = parts[1].to_string();
+                    let options = parts[3].to_string();
+                    map.insert(mount_point, options);
+                }
+            }
+        }
+        map
+    }
+}
+
+#[repr(C)]
+struct StatVfs {
+    f_bsize: std::ffi::c_ulong,
+    f_frsize: std::ffi::c_ulong,
+    f_blocks: u64,
+    f_bfree: u64,
+    f_bavail: u64,
+    f_files: u64,
+    f_ffree: u64,
+    f_favail: u64,
+    f_fsid: std::ffi::c_ulong,
+    f_flag: std::ffi::c_ulong,
+    f_namemax: std::ffi::c_ulong,
+    __f_spare: [std::ffi::c_int; 6],
+}
+
+extern "C" {
+    fn statvfs(path: *const std::ffi::c_char, buf: *mut StatVfs) -> std::ffi::c_int;
 }
 
 impl Default for SystemMonitor {
@@ -1378,5 +1471,24 @@ mod tests {
         let threads = SystemMonitor::get_process_threads(pid);
         assert!(!threads.is_empty());
         assert_eq!(threads[0].tid, std::process::id().to_string());
+    }
+
+    #[test]
+    fn test_mount_inodes_and_process_io() {
+        let (total, free, used) = SystemMonitor::get_mount_inodes("/");
+        assert!(total.is_some(), "statvfs on root / should succeed");
+        let total = total.unwrap();
+        let free = free.unwrap();
+        let used = used.unwrap();
+        assert!(total > 0, "root filesystem should have total inodes > 0");
+        assert!(total >= free, "total inodes must be >= free inodes");
+        assert_eq!(used, total.saturating_sub(free));
+
+        let mount_opts = SystemMonitor::get_mount_options();
+        assert!(!mount_opts.is_empty(), "mount options map should not be empty");
+
+        let pid = sysinfo::Pid::from(std::process::id() as usize);
+        let (read_bytes, _write_bytes, rchar, _wchar) = SystemMonitor::get_process_io(pid);
+        assert!(rchar >= read_bytes);
     }
 }

@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::types::AppState;
-use crate::utils::{format_size, format_rate, format_percentage, get_usage_color, truncate_string, get_system_health, get_cpu_efficiency, estimate_memory_availability};
+use crate::utils::{format_size, format_rate, format_percentage, format_count, get_usage_color, truncate_string, get_system_health, get_cpu_efficiency, estimate_memory_availability};
 use crate::language::Translator;
 
 pub use layouts::*;
@@ -1037,6 +1037,12 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                     Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                     Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text)),
                 ]),
+                Line::from(vec![
+                    Span::styled("Disk Read: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format_size(process.io_read_bytes), Style::default().fg(theme.text)),
+                    Span::styled("  Write: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format_size(process.io_write_bytes), Style::default().fg(theme.text)),
+                ]),
             ];
 
             if let Some(ref cwd) = process.cwd {
@@ -1656,7 +1662,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
 
 fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let disks = &state.dynamic_data.disks;
-    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "Read", "Write", "Temp", "Health", "Cycles", "Type"];
+    let headers = ["Mount", "Device", "FS", "Total", "Used", "Free", "Use%", "Inodes (U/T)", "Ino%", "Read", "Write", "Temp", "Health", "Cycles", "Type", "Mount Options"];
     
     let rows = disks.iter().map(|disk| {
         let usage_percent = if disk.total > 0 {
@@ -1665,6 +1671,14 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
             0.0
         };
         
+        let inodes_display = match (disk.inodes_used, disk.inodes_total) {
+            (Some(used), Some(total)) => format!("{}/{}", format_count(used), format_count(total)),
+            _ => "-".to_string(),
+        };
+        let inodes_pct_display = match (disk.inodes_used, disk.inodes_total) {
+            (Some(used), Some(total)) if total > 0 => format!("{:.1}%", used as f64 / total as f64 * 100.0),
+            _ => "-".to_string(),
+        };
         let temp_display = disk.temp.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "-".to_string());
         let health_display = disk.health_pct.map(|h| format!("{}%", h)).unwrap_or_else(|| "-".to_string());
         let cycles_display = disk.power_cycles.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
@@ -1673,21 +1687,25 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
             Some(false) => "HDD",
             None => "-",
         };
+        let mount_options_display = disk.mount_options.as_deref().unwrap_or("-");
         
         Row::new(vec![
             truncate_string(&disk.name, 15),
-            truncate_string(&disk.device, 20),
+            truncate_string(&disk.device, 18),
             disk.fs.clone(),
             format_size(disk.total),
             format_size(disk.used),
             format_size(disk.free),
             format_percentage(usage_percent),
+            inodes_display,
+            inodes_pct_display,
             format_rate(disk.read_rate),
             format_rate(disk.write_rate),
             temp_display,
             health_display,
             cycles_display,
             type_display.to_string(),
+            mount_options_display.to_string(),
         ]).style(Style::default().fg(
             if usage_percent > 90.0 { theme.error }
             else if usage_percent > 75.0 { theme.warning }
@@ -1698,19 +1716,22 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
     let table = Table::new(
         rows,
         [
-            Constraint::Min(10),     // Mount
-            Constraint::Length(15),  // Device
+            Constraint::Min(8),      // Mount
+            Constraint::Length(14),  // Device
             Constraint::Length(6),   // FS
             Constraint::Length(9),   // Total
             Constraint::Length(9),   // Used
             Constraint::Length(9),   // Free
             Constraint::Length(7),   // Use%
+            Constraint::Length(14),  // Inodes (U/T)
+            Constraint::Length(7),   // Ino%
             Constraint::Length(10),  // Read Rate
             Constraint::Length(10),  // Write Rate
             Constraint::Length(6),   // Temp
             Constraint::Length(7),   // Health
             Constraint::Length(8),   // Cycles
             Constraint::Length(5),   // Type
+            Constraint::Min(15),     // Mount Options
         ]
     )
     .header(
@@ -1719,7 +1740,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
     )
     .block(
         Block::default()
-            .title(" Disk Usage ")
+            .title(" Disk Usage & Filesystems ")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
