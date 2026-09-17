@@ -933,10 +933,14 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
     if let Some(ref process) = state.dynamic_data.detailed_process {
         let layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            .constraints([
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+                Constraint::Percentage(34),
+            ])
             .split(inner_area);
         
-        let info_lines = vec![
+        let mut info_lines = vec![
             Line::from(vec![
                 Span::styled("PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 Span::styled(&process.pid, Style::default().fg(theme.text))
@@ -948,6 +952,10 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
             Line::from(vec![
                 Span::styled("User: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                 Span::styled(&process.user, Style::default().fg(theme.text))
+            ]),
+            Line::from(vec![
+                Span::styled("Nice / Priority: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(process.nice.to_string(), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
                 Span::styled("Status: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
@@ -970,46 +978,83 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
                 Span::styled(format_size(process.memory_rss), Style::default().fg(theme.text))
             ]),
             Line::from(vec![
-                Span::styled("Threads: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(process.threads.to_string(), Style::default().fg(theme.text))
+                Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text))
             ]),
         ];
         
-        let final_info_lines: Vec<_> = if let Some(ref cwd) = process.cwd {
-            info_lines.into_iter().chain(std::iter::once(
-                Line::from(vec![
-                    Span::styled("CWD: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                    Span::styled(cwd, Style::default().fg(theme.text))
-                ])
-            )).collect::<Vec<_>>()
-        } else {
-            info_lines
-        };
+        if let Some(ref cwd) = process.cwd {
+            info_lines.push(Line::from(vec![
+                Span::styled("CWD: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(truncate_string(cwd, 30), Style::default().fg(theme.text))
+            ]));
+        }
 
-        let info_paragraph = Paragraph::new(final_info_lines)
+        let info_paragraph = Paragraph::new(info_lines)
             .block(Block::default().borders(Borders::NONE))
             .wrap(ratatui::widgets::Wrap { trim: false });
         f.render_widget(info_paragraph, layout[0]);
         
-        let mut cmd_env_lines = vec![
-            Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled(&process.command, Style::default().fg(theme.text))),
+        let mut fd_lines = vec![
+            Line::from(Span::styled("File Descriptors & Sockets:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            Line::from(vec![
+                Span::styled("  Total Open FDs: ", Style::default().fg(theme.accent)),
+                Span::styled(process.file_descriptors.map_or("N/A".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Active Sockets: ", Style::default().fg(theme.accent)),
+                Span::styled(process.sockets_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Active Pipes:   ", Style::default().fg(theme.accent)),
+                Span::styled(process.pipes_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+            ]),
             Line::from(""),
-            Line::from(Span::styled("Environment (truncated):", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled("Open Files / Devices:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
         ];
-        
-        for (i, env) in process.environ.iter().enumerate() {
-            if i >= 10 {
-                cmd_env_lines.push(Line::from(Span::styled("...", Style::default().fg(theme.text_secondary))));
-                break;
+
+        if process.open_files.is_empty() {
+            fd_lines.push(Line::from(Span::styled("  (None or permission denied)", Style::default().fg(theme.text_secondary))));
+        } else {
+            for file_path in process.open_files.iter().take(6) {
+                fd_lines.push(Line::from(Span::styled(format!("  {}", truncate_string(file_path, 34)), Style::default().fg(theme.text))));
             }
-            cmd_env_lines.push(Line::from(Span::styled(env, Style::default().fg(theme.text))));
+            if process.open_files.len() > 6 {
+                fd_lines.push(Line::from(Span::styled(format!("  ... and {} more", process.open_files.len() - 6), Style::default().fg(theme.text_secondary))));
+            }
         }
-        
-        let cmd_env_paragraph = Paragraph::new(cmd_env_lines)
+
+        let fd_paragraph = Paragraph::new(fd_lines)
             .block(Block::default().borders(Borders::NONE))
             .wrap(ratatui::widgets::Wrap { trim: false });
-        f.render_widget(cmd_env_paragraph, layout[1]);
+        f.render_widget(fd_paragraph, layout[1]);
+
+        let mut thread_cmd_lines = vec![
+            Line::from(Span::styled(format!("Threads ({}):", process.threads), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+        ];
+
+        if process.thread_list.is_empty() {
+            thread_cmd_lines.push(Line::from(Span::styled("  Single thread / kernel task", Style::default().fg(theme.text_secondary))));
+        } else {
+            for (tid, tname) in process.thread_list.iter().take(4) {
+                thread_cmd_lines.push(Line::from(vec![
+                    Span::styled(format!("  [{}] ", tid), Style::default().fg(theme.accent)),
+                    Span::styled(truncate_string(tname, 22), Style::default().fg(theme.text)),
+                ]));
+            }
+            if process.thread_list.len() > 4 {
+                thread_cmd_lines.push(Line::from(Span::styled(format!("  ... and {} more threads", process.thread_list.len() - 4), Style::default().fg(theme.text_secondary))));
+            }
+        }
+
+        thread_cmd_lines.push(Line::from(""));
+        thread_cmd_lines.push(Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))));
+        thread_cmd_lines.push(Line::from(Span::styled(truncate_string(&process.command, 80), Style::default().fg(theme.text))));
+
+        let thread_cmd_paragraph = Paragraph::new(thread_cmd_lines)
+            .block(Block::default().borders(Borders::NONE))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        f.render_widget(thread_cmd_paragraph, layout[2]);
         
     } else {
         let message = Paragraph::new(translator.t("msg.loading_process_details"))

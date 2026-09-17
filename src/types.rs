@@ -106,7 +106,12 @@ pub struct DetailedProcessInfo {
     pub environ: Vec<String>,
     pub threads: u32,
     pub file_descriptors: Option<u32>,
+    pub sockets_count: Option<u32>,
+    pub pipes_count: Option<u32>,
+    pub open_files: Vec<String>,
+    pub thread_list: Vec<(String, String)>,
     pub cwd: Option<String>,
+    pub nice: i32,
 }
 
 #[derive(Clone, Debug, Default)]
