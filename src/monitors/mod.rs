@@ -41,6 +41,7 @@ impl DataCollector {
         filter: &str,
         sort_by: &crate::types::ProcessSortBy,
         sort_ascending: bool,
+        tree_mode: bool,
         mut prev_global_usage: GlobalUsage,
         active_tab: usize,
     ) -> DynamicData {
@@ -48,12 +49,21 @@ impl DataCollector {
         
         let processes = if active_tab == 0 || active_tab == 1 || active_tab == 7 {
             let mut procs = self.system_monitor.update_processes(show_system_processes, filter);
-            crate::monitors::system_monitor::sort_processes(
-                &mut procs,
-                sort_by,
-                sort_ascending,
-                self.system_monitor.get_total_memory()
-            );
+            if tree_mode && active_tab == 1 {
+                crate::monitors::system_monitor::build_process_tree(
+                    &mut procs,
+                    sort_by,
+                    sort_ascending,
+                    self.system_monitor.get_total_memory(),
+                );
+            } else {
+                crate::monitors::system_monitor::sort_processes(
+                    &mut procs,
+                    sort_by,
+                    sort_ascending,
+                    self.system_monitor.get_total_memory(),
+                );
+            }
             procs
         } else {
             Vec::new()

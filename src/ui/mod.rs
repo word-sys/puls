@@ -714,9 +714,14 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     };
 
     let rows = processes.iter().map(|p| {
+        let display_name = if state.process_tree_mode && !p.tree_prefix.is_empty() {
+            format!("{}{}", p.tree_prefix, p.name)
+        } else {
+            p.name.clone()
+        };
         Row::new(vec![
             p.pid.clone(),
-            truncate_string(&p.name, 20),
+            truncate_string(&display_name, 35),
             truncate_string(&p.user, 12),
             p.cpu_display.clone(),
             p.mem_display.clone(),
@@ -729,7 +734,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         rows,
         [
             Constraint::Length(8),   // PID
-            Constraint::Min(15),     // Name
+            Constraint::Min(20),     // Name
             Constraint::Length(12),  // User
             Constraint::Length(8),   // CPU
             Constraint::Length(10),  // Memory
@@ -744,7 +749,11 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     )
     .block(
         Block::default()
-            .title(translator.t("title.processes"))
+            .title(if state.process_tree_mode {
+                format!(" {} [TREE] ", translator.t("title.processes"))
+            } else {
+                format!(" {} ", translator.t("title.processes"))
+            })
             .title_style(Style::default().fg(theme.text))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)

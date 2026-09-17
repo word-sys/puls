@@ -28,6 +28,8 @@ pub struct ProcessInfo {
     pub disk_write: String,
     pub user: String,
     pub status: String,
+    pub parent_pid: Option<String>,
+    pub tree_prefix: String,
 }
 
 #[derive(Clone, Debug)]
@@ -300,6 +302,7 @@ pub struct AppState {
     pub pending_service_action: Option<(String, String)>,
     pub pending_grub_update_confirmation: bool,
     pub language: crate::language::Language,
+    pub process_tree_mode: bool,
 }
 
 #[derive(Clone, Debug)]

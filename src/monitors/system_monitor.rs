@@ -358,6 +358,8 @@ impl SystemMonitor {
                     disk_write: format_rate(write_rate),
                     user,
                     status,
+                    parent_pid: process.parent().map(|p| p.to_string()),
+                    tree_prefix: String::new(),
                 }
             })
             .collect();
@@ -1018,6 +1020,120 @@ pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy,
     }
 }
 
+pub fn build_process_tree(
+    processes: &mut Vec<ProcessInfo>,
+    sort_by: &ProcessSortBy,
+    ascending: bool,
+    total_memory: u64,
+) {
+    if processes.is_empty() {
+        return;
+    }
+
+    sort_processes(processes, sort_by, ascending, total_memory);
+
+    let mut pid_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for p in processes.iter() {
+        pid_set.insert(p.pid.clone());
+    }
+
+    let mut children_map: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    let mut roots: Vec<usize> = Vec::new();
+
+    for (idx, p) in processes.iter().enumerate() {
+        let is_root = match &p.parent_pid {
+            None => true,
+            Some(ppid) => ppid == "0" || ppid == &p.pid || !pid_set.contains(ppid),
+        };
+
+        if is_root {
+            roots.push(idx);
+        } else if let Some(ppid) = &p.parent_pid {
+            children_map.entry(ppid.clone()).or_default().push(idx);
+        }
+    }
+
+    let mut ordered: Vec<ProcessInfo> = Vec::with_capacity(processes.len());
+    let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    fn traverse(
+        idx: usize,
+        processes: &[ProcessInfo],
+        children_map: &std::collections::HashMap<String, Vec<usize>>,
+        visited: &mut std::collections::HashSet<usize>,
+        ordered: &mut Vec<ProcessInfo>,
+        prefix: &str,
+        is_last: bool,
+        is_root: bool,
+    ) {
+        if !visited.insert(idx) {
+            return;
+        }
+
+        let p = &processes[idx];
+        let mut item = p.clone();
+
+        if is_root {
+            item.tree_prefix = String::new();
+        } else {
+            let branch = if is_last { "└─ " } else { "├─ " };
+            item.tree_prefix = format!("{}{}", prefix, branch);
+        }
+
+        ordered.push(item);
+
+        if let Some(children) = children_map.get(&p.pid) {
+            let child_prefix = if is_root {
+                ""
+            } else if is_last {
+                "   "
+            } else {
+                "│  "
+            };
+            let next_prefix = format!("{}{}", prefix, child_prefix);
+
+            let total_children = children.len();
+            for (c_idx, &child_i) in children.iter().enumerate() {
+                let last_child = c_idx == total_children - 1;
+                traverse(
+                    child_i,
+                    processes,
+                    children_map,
+                    visited,
+                    ordered,
+                    &next_prefix,
+                    last_child,
+                    false,
+                );
+            }
+        }
+    }
+
+    let root_count = roots.len();
+    for (r_idx, &root_i) in roots.iter().enumerate() {
+        traverse(
+            root_i,
+            processes,
+            &children_map,
+            &mut visited,
+            &mut ordered,
+            "",
+            r_idx == root_count - 1,
+            true,
+        );
+    }
+
+    for (i, p) in processes.iter().enumerate() {
+        if !visited.contains(&i) {
+            let mut item = p.clone();
+            item.tree_prefix = String::new();
+            ordered.push(item);
+        }
+    }
+
+    *processes = ordered;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1042,6 +1158,8 @@ mod tests {
                 disk_write: "0 B/s".to_string(),
                 user: "root".to_string(),
                 status: "Running".to_string(),
+                parent_pid: None,
+                tree_prefix: String::new(),
             },
             ProcessInfo {
                 pid: "2".to_string(),
@@ -1054,6 +1172,8 @@ mod tests {
                 disk_write: "0 B/s".to_string(),
                 user: "root".to_string(),
                 status: "Running".to_string(),
+                parent_pid: None,
+                tree_prefix: String::new(),
             },
         ];
         
@@ -1062,5 +1182,46 @@ mod tests {
         
         sort_processes(&mut processes, &ProcessSortBy::Memory, false, 8192 * 1024 * 1024);
         assert_eq!(processes[0].name, "kthreadd");
+    }
+
+    #[test]
+    fn test_process_tree() {
+        let mut processes = vec![
+            ProcessInfo {
+                pid: "1".to_string(),
+                name: "systemd".to_string(),
+                cpu: 0.1,
+                cpu_display: "0.1%".to_string(),
+                mem: 1024,
+                mem_display: "1.0 KiB".to_string(),
+                disk_read: "0 B/s".to_string(),
+                disk_write: "0 B/s".to_string(),
+                user: "root".to_string(),
+                status: "Running".to_string(),
+                parent_pid: None,
+                tree_prefix: String::new(),
+            },
+            ProcessInfo {
+                pid: "100".to_string(),
+                name: "child_proc".to_string(),
+                cpu: 0.2,
+                cpu_display: "0.2%".to_string(),
+                mem: 2048,
+                mem_display: "2.0 KiB".to_string(),
+                disk_read: "0 B/s".to_string(),
+                disk_write: "0 B/s".to_string(),
+                user: "root".to_string(),
+                status: "Running".to_string(),
+                parent_pid: Some("1".to_string()),
+                tree_prefix: String::new(),
+            },
+        ];
+
+        build_process_tree(&mut processes, &ProcessSortBy::Pid, true, 8192 * 1024 * 1024);
+        assert_eq!(processes.len(), 2);
+        assert_eq!(processes[0].name, "systemd");
+        assert_eq!(processes[0].tree_prefix, "");
+        assert_eq!(processes[1].name, "child_proc");
+        assert_eq!(processes[1].tree_prefix, "└─ ");
     }
 }

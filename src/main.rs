@@ -433,6 +433,26 @@ fn handle_key_event(
         KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 11,
         KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => state.active_tab = 12,
         
+        KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(5) if state.active_tab == 1 && state.selected_pid.is_none() => {
+            state.process_tree_mode = !state.process_tree_mode;
+            let sort_by = state.sort_by.clone();
+            let sort_asc = state.sort_ascending;
+            if state.process_tree_mode {
+                crate::monitors::system_monitor::build_process_tree(
+                    &mut state.dynamic_data.processes,
+                    &sort_by,
+                    sort_asc,
+                    1,
+                );
+            } else {
+                crate::monitors::system_monitor::sort_processes(
+                    &mut state.dynamic_data.processes,
+                    &sort_by,
+                    sort_asc,
+                    1,
+                );
+            }
+        }
         KeyCode::Char('t') | KeyCode::Char('T') => {
             state.current_theme = (state.current_theme + 1) % 3;
             let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
@@ -767,7 +787,7 @@ async fn data_collection_loop(
         
         let collection_start = Instant::now();
         
-        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab) = {
+        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab, tree_mode) = {
             let state = app_state.lock().unwrap();
             (
                 state.selected_pid,
@@ -776,6 +796,7 @@ async fn data_collection_loop(
                 state.sort_by.clone(),
                 state.sort_ascending,
                 state.active_tab,
+                state.process_tree_mode,
             )
         };
         
@@ -787,6 +808,7 @@ async fn data_collection_loop(
                 &filter_text,
                 &sort_by,
                 sort_ascending,
+                tree_mode,
                 prev_global_usage.clone(),
                 active_tab,
             ).await

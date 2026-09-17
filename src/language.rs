@@ -233,7 +233,7 @@ impl Translator {
         map.insert("msg.high_mem_pressure", "High Memory Pressure");
         
         map.insert("help.dashboard", "q: Quit | Tab/1-9: Navigate | p: Pause | t: Theme");
-        map.insert("help.process", "q: Quit | ↑↓: Select | k: Kill | Enter: Details | Ctrl+c/m/n/g: Sort | Ctrl+s: Filter Sys | /: Filter");
+        map.insert("help.process", "q: Quit | ↑↓: Select | t: Tree | k: Kill | Enter: Details | Ctrl+c/m/n/g: Sort | Ctrl+s: Filter Sys | /: Filter");
         map.insert("help.logs", "q: Quit | ↑↓: Navigate | Enter: View | /: Filter | </>: Switch Boot");
         map.insert("help.config", "q: Quit | ↑↓: Navigate | Enter: Edit | u: Update GRUB | Esc: Cancel");
         map.insert("help.containers", "q: Quit | ↑↓: Navigate | l: View Logs");
@@ -410,7 +410,7 @@ impl Translator {
         map.insert("msg.high_mem_pressure", "Yüksek Bellek Baskısı");
         
         map.insert("help.dashboard", "q: Çık | Tab/1-9: Gezin | p: Duraklat | t: Tema");
-        map.insert("help.process", "q: Çık | ↑↓: Seç | k: Sonlandır | Enter: Detaylar | Ctrl+c/m/n/g: Sırala | Ctrl+s: Sis Filtre | /: Filtrele");
+        map.insert("help.process", "q: Çık | ↑↓: Seç | t: Ağaç | k: Sonlandır | Enter: Detaylar | Ctrl+c/m/n/g: Sırala | Ctrl+s: Sis Filtre | /: Filtrele");
         map.insert("help.logs", "q: Çık | ↑↓: Gezin | Enter: Görüntüle | /: Filtrele | </>: Önyükleme Seç");
         map.insert("help.config", "q: Çık | ↑↓: Gezin | Enter: Düzenle | u: GRUB Güncelle | Esc: İptal");
         map.insert("help.containers", "q: Çık | ↑↓: Gezin | l: Günlükleri Gör");
