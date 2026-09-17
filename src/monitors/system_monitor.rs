@@ -347,6 +347,8 @@ impl SystemMonitor {
                      status = "Running".to_string();
                 }
 
+                let nice = Self::get_process_nice(*pid);
+
                 ProcessInfo {
                     pid: pid.to_string(),
                     name: process.name().to_string_lossy().to_string(),
@@ -360,6 +362,7 @@ impl SystemMonitor {
                     status,
                     parent_pid: process.parent().map(|p| p.to_string()),
                     tree_prefix: String::new(),
+                    nice,
                 }
             })
             .collect();
@@ -967,6 +970,21 @@ impl SystemMonitor {
         let total_up = networks.iter().map(|n| n.up_rate).sum();
         (total_down, total_up)
     }
+
+    pub fn get_process_nice(pid: Pid) -> i32 {
+        if let Ok(content) = fs::read_to_string(format!("/proc/{}/stat", pid)) {
+            if let Some(after_comm) = content.rfind(')') {
+                let rest = &content[after_comm + 2..];
+                let fields: Vec<&str> = rest.split_whitespace().collect();
+                if let Some(nice_str) = fields.get(16) {
+                    if let Ok(val) = nice_str.parse::<i32>() {
+                        return val;
+                    }
+                }
+            }
+        }
+        0
+    }
 }
 
 impl Default for SystemMonitor {
@@ -1160,6 +1178,7 @@ mod tests {
                 status: "Running".to_string(),
                 parent_pid: None,
                 tree_prefix: String::new(),
+                nice: 0,
             },
             ProcessInfo {
                 pid: "2".to_string(),
@@ -1174,6 +1193,7 @@ mod tests {
                 status: "Running".to_string(),
                 parent_pid: None,
                 tree_prefix: String::new(),
+                nice: 0,
             },
         ];
         
@@ -1200,6 +1220,7 @@ mod tests {
                 status: "Running".to_string(),
                 parent_pid: None,
                 tree_prefix: String::new(),
+                nice: 0,
             },
             ProcessInfo {
                 pid: "100".to_string(),
@@ -1214,6 +1235,7 @@ mod tests {
                 status: "Running".to_string(),
                 parent_pid: Some("1".to_string()),
                 tree_prefix: String::new(),
+                nice: 0,
             },
         ];
 

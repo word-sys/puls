@@ -243,6 +243,55 @@ fn handle_key_event(
         return Ok(false);
     }
     
+    if let Some((pid, _name, ref mut sel_idx)) = state.signal_modal.as_mut() {
+        let pid = *pid;
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if *sel_idx > 0 {
+                    *sel_idx -= 1;
+                } else {
+                    *sel_idx = crate::types::POSIX_SIGNALS.len() - 1;
+                }
+                return Ok(false);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if *sel_idx < crate::types::POSIX_SIGNALS.len() - 1 {
+                    *sel_idx += 1;
+                } else {
+                    *sel_idx = 0;
+                }
+                return Ok(false);
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Char('N') => {
+                state.signal_modal = None;
+                return Ok(false);
+            }
+            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let sig_num = crate::types::POSIX_SIGNALS[*sel_idx].num;
+                state.signal_modal = None;
+
+                let output = std::process::Command::new("kill")
+                    .args([&format!("-{}", sig_num), &pid.to_string()])
+                    .output();
+
+                match output {
+                    Ok(out) if !out.status.success() => {
+                        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                        state.service_status_modal = Some(("Signal Failed".to_string(), err));
+                    }
+                    Err(e) => {
+                        state.service_status_modal = Some(("Signal Failed".to_string(), e.to_string()));
+                    }
+                    _ => {}
+                }
+                return Ok(false);
+            }
+            _ => {
+                return Ok(false);
+            }
+        }
+    }
+
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') if state.pending_grub_update_confirmation => {
             let sys_mgr = system_service::SystemManager::new();
@@ -282,6 +331,10 @@ fn handle_key_event(
         }
         
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            if state.signal_modal.is_some() {
+                state.signal_modal = None;
+                return Ok(false);
+            }
             if state.pending_kill_pid.is_some() {
                 state.pending_kill_pid = None;
                 return Ok(false);
@@ -479,13 +532,43 @@ fn handle_key_event(
             handle_process_navigation(&mut state, false);
         }
         
-        KeyCode::Char('k') | KeyCode::Char('K') if state.active_tab == 1 && state.selected_pid.is_none() && state.pending_kill_pid.is_none() => {
+        KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::F(9) if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {
             if let Some(idx) = state.process_table_state.selected() {
                 if idx < state.dynamic_data.processes.len() {
-                    let pid_str = &state.dynamic_data.processes[idx].pid;
-                    if let Ok(pid_num) = pid_str.parse::<usize>() {
+                    let proc_info = &state.dynamic_data.processes[idx];
+                    if let Ok(pid_num) = proc_info.pid.parse::<usize>() {
                          let pid = sysinfo::Pid::from(pid_num);
-                         state.pending_kill_pid = Some(pid);
+                         state.signal_modal = Some((pid, proc_info.name.clone(), 0));
+                    }
+                }
+            }
+        }
+
+        KeyCode::Char('[') | KeyCode::Char(']') if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {
+            if let Some(idx) = state.process_table_state.selected() {
+                if let Some(proc_info) = state.dynamic_data.processes.get(idx) {
+                    let pid_str = proc_info.pid.clone();
+                    let current_nice = proc_info.nice;
+                    let delta = if key.code == KeyCode::Char('[') { -1 } else { 1 };
+                    let new_nice = (current_nice + delta).clamp(-20, 19);
+
+                    let output = std::process::Command::new("renice")
+                        .args([&new_nice.to_string(), "-p", &pid_str])
+                        .output();
+
+                    match output {
+                        Ok(out) if out.status.success() => {
+                            if let Some(proc_mut) = state.dynamic_data.processes.get_mut(idx) {
+                                proc_mut.nice = new_nice;
+                            }
+                        }
+                        Ok(out) => {
+                            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                            state.service_status_modal = Some(("Renice Failed".to_string(), err));
+                        }
+                        Err(e) => {
+                            state.service_status_modal = Some(("Renice Failed".to_string(), e.to_string()));
+                        }
                     }
                 }
             }

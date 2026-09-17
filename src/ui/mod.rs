@@ -50,6 +50,10 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     if let Some(pid) = state.pending_kill_pid {
         render_kill_confirmation(f, pid, theme);
     }
+
+    if let Some((pid, name, selected_idx)) = &state.signal_modal {
+        render_signal_modal(f, *pid, name, *selected_idx, theme);
+    }
     
     if let Some((action, name)) = &state.pending_service_action {
         render_service_action_confirmation(f, action, name, theme);
@@ -118,6 +122,59 @@ fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, theme: &crate::ui:
         .style(Style::default().fg(theme.text))
         .alignment(Alignment::Center);
         
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_signal_modal(
+    f: &mut Frame,
+    pid: sysinfo::Pid,
+    name: &str,
+    selected_idx: usize,
+    theme: &crate::ui::colors::ColorScheme,
+) {
+    let area = f.size();
+    let width = 66.min(area.width.saturating_sub(4));
+    let height = 14.min(area.height.saturating_sub(2));
+    let popup_area = Rect {
+        x: (area.width.saturating_sub(width)) / 2,
+        y: (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let signals = crate::types::POSIX_SIGNALS;
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(format!("Target: {} (PID {})", name, pid), Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Select signal (↑↓: Move | Enter: Send | Esc: Cancel):", Style::default().fg(theme.text_secondary)),
+    ]));
+    lines.push(Line::from(""));
+
+    for (i, sig) in signals.iter().enumerate() {
+        let is_selected = i == selected_idx;
+        let prefix = if is_selected { " >> " } else { "    " };
+        let style = if is_selected {
+            Style::default().fg(theme.highlight).bg(theme.border).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:<17} ", format!("{}{}", prefix, sig.name)), style),
+            Span::styled(format!("- {}", sig.desc), if is_selected { style } else { Style::default().fg(theme.text_secondary) }),
+        ]));
+    }
+
+    let block = Block::default()
+        .title(format!(" [*] Send Signal: {} ", pid))
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
+
+    let paragraph = Paragraph::new(lines).block(block);
     f.render_widget(paragraph, popup_area);
 }
 
@@ -668,6 +725,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
     let header_pid = translator.t("header.pid");
     let header_name = translator.t("header.name");
     let header_user = translator.t("header.user");
+    let header_nice = "NI".to_string();
     let header_cpu = translator.t("header.cpu");
     let header_memory = translator.t("header.memory");
     let header_disk_read = translator.t("header.disk_read");
@@ -722,7 +780,8 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         Row::new(vec![
             p.pid.clone(),
             truncate_string(&display_name, 35),
-            truncate_string(&p.user, 12),
+            truncate_string(&p.user, 10),
+            format!("{:>3}", p.nice),
             p.cpu_display.clone(),
             p.mem_display.clone(),
             p.disk_read.clone(),
@@ -735,15 +794,16 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         [
             Constraint::Length(8),   // PID
             Constraint::Min(20),     // Name
-            Constraint::Length(12),  // User
+            Constraint::Length(10),  // User
+            Constraint::Length(5),   // NI
             Constraint::Length(8),   // CPU
             Constraint::Length(10),  // Memory
-            Constraint::Length(12),  // Read/s
-            Constraint::Length(12),  // Write/s
+            Constraint::Length(11),  // Read/s
+            Constraint::Length(11),  // Write/s
         ]
     )
     .header(
-        Row::new(vec![header_pid, header_name, header_user, header_cpu, header_memory, header_disk_read, header_disk_write])
+        Row::new(vec![header_pid, header_name, header_user, header_nice, header_cpu, header_memory, header_disk_read, header_disk_write])
             .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
             .bottom_margin(1)
     )

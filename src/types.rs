@@ -30,7 +30,26 @@ pub struct ProcessInfo {
     pub status: String,
     pub parent_pid: Option<String>,
     pub tree_prefix: String,
+    pub nice: i32,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessSignal {
+    pub num: i32,
+    pub name: &'static str,
+    pub desc: &'static str,
+}
+
+pub const POSIX_SIGNALS: &[ProcessSignal] = &[
+    ProcessSignal { num: 15, name: "15) SIGTERM", desc: "Terminate gracefully" },
+    ProcessSignal { num: 9,  name: "9)  SIGKILL", desc: "Kill immediately (unblockable)" },
+    ProcessSignal { num: 1,  name: "1)  SIGHUP",  desc: "Hangup / reload configuration" },
+    ProcessSignal { num: 2,  name: "2)  SIGINT",  desc: "Terminal interrupt (Ctrl+C)" },
+    ProcessSignal { num: 19, name: "19) SIGSTOP", desc: "Pause / freeze execution" },
+    ProcessSignal { num: 18, name: "18) SIGCONT", desc: "Resume paused execution" },
+    ProcessSignal { num: 10, name: "10) SIGUSR1", desc: "User-defined signal 1" },
+    ProcessSignal { num: 12, name: "12) SIGUSR2", desc: "User-defined signal 2" },
+];
 
 #[derive(Clone, Debug)]
 pub struct ContainerInfo {
@@ -297,6 +316,7 @@ pub struct AppState {
     pub docker_error: Option<String>,
     pub current_theme: usize,
     pub pending_kill_pid: Option<sysinfo::Pid>,
+    pub signal_modal: Option<(sysinfo::Pid, String, usize)>,
     pub viewing_log: Option<LogEntry>,
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,
