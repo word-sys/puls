@@ -91,6 +91,20 @@ pub struct GpuInfo {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct ProcessFdInfo {
+    pub fd: String,
+    pub fd_type: String,
+    pub target: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ProcessThreadInfo {
+    pub tid: String,
+    pub name: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct DetailedProcessInfo {
     pub pid: String,
@@ -109,7 +123,8 @@ pub struct DetailedProcessInfo {
     pub sockets_count: Option<u32>,
     pub pipes_count: Option<u32>,
     pub open_files: Vec<String>,
-    pub thread_list: Vec<(String, String)>,
+    pub fds: Vec<ProcessFdInfo>,
+    pub thread_list: Vec<ProcessThreadInfo>,
     pub cwd: Option<String>,
     pub nice: i32,
 }
@@ -328,6 +343,8 @@ pub struct AppState {
     pub pending_grub_update_confirmation: bool,
     pub language: crate::language::Language,
     pub process_tree_mode: bool,
+    pub process_detail_subtab: usize,
+    pub process_detail_scroll: usize,
 }
 
 #[derive(Clone, Debug)]

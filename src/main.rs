@@ -360,6 +360,8 @@ fn handle_key_event(
             }
             if state.active_tab == 1 && state.selected_pid.is_some() {
                 state.selected_pid = None;
+                state.process_detail_subtab = 0;
+                state.process_detail_scroll = 0;
                 return Ok(false);
             }
             if state.active_tab == 1 && !state.filter_text.is_empty() {
@@ -465,26 +467,79 @@ fn handle_key_event(
             state.paused = !state.paused;
         }
         
+        KeyCode::Tab if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = (state.process_detail_subtab + 1) % 4;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::BackTab if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = (state.process_detail_subtab + 3) % 4;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Right if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = (state.process_detail_subtab + 1) % 4;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Left if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = (state.process_detail_subtab + 3) % 4;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Char('1') if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = 0;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Char('2') if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = 1;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Char('3') if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = 2;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Char('4') if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_subtab = 3;
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = state.process_detail_scroll.saturating_add(1);
+        }
+        KeyCode::Up if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = state.process_detail_scroll.saturating_sub(1);
+        }
+        KeyCode::PageDown if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = state.process_detail_scroll.saturating_add(15);
+        }
+        KeyCode::PageUp if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = state.process_detail_scroll.saturating_sub(15);
+        }
+        KeyCode::Home if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = 0;
+        }
+        KeyCode::End if state.active_tab == 1 && state.selected_pid.is_some() => {
+            state.process_detail_scroll = usize::MAX / 2;
+        }
+
         KeyCode::Tab => {
             state.active_tab = (state.active_tab + 1) % 13;
+            state.selected_pid = None;
         }
         KeyCode::BackTab => {
             state.active_tab = (state.active_tab + 12) % 13;
+            state.selected_pid = None;
         }
         
-        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 0,
-        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 1,
-        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 2,
-        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 3,
-        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 4,
-        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 5,
-        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 6,
-        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 7,
-        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 8,
-        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 9,
-        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 10,
-        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => state.active_tab = 11,
-        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => state.active_tab = 12,
+        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 0; state.selected_pid = None; },
+        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 1; state.selected_pid = None; },
+        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 2; state.selected_pid = None; },
+        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 3; state.selected_pid = None; },
+        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 4; state.selected_pid = None; },
+        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 5; state.selected_pid = None; },
+        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 6; state.selected_pid = None; },
+        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 7; state.selected_pid = None; },
+        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 8; state.selected_pid = None; },
+        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 9; state.selected_pid = None; },
+        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 10; state.selected_pid = None; },
+        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; },
+        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; },
         
         KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(5) if state.active_tab == 1 && state.selected_pid.is_none() => {
             state.process_tree_mode = !state.process_tree_mode;
@@ -798,6 +853,8 @@ fn handle_key_event(
                 if let Some(process) = state.dynamic_data.processes.get(selected_index) {
                     if let Ok(pid_val) = process.pid.parse::<usize>() {
                         state.selected_pid = Some(sysinfo::Pid::from(pid_val));
+                        state.process_detail_subtab = 0;
+                        state.process_detail_scroll = 0;
                     }
                 }
             }

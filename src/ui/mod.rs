@@ -913,198 +913,457 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
 }
 
 fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    let main_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(65), // Info
-            Constraint::Percentage(35), // Cores
-        ])
-        .split(area);
-
-    let block = Block::default()
-        .title(" Process Details (Esc to return) ")
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(theme.border));
-    
-    let inner_area = block.inner(main_chunks[0]);
-    f.render_widget(block, main_chunks[0]);
-    
-    if let Some(ref process) = state.dynamic_data.detailed_process {
-        let layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(33),
-                Constraint::Percentage(33),
-                Constraint::Percentage(34),
-            ])
-            .split(inner_area);
-        
-        let mut info_lines = vec![
-            Line::from(vec![
-                Span::styled("PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(&process.pid, Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Name: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(&process.name, Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("User: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(&process.user, Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Nice / Priority: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(process.nice.to_string(), Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Status: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(&process.status, Style::default().fg(crate::ui::colors::process_status_color(&process.status)))
-            ]),
-            Line::from(vec![
-                Span::styled("Parent PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(process.parent.as_deref().unwrap_or("N/A"), Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Started: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(&process.start_time, Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("CPU Usage: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{:.2}%", process.cpu_usage), Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Memory (RSS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(format_size(process.memory_rss), Style::default().fg(theme.text))
-            ]),
-            Line::from(vec![
-                Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text))
-            ]),
-        ];
-        
-        if let Some(ref cwd) = process.cwd {
-            info_lines.push(Line::from(vec![
-                Span::styled("CWD: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(truncate_string(cwd, 30), Style::default().fg(theme.text))
-            ]));
-        }
-
-        let info_paragraph = Paragraph::new(info_lines)
-            .block(Block::default().borders(Borders::NONE))
-            .wrap(ratatui::widgets::Wrap { trim: false });
-        f.render_widget(info_paragraph, layout[0]);
-        
-        let mut fd_lines = vec![
-            Line::from(Span::styled("File Descriptors & Sockets:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-            Line::from(vec![
-                Span::styled("  Total Open FDs: ", Style::default().fg(theme.accent)),
-                Span::styled(process.file_descriptors.map_or("N/A".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Active Sockets: ", Style::default().fg(theme.accent)),
-                Span::styled(process.sockets_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Active Pipes:   ", Style::default().fg(theme.accent)),
-                Span::styled(process.pipes_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled("Open Files / Devices:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-        ];
-
-        if process.open_files.is_empty() {
-            fd_lines.push(Line::from(Span::styled("  (None or permission denied)", Style::default().fg(theme.text_secondary))));
-        } else {
-            for file_path in process.open_files.iter().take(6) {
-                fd_lines.push(Line::from(Span::styled(format!("  {}", truncate_string(file_path, 34)), Style::default().fg(theme.text))));
-            }
-            if process.open_files.len() > 6 {
-                fd_lines.push(Line::from(Span::styled(format!("  ... and {} more", process.open_files.len() - 6), Style::default().fg(theme.text_secondary))));
-            }
-        }
-
-        let fd_paragraph = Paragraph::new(fd_lines)
-            .block(Block::default().borders(Borders::NONE))
-            .wrap(ratatui::widgets::Wrap { trim: false });
-        f.render_widget(fd_paragraph, layout[1]);
-
-        let mut thread_cmd_lines = vec![
-            Line::from(Span::styled(format!("Threads ({}):", process.threads), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
-        ];
-
-        if process.thread_list.is_empty() {
-            thread_cmd_lines.push(Line::from(Span::styled("  Single thread / kernel task", Style::default().fg(theme.text_secondary))));
-        } else {
-            for (tid, tname) in process.thread_list.iter().take(4) {
-                thread_cmd_lines.push(Line::from(vec![
-                    Span::styled(format!("  [{}] ", tid), Style::default().fg(theme.accent)),
-                    Span::styled(truncate_string(tname, 22), Style::default().fg(theme.text)),
-                ]));
-            }
-            if process.thread_list.len() > 4 {
-                thread_cmd_lines.push(Line::from(Span::styled(format!("  ... and {} more threads", process.thread_list.len() - 4), Style::default().fg(theme.text_secondary))));
-            }
-        }
-
-        thread_cmd_lines.push(Line::from(""));
-        thread_cmd_lines.push(Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))));
-        thread_cmd_lines.push(Line::from(Span::styled(truncate_string(&process.command, 80), Style::default().fg(theme.text))));
-
-        let thread_cmd_paragraph = Paragraph::new(thread_cmd_lines)
-            .block(Block::default().borders(Borders::NONE))
-            .wrap(ratatui::widgets::Wrap { trim: false });
-        f.render_widget(thread_cmd_paragraph, layout[2]);
-        
-    } else {
+    if state.dynamic_data.detailed_process.is_none() {
+        let block = Block::default()
+            .title(" Process Details (Esc to return) ")
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border));
+        let inner_area = block.inner(area);
+        f.render_widget(block, area);
         let message = Paragraph::new(translator.t("msg.loading_process_details"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary));
         f.render_widget(message, inner_area);
+        return;
     }
 
-    let cores = &state.dynamic_data.cores;
-    let core_block = Block::default()
-        .title(" CPU Core Usage ")
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(theme.border));
-    
-    let core_inner = core_block.inner(main_chunks[1]);
-    f.render_widget(core_block, main_chunks[1]);
+    let process = state.dynamic_data.detailed_process.as_ref().unwrap();
 
-    let cores_per_row = 8;
-    let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
-    if rows_needed > 0 {
-        let row_constraints: Vec<Constraint> = (0..rows_needed).map(|_| Constraint::Length(3)).collect();
-        let rows_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(row_constraints)
-            .margin(1)
-            .split(core_inner);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Subtab navigation bar
+            Constraint::Min(0),    // Active Subtab View
+        ])
+        .split(area);
 
-        for (row_idx, row_area) in rows_layout.iter().enumerate() {
-            let start_core = row_idx * cores_per_row;
-            if start_core >= cores.len() { break; }
-            
-            let core_constraints: Vec<Constraint> = (0..cores_per_row).map(|_| Constraint::Ratio(1, cores_per_row as u32)).collect();
-            let cores_layout = Layout::default()
+    let total_fds_count = process.file_descriptors.unwrap_or(process.fds.len() as u32);
+    let subtab_titles = vec![
+        Line::from(" 1: Overview "),
+        Line::from(format!(" 2: Open FDs ({}) ", total_fds_count)),
+        Line::from(format!(" 3: Threads ({}) ", process.threads)),
+        Line::from(format!(" 4: Environment ({}) ", process.environ.len())),
+    ];
+
+    let subtabs = Tabs::new(subtab_titles)
+        .block(
+            Block::default()
+                .title(format!(" Process: {} [PID: {}] (Esc to return) ", process.name, process.pid))
+                .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+                .title(
+                    ratatui::widgets::block::Title::from(" [Tab / 1-4 / ←/→] Switch View | [↑/↓/PgUp/PgDn] Scroll ")
+                        .alignment(Alignment::Right),
+                )
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border)),
+        )
+        .select(state.process_detail_subtab)
+        .highlight_style(
+            Style::default()
+                .fg(theme.highlight)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        );
+
+    f.render_widget(subtabs, chunks[0]);
+    let content_area = chunks[1];
+
+    match state.process_detail_subtab {
+        0 => {
+            let overview_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(65), // Info columns
+                    Constraint::Percentage(35), // Cores
+                ])
+                .split(content_area);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+            let inner_area = block.inner(overview_chunks[0]);
+            f.render_widget(block, overview_chunks[0]);
+
+            let layout = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints(core_constraints)
-                .split(*row_area);
-            
-            for (core_idx, core_area) in cores_layout.iter().enumerate() {
-                let actual_core_idx = start_core + core_idx;
-                if actual_core_idx >= cores.len() { break; }
-                
-                let core = &cores[actual_core_idx];
-                let gauge = Gauge::default()
-                    .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme.border)))
-                    .label(format!("C{} {:.0}%", actual_core_idx, core.usage))
-                    .gauge_style(Style::default().fg(get_usage_color(core.usage)))
-                    .ratio((core.usage / 100.0) as f64);
-                f.render_widget(gauge, *core_area);
+                .constraints([
+                    Constraint::Percentage(33),
+                    Constraint::Percentage(33),
+                    Constraint::Percentage(34),
+                ])
+                .split(inner_area);
+
+            // Column 0: General Metadata
+            let mut info_lines = vec![
+                Line::from(vec![
+                    Span::styled("PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(&process.pid, Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Name: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(&process.name, Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("User: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(&process.user, Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Nice / Priority: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(process.nice.to_string(), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Status: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(&process.status, Style::default().fg(crate::ui::colors::process_status_color(&process.status))),
+                ]),
+                Line::from(vec![
+                    Span::styled("Parent PID: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(process.parent.as_deref().unwrap_or("N/A"), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Started: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(&process.start_time, Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("CPU Usage: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{:.2}%", process.cpu_usage), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Memory (RSS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format_size(process.memory_rss), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Memory (VMS): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format_size(process.memory_vms), Style::default().fg(theme.text)),
+                ]),
+            ];
+
+            if let Some(ref cwd) = process.cwd {
+                info_lines.push(Line::from(vec![
+                    Span::styled("CWD: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(truncate_string(cwd, 30), Style::default().fg(theme.text)),
+                ]));
             }
+
+            let info_paragraph = Paragraph::new(info_lines)
+                .block(Block::default().borders(Borders::NONE))
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            f.render_widget(info_paragraph, layout[0]);
+
+            // Column 1: FDs & Threads Preview
+            let mut col1_lines = vec![
+                Line::from(Span::styled("File Descriptors & Sockets:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Line::from(vec![
+                    Span::styled("  Total Open FDs: ", Style::default().fg(theme.accent)),
+                    Span::styled(process.file_descriptors.map_or("N/A".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Active Sockets: ", Style::default().fg(theme.accent)),
+                    Span::styled(process.sockets_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  Active Pipes:   ", Style::default().fg(theme.accent)),
+                    Span::styled(process.pipes_count.map_or("0".to_string(), |v| v.to_string()), Style::default().fg(theme.text)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled("Open FDs Preview:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            ];
+
+            if process.fds.is_empty() {
+                col1_lines.push(Line::from(Span::styled("  (None or permission denied)", Style::default().fg(theme.text_secondary))));
+            } else {
+                for fd_info in process.fds.iter().take(4) {
+                    col1_lines.push(Line::from(vec![
+                        Span::styled(format!("  [{}] ", fd_info.fd), Style::default().fg(theme.accent)),
+                        Span::styled(truncate_string(&fd_info.target, 28), Style::default().fg(theme.text)),
+                    ]));
+                }
+                if process.fds.len() > 4 {
+                    col1_lines.push(Line::from(Span::styled(
+                        format!("  ... and {} more (Press '2' to view all)", process.fds.len() - 4),
+                        Style::default().fg(theme.highlight),
+                    )));
+                }
+            }
+
+            col1_lines.push(Line::from(""));
+            col1_lines.push(Line::from(Span::styled(
+                format!("Threads ({}) Preview:", process.threads),
+                Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+            )));
+
+            if process.thread_list.is_empty() {
+                col1_lines.push(Line::from(Span::styled("  Single thread / kernel task", Style::default().fg(theme.text_secondary))));
+            } else {
+                for t in process.thread_list.iter().take(3) {
+                    col1_lines.push(Line::from(vec![
+                        Span::styled(format!("  [{}] ", t.tid), Style::default().fg(theme.accent)),
+                        Span::styled(truncate_string(&t.name, 16), Style::default().fg(theme.text)),
+                        Span::styled(format!(" ({})", t.status), Style::default().fg(crate::ui::colors::process_status_color(&t.status))),
+                    ]));
+                }
+                if process.thread_list.len() > 3 {
+                    col1_lines.push(Line::from(Span::styled(
+                        format!("  ... and {} more (Press '3' to view all)", process.thread_list.len() - 3),
+                        Style::default().fg(theme.highlight),
+                    )));
+                }
+            }
+
+            let col1_paragraph = Paragraph::new(col1_lines)
+                .block(Block::default().borders(Borders::NONE))
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            f.render_widget(col1_paragraph, layout[1]);
+
+            // Column 2: Command & Environment Preview (RESTORED!)
+            let mut col2_lines = vec![
+                Line::from(Span::styled("Command:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(truncate_string(&process.command, 75), Style::default().fg(theme.text))),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Environment ({} variables):", process.environ.len()),
+                    Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+                )),
+            ];
+
+            if process.environ.is_empty() {
+                col2_lines.push(Line::from(Span::styled("  (None or permission denied)", Style::default().fg(theme.text_secondary))));
+            } else {
+                for env in process.environ.iter().take(8) {
+                    col2_lines.push(Line::from(Span::styled(
+                        format!("  {}", truncate_string(env, 38)),
+                        Style::default().fg(theme.text),
+                    )));
+                }
+                if process.environ.len() > 8 {
+                    col2_lines.push(Line::from(Span::styled(
+                        format!("  ... and {} more (Press '4' to view all)", process.environ.len() - 8),
+                        Style::default().fg(theme.highlight),
+                    )));
+                }
+            }
+
+            let col2_paragraph = Paragraph::new(col2_lines)
+                .block(Block::default().borders(Borders::NONE))
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            f.render_widget(col2_paragraph, layout[2]);
+
+            // CPU Core Usage at bottom
+            let cores = &state.dynamic_data.cores;
+            let core_block = Block::default()
+                .title(" CPU Core Usage ")
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+
+            let core_inner = core_block.inner(overview_chunks[1]);
+            f.render_widget(core_block, overview_chunks[1]);
+
+            let cores_per_row = 8;
+            let rows_needed = (cores.len() + cores_per_row - 1) / cores_per_row;
+            if rows_needed > 0 {
+                let row_constraints: Vec<Constraint> = (0..rows_needed).map(|_| Constraint::Length(3)).collect();
+                let rows_layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(row_constraints)
+                    .margin(1)
+                    .split(core_inner);
+
+                for (row_idx, row_area) in rows_layout.iter().enumerate() {
+                    let start_core = row_idx * cores_per_row;
+                    if start_core >= cores.len() { break; }
+
+                    let core_constraints: Vec<Constraint> = (0..cores_per_row).map(|_| Constraint::Ratio(1, cores_per_row as u32)).collect();
+                    let cores_layout = Layout::default()
+                        .direction(Direction::Horizontal)
+                        .constraints(core_constraints)
+                        .split(*row_area);
+
+                    for (core_idx, core_area) in cores_layout.iter().enumerate() {
+                        let actual_core_idx = start_core + core_idx;
+                        if actual_core_idx >= cores.len() { break; }
+
+                        let core = &cores[actual_core_idx];
+                        let gauge = Gauge::default()
+                            .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+                            .label(format!("C{} {:.0}%", actual_core_idx, core.usage))
+                            .gauge_style(Style::default().fg(get_usage_color(core.usage)))
+                            .ratio((core.usage / 100.0) as f64);
+                        f.render_widget(gauge, *core_area);
+                    }
+                }
+            }
+        }
+
+        1 => {
+            // Subtab 1: Open FDs & Sockets (Full Table)
+            let total_fds = process.fds.len();
+            let block = Block::default()
+                .title(format!(
+                    " Open File Descriptors (Total: {}, Sockets: {}, Pipes: {}) ",
+                    process.file_descriptors.unwrap_or(total_fds as u32),
+                    process.sockets_count.unwrap_or(0),
+                    process.pipes_count.unwrap_or(0),
+                ))
+                .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+                .title(
+                    ratatui::widgets::block::Title::from(format!(
+                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        if total_fds == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        total_fds
+                    ))
+                    .alignment(Alignment::Right),
+                )
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+
+            let inner = block.inner(content_area);
+            f.render_widget(block, content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_fds.saturating_sub(visible_rows);
+            let scroll = state.process_detail_scroll.min(max_scroll);
+
+            let rows: Vec<Row> = process.fds.iter().skip(scroll).take(visible_rows).map(|fd_info| {
+                let type_color = match fd_info.fd_type.as_str() {
+                    "Socket" => theme.warning,
+                    "Pipe" => theme.secondary,
+                    "Device" => theme.accent,
+                    "AnonInode" => theme.text_secondary,
+                    _ => theme.text,
+                };
+                Row::new(vec![
+                    Cell::from(Span::styled(&fd_info.fd, Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
+                    Cell::from(Span::styled(&fd_info.fd_type, Style::default().fg(type_color))),
+                    Cell::from(Span::styled(&fd_info.target, Style::default().fg(theme.text))),
+                ])
+            }).collect();
+
+            let header = Row::new(vec![
+                Cell::from(Span::styled("FD", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled("TYPE", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled("TARGET / PATH / RESOURCE", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            ]).bottom_margin(1);
+
+            let widths = [
+                Constraint::Length(8),
+                Constraint::Length(14),
+                Constraint::Min(20),
+            ];
+
+            let table = Table::new(rows, widths)
+                .header(header)
+                .block(Block::default().borders(Borders::NONE));
+
+            f.render_widget(table, inner);
+        }
+
+        2 => {
+            // Subtab 2: Process Threads (Full Table)
+            let total_threads = process.thread_list.len();
+            let block = Block::default()
+                .title(format!(" Process Threads ({}) ", total_threads))
+                .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+                .title(
+                    ratatui::widgets::block::Title::from(format!(
+                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        if total_threads == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        total_threads
+                    ))
+                    .alignment(Alignment::Right),
+                )
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+
+            let inner = block.inner(content_area);
+            f.render_widget(block, content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_threads.saturating_sub(visible_rows);
+            let scroll = state.process_detail_scroll.min(max_scroll);
+
+            let rows: Vec<Row> = process.thread_list.iter().skip(scroll).take(visible_rows).map(|t| {
+                let status_color = crate::ui::colors::process_status_color(&t.status);
+                Row::new(vec![
+                    Cell::from(Span::styled(&t.tid, Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
+                    Cell::from(Span::styled(&t.name, Style::default().fg(theme.text))),
+                    Cell::from(Span::styled(&t.status, Style::default().fg(status_color))),
+                ])
+            }).collect();
+
+            let header = Row::new(vec![
+                Cell::from(Span::styled("TID", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled("THREAD NAME / COMM", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled("STATUS", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            ]).bottom_margin(1);
+
+            let widths = [
+                Constraint::Length(12),
+                Constraint::Length(35),
+                Constraint::Min(15),
+            ];
+
+            let table = Table::new(rows, widths)
+                .header(header)
+                .block(Block::default().borders(Borders::NONE));
+
+            f.render_widget(table, inner);
+        }
+
+        _ => {
+            // Subtab 3: Environment Variables (Full Table)
+            let total_env = process.environ.len();
+            let block = Block::default()
+                .title(format!(" Environment Variables ({}) ", total_env))
+                .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+                .title(
+                    ratatui::widgets::block::Title::from(format!(
+                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        if total_env == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        total_env
+                    ))
+                    .alignment(Alignment::Right),
+                )
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border));
+
+            let inner = block.inner(content_area);
+            f.render_widget(block, content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_env.saturating_sub(visible_rows);
+            let scroll = state.process_detail_scroll.min(max_scroll);
+
+            let rows: Vec<Row> = process.environ.iter().skip(scroll).take(visible_rows).map(|env_str| {
+                let (var, val) = match env_str.split_once('=') {
+                    Some((k, v)) => (k, v),
+                    None => (env_str.as_str(), ""),
+                };
+                Row::new(vec![
+                    Cell::from(Span::styled(var, Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))),
+                    Cell::from(Span::styled(val, Style::default().fg(theme.text))),
+                ])
+            }).collect();
+
+            let header = Row::new(vec![
+                Cell::from(Span::styled("VARIABLE", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+                Cell::from(Span::styled("VALUE", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))),
+            ]).bottom_margin(1);
+
+            let widths = [
+                Constraint::Length(32),
+                Constraint::Min(30),
+            ];
+
+            let table = Table::new(rows, widths)
+                .header(header)
+                .block(Block::default().borders(Borders::NONE));
+
+            f.render_widget(table, inner);
         }
     }
 }

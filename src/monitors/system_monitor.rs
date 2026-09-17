@@ -379,9 +379,21 @@ impl SystemMonitor {
                 .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
                 .unwrap_or_else(|| "N/A".to_string());
             
-            let (total_fds, sockets, pipes, open_files) = Self::get_process_fds(pid);
+            let (total_fds, sockets, pipes, fds) = Self::get_process_fds(pid);
+            let open_files = fds.iter().map(|f| f.target.clone()).collect();
             let thread_list = Self::get_process_threads(pid);
             let nice = Self::get_process_nice(pid);
+
+            let mut environ: Vec<String> = process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect();
+            if environ.is_empty() {
+                if let Ok(bytes) = fs::read(format!("/proc/{}/environ", pid)) {
+                    environ = bytes.split(|&b| b == 0)
+                        .filter(|slice| !slice.is_empty())
+                        .map(|slice| String::from_utf8_lossy(slice).to_string())
+                        .collect();
+                }
+            }
+            environ.sort();
 
             DetailedProcessInfo {
                 pid: process.pid().to_string(),
@@ -394,12 +406,13 @@ impl SystemMonitor {
                 command: process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<String>>().join(" "),
                 start_time,
                 parent: process.parent().map(|p| p.to_string()),
-                environ: process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect(),
+                environ,
                 threads: if !thread_list.is_empty() { thread_list.len() as u32 } else { process.tasks().map(|t| t.len() as u32).unwrap_or(0) },
                 file_descriptors: total_fds,
                 sockets_count: sockets,
                 pipes_count: pipes,
                 open_files,
+                fds,
                 thread_list,
                 cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
                 nice,
@@ -995,47 +1008,97 @@ impl SystemMonitor {
         0
     }
 
-    pub fn get_process_fds(pid: Pid) -> (Option<u32>, Option<u32>, Option<u32>, Vec<String>) {
+    pub fn get_process_fds(pid: Pid) -> (Option<u32>, Option<u32>, Option<u32>, Vec<ProcessFdInfo>) {
         let fd_dir = format!("/proc/{}/fd", pid);
         if let Ok(entries) = fs::read_dir(fd_dir) {
             let mut total = 0;
             let mut sockets = 0;
             let mut pipes = 0;
-            let mut files = Vec::new();
+            let mut fds = Vec::new();
 
             for entry in entries.flatten() {
                 total += 1;
+                let fd_num = entry.file_name().to_string_lossy().to_string();
                 if let Ok(target) = fs::read_link(entry.path()) {
-                    let target_str = target.to_string_lossy();
-                    if target_str.starts_with("socket:[") {
+                    let target_str = target.to_string_lossy().to_string();
+                    let fd_type = if target_str.starts_with("socket:[") {
                         sockets += 1;
+                        "Socket".to_string()
                     } else if target_str.starts_with("pipe:[") {
                         pipes += 1;
-                    } else if target_str.starts_with('/') && !files.contains(&target_str.to_string()) && files.len() < 12 {
-                        files.push(target_str.to_string());
-                    }
+                        "Pipe".to_string()
+                    } else if target_str.starts_with("anon_inode:[") {
+                        "AnonInode".to_string()
+                    } else if target_str.starts_with("/dev/") {
+                        "Device".to_string()
+                    } else if target_str.starts_with("/proc/") {
+                        "Procfs".to_string()
+                    } else if target_str.starts_with('/') {
+                        "File".to_string()
+                    } else {
+                        "Other".to_string()
+                    };
+                    fds.push(ProcessFdInfo {
+                        fd: fd_num,
+                        fd_type,
+                        target: target_str,
+                    });
                 }
             }
-            (Some(total), Some(sockets), Some(pipes), files)
+            fds.sort_by(|a, b| {
+                let a_num = a.fd.parse::<u32>().unwrap_or(u32::MAX);
+                let b_num = b.fd.parse::<u32>().unwrap_or(u32::MAX);
+                a_num.cmp(&b_num)
+            });
+            (Some(total), Some(sockets), Some(pipes), fds)
         } else {
             (None, None, None, Vec::new())
         }
     }
 
-    pub fn get_process_threads(pid: Pid) -> Vec<(String, String)> {
+    pub fn get_process_threads(pid: Pid) -> Vec<ProcessThreadInfo> {
         let task_dir = format!("/proc/{}/task", pid);
         let mut thread_list = Vec::new();
         if let Ok(entries) = fs::read_dir(task_dir) {
             for entry in entries.flatten() {
                 let tid = entry.file_name().to_string_lossy().to_string();
                 let comm_path = entry.path().join("comm");
-                let comm = fs::read_to_string(comm_path).unwrap_or_else(|_| "unknown".to_string());
-                thread_list.push((tid, comm.trim().to_string()));
+                let comm = fs::read_to_string(comm_path).unwrap_or_else(|_| "unknown".to_string()).trim().to_string();
+                
+                let status = if let Ok(stat_content) = fs::read_to_string(entry.path().join("stat")) {
+                    if let Some(idx) = stat_content.rfind(')') {
+                        let rest = stat_content[idx + 1..].trim_start();
+                        match rest.chars().next() {
+                            Some('R') => "Running",
+                            Some('S') => "Sleeping",
+                            Some('D') => "Disk Sleep",
+                            Some('Z') => "Zombie",
+                            Some('T') => "Stopped",
+                            Some('t') => "Tracing Stop",
+                            Some('X') | Some('x') => "Dead",
+                            Some('K') => "Wakekill",
+                            Some('W') => "Waking",
+                            Some('P') => "Parked",
+                            Some('I') => "Idle",
+                            _ => "Unknown",
+                        }.to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                } else {
+                    "Unknown".to_string()
+                };
+
+                thread_list.push(ProcessThreadInfo {
+                    tid,
+                    name: comm,
+                    status,
+                });
             }
         }
         thread_list.sort_by(|a, b| {
-            let a_id = a.0.parse::<u32>().unwrap_or(0);
-            let b_id = b.0.parse::<u32>().unwrap_or(0);
+            let a_id = a.tid.parse::<u32>().unwrap_or(0);
+            let b_id = b.tid.parse::<u32>().unwrap_or(0);
             a_id.cmp(&b_id)
         });
         thread_list
@@ -1300,5 +1363,20 @@ mod tests {
         assert_eq!(processes[0].tree_prefix, "");
         assert_eq!(processes[1].name, "child_proc");
         assert_eq!(processes[1].tree_prefix, "└─ ");
+    }
+
+    #[test]
+    fn test_process_fds_and_threads() {
+        let pid = sysinfo::Pid::from(std::process::id() as usize);
+        let (total_fds, sockets, pipes, fds) = SystemMonitor::get_process_fds(pid);
+        assert!(total_fds.is_some());
+        assert!(total_fds.unwrap() > 0);
+        assert!(!fds.is_empty());
+        assert!(sockets.is_some());
+        assert!(pipes.is_some());
+
+        let threads = SystemMonitor::get_process_threads(pid);
+        assert!(!threads.is_empty());
+        assert_eq!(threads[0].tid, std::process::id().to_string());
     }
 }
