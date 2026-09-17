@@ -74,6 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     {
         let mut state = app_state.lock().unwrap();
+        state.language = config.language;
+        state.current_theme = config.theme;
         state.system_info = system_info;
         
         if config.safe_mode {
@@ -158,7 +160,7 @@ async fn ui_loop(
         
         while event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
-                let should_quit = handle_key_event(key, &app_state, &data_collector)?;
+                let should_quit = handle_key_event(key, &app_state, &data_collector, config)?;
                 if should_quit {
                     return Ok(());
                 }
@@ -183,6 +185,7 @@ fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
     data_collector: &Arc<Mutex<DataCollector>>,
+    config: &AppConfig,
 ) -> io::Result<bool> {
     let mut state = app_state.lock().unwrap();
     
@@ -432,18 +435,21 @@ fn handle_key_event(
         
         KeyCode::Char('t') | KeyCode::Char('T') => {
             state.current_theme = (state.current_theme + 1) % 3;
+            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
         }
         KeyCode::Char('L') => {
             state.language = match state.language {
                 crate::language::Language::English => crate::language::Language::Turkish,
                 crate::language::Language::Turkish => crate::language::Language::English,
             };
+            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
         }
         KeyCode::Char('l') if state.active_tab != 8 && state.active_tab != 11 => {
             state.language = match state.language {
                 crate::language::Language::English => crate::language::Language::Turkish,
                 crate::language::Language::Turkish => crate::language::Language::English,
             };
+            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
         }
         
         KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_none() => {

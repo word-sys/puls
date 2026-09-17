@@ -398,7 +398,7 @@ pub struct AppConfig {
     pub enable_docker: bool,
     pub enable_gpu_monitoring: bool,
     pub enable_network_monitoring: bool,
-    #[allow(dead_code)]
     pub language: crate::language::Language,
+    pub theme: usize,
     pub telemetry: bool,
 }

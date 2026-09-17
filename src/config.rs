@@ -131,24 +131,116 @@ impl Cli {
     }
 }
 
+pub fn get_config_dir() -> std::path::PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return std::path::PathBuf::from(xdg).join("puls");
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return std::path::PathBuf::from(home).join(".config").join("puls");
+    }
+    std::path::PathBuf::from(".config").join("puls")
+}
+
+pub fn get_config_file_path() -> std::path::PathBuf {
+    get_config_dir().join("config.ini")
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UserSettings {
+    pub language: Option<Language>,
+    pub theme: Option<usize>,
+    pub refresh_rate_ms: Option<u64>,
+}
+
+pub fn load_user_settings() -> UserSettings {
+    let path = get_config_file_path();
+    parse_settings_from_path(&path)
+}
+
+pub fn parse_settings_from_path(path: &std::path::Path) -> UserSettings {
+    let mut settings = UserSettings::default();
+    if let Ok(content) = std::fs::read_to_string(path) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with('[') {
+                continue;
+            }
+            if let Some((key, val)) = line.split_once('=') {
+                let key = key.trim().to_lowercase();
+                let val = val.trim();
+                match key.as_str() {
+                    "language" | "lang" => {
+                        settings.language = Some(Language::from_str(val));
+                    }
+                    "theme" => {
+                        if let Ok(t) = val.parse::<usize>() {
+                            settings.theme = Some(t % 3);
+                        }
+                    }
+                    "refresh_rate_ms" | "refresh" => {
+                        if let Ok(r) = val.parse::<u64>() {
+                            settings.refresh_rate_ms = Some(r.max(100).min(10000));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    settings
+}
+
+pub fn save_user_settings(language: Language, theme: usize, refresh_rate_ms: u64) -> Result<(), std::io::Error> {
+    let dir = get_config_dir();
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("config.ini");
+    let lang_str = match language {
+        Language::English => "en",
+        Language::Turkish => "tr",
+    };
+    let content = format!(
+        "[puls]\nlanguage = {}\ntheme = {}\nrefresh_rate_ms = {}\n",
+        lang_str, theme, refresh_rate_ms
+    );
+    std::fs::write(&path, content)?;
+    Ok(())
+}
+
 impl From<Cli> for AppConfig {
     fn from(cli: Cli) -> Self {
+        let saved = load_user_settings();
+
         let language = if cli.tr {
             Language::Turkish
-        } else if cli.lang == "auto" {
-            Language::detect()
-        } else {
+        } else if cli.lang != "auto" {
             Language::from_str(&cli.lang)
+        } else if let Some(saved_lang) = saved.language {
+            saved_lang
+        } else {
+            Language::detect()
         };
+
+        let refresh_rate_ms = if cli.refresh != 1000 {
+            cli.refresh.max(100).min(10000)
+        } else if let Some(saved_refresh) = saved.refresh_rate_ms {
+            saved_refresh
+        } else {
+            1000
+        };
+
+        let theme = saved.theme.unwrap_or(0);
         
         Self {
             safe_mode: cli.safe,
-            refresh_rate_ms: cli.refresh.max(100).min(10000), 
+            refresh_rate_ms, 
             history_length: cli.history.max(10).min(300),     
             enable_docker: !cli.safe && !cli.no_docker,
             enable_gpu_monitoring: !cli.safe && !cli.no_gpu,
             enable_network_monitoring: !cli.safe && !cli.no_network,
             language,
+            theme,
             telemetry: cli.telemetry,
         }
     }
@@ -191,7 +283,28 @@ impl Default for AppConfig {
             enable_gpu_monitoring: true,
             enable_network_monitoring: true,
             language: Language::English,
+            theme: 0,
             telemetry: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_settings() {
+        let temp_dir = std::env::temp_dir().join(format!("puls_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let config_file = temp_dir.join("config.ini");
+        std::fs::write(&config_file, "[puls]\nlanguage = tr\ntheme = 2\nrefresh_rate_ms = 500\n").unwrap();
+
+        let parsed = parse_settings_from_path(&config_file);
+        assert_eq!(parsed.language, Some(Language::Turkish));
+        assert_eq!(parsed.theme, Some(2));
+        assert_eq!(parsed.refresh_rate_ms, Some(500));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
