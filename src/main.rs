@@ -500,13 +500,35 @@ fn handle_key_event(
             state.process_detail_scroll = 0;
         }
         KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_some() => {
-            state.process_detail_scroll = state.process_detail_scroll.saturating_add(1);
+            let max_items = state.dynamic_data.detailed_process.as_ref().map_or(0, |proc| {
+                match state.process_detail_subtab {
+                    1 => proc.fds.len(),
+                    2 => proc.thread_list.len(),
+                    3 => proc.environ.len(),
+                    _ => 0,
+                }
+            });
+            if max_items > 0 {
+                let max_scroll = max_items.saturating_sub(1);
+                state.process_detail_scroll = (state.process_detail_scroll + 1).min(max_scroll);
+            }
         }
         KeyCode::Up if state.active_tab == 1 && state.selected_pid.is_some() => {
             state.process_detail_scroll = state.process_detail_scroll.saturating_sub(1);
         }
         KeyCode::PageDown if state.active_tab == 1 && state.selected_pid.is_some() => {
-            state.process_detail_scroll = state.process_detail_scroll.saturating_add(15);
+            let max_items = state.dynamic_data.detailed_process.as_ref().map_or(0, |proc| {
+                match state.process_detail_subtab {
+                    1 => proc.fds.len(),
+                    2 => proc.thread_list.len(),
+                    3 => proc.environ.len(),
+                    _ => 0,
+                }
+            });
+            if max_items > 0 {
+                let max_scroll = max_items.saturating_sub(1);
+                state.process_detail_scroll = (state.process_detail_scroll + 15).min(max_scroll);
+            }
         }
         KeyCode::PageUp if state.active_tab == 1 && state.selected_pid.is_some() => {
             state.process_detail_scroll = state.process_detail_scroll.saturating_sub(15);
@@ -515,7 +537,15 @@ fn handle_key_event(
             state.process_detail_scroll = 0;
         }
         KeyCode::End if state.active_tab == 1 && state.selected_pid.is_some() => {
-            state.process_detail_scroll = usize::MAX / 2;
+            let max_items = state.dynamic_data.detailed_process.as_ref().map_or(0, |proc| {
+                match state.process_detail_subtab {
+                    1 => proc.fds.len(),
+                    2 => proc.thread_list.len(),
+                    3 => proc.environ.len(),
+                    _ => 0,
+                }
+            });
+            state.process_detail_scroll = max_items.saturating_sub(1);
         }
 
         KeyCode::Tab => {

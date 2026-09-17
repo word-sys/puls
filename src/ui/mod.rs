@@ -912,7 +912,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
     f.render_widget(table, area);
 }
 
-fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     if state.dynamic_data.detailed_process.is_none() {
         let block = Block::default()
             .title(" Process Details (Esc to return) ")
@@ -928,7 +928,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
         return;
     }
 
-    let process = state.dynamic_data.detailed_process.as_ref().unwrap();
+    let process = state.dynamic_data.detailed_process.clone().unwrap();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1199,6 +1199,20 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
         1 => {
             // Subtab 1: Open FDs & Sockets (Full Table)
             let total_fds = process.fds.len();
+            let base_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded);
+            let inner = base_block.inner(content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_fds.saturating_sub(visible_rows);
+            if state.process_detail_scroll > max_scroll {
+                state.process_detail_scroll = max_scroll;
+            }
+            let scroll = state.process_detail_scroll;
+            let start_item = if total_fds == 0 { 0 } else { scroll + 1 };
+            let end_item = (scroll + visible_rows).min(total_fds);
+
             let block = Block::default()
                 .title(format!(
                     " Open File Descriptors (Total: {}, Sockets: {}, Pipes: {}) ",
@@ -1209,8 +1223,9 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
                     ratatui::widgets::block::Title::from(format!(
-                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
-                        if total_fds == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        " Showing {}-{} of {} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        start_item,
+                        end_item,
                         total_fds
                     ))
                     .alignment(Alignment::Right),
@@ -1219,12 +1234,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
-            let inner = block.inner(content_area);
             f.render_widget(block, content_area);
-
-            let visible_rows = inner.height.saturating_sub(2) as usize;
-            let max_scroll = total_fds.saturating_sub(visible_rows);
-            let scroll = state.process_detail_scroll.min(max_scroll);
 
             let rows: Vec<Row> = process.fds.iter().skip(scroll).take(visible_rows).map(|fd_info| {
                 let type_color = match fd_info.fd_type.as_str() {
@@ -1263,13 +1273,28 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
         2 => {
             // Subtab 2: Process Threads (Full Table)
             let total_threads = process.thread_list.len();
+            let base_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded);
+            let inner = base_block.inner(content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_threads.saturating_sub(visible_rows);
+            if state.process_detail_scroll > max_scroll {
+                state.process_detail_scroll = max_scroll;
+            }
+            let scroll = state.process_detail_scroll;
+            let start_item = if total_threads == 0 { 0 } else { scroll + 1 };
+            let end_item = (scroll + visible_rows).min(total_threads);
+
             let block = Block::default()
                 .title(format!(" Process Threads ({}) ", total_threads))
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
                     ratatui::widgets::block::Title::from(format!(
-                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
-                        if total_threads == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        " Showing {}-{} of {} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        start_item,
+                        end_item,
                         total_threads
                     ))
                     .alignment(Alignment::Right),
@@ -1278,12 +1303,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
-            let inner = block.inner(content_area);
             f.render_widget(block, content_area);
-
-            let visible_rows = inner.height.saturating_sub(2) as usize;
-            let max_scroll = total_threads.saturating_sub(visible_rows);
-            let scroll = state.process_detail_scroll.min(max_scroll);
 
             let rows: Vec<Row> = process.thread_list.iter().skip(scroll).take(visible_rows).map(|t| {
                 let status_color = crate::ui::colors::process_status_color(&t.status);
@@ -1316,13 +1336,28 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
         _ => {
             // Subtab 3: Environment Variables (Full Table)
             let total_env = process.environ.len();
+            let base_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded);
+            let inner = base_block.inner(content_area);
+
+            let visible_rows = inner.height.saturating_sub(2) as usize;
+            let max_scroll = total_env.saturating_sub(visible_rows);
+            if state.process_detail_scroll > max_scroll {
+                state.process_detail_scroll = max_scroll;
+            }
+            let scroll = state.process_detail_scroll;
+            let start_item = if total_env == 0 { 0 } else { scroll + 1 };
+            let end_item = (scroll + visible_rows).min(total_env);
+
             let block = Block::default()
                 .title(format!(" Environment Variables ({}) ", total_env))
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
                     ratatui::widgets::block::Title::from(format!(
-                        " Showing {}/{} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
-                        if total_env == 0 { 0 } else { state.process_detail_scroll + 1 },
+                        " Showing {}-{} of {} | [↑/↓/PgUp/PgDn/Home/End] Scroll ",
+                        start_item,
+                        end_item,
                         total_env
                     ))
                     .alignment(Alignment::Right),
@@ -1331,12 +1366,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &AppState, area: Rect, transl
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
-            let inner = block.inner(content_area);
             f.render_widget(block, content_area);
-
-            let visible_rows = inner.height.saturating_sub(2) as usize;
-            let max_scroll = total_env.saturating_sub(visible_rows);
-            let scroll = state.process_detail_scroll.min(max_scroll);
 
             let rows: Vec<Row> = process.environ.iter().skip(scroll).take(visible_rows).map(|env_str| {
                 let (var, val) = match env_str.split_once('=') {
