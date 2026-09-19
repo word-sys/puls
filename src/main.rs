@@ -639,6 +639,7 @@ fn handle_key_event(
             state.active_tab = (state.active_tab + 1) % 13;
             state.selected_pid = None;
             state.network_socket_scroll = 0;
+            state.cpu_cores_scroll = 0;
             state.pending_container_action = None;
             state.viewing_container_logs = None;
         }
@@ -646,23 +647,24 @@ fn handle_key_event(
             state.active_tab = (state.active_tab + 12) % 13;
             state.selected_pid = None;
             state.network_socket_scroll = 0;
+            state.cpu_cores_scroll = 0;
             state.pending_container_action = None;
             state.viewing_container_logs = None;
         }
         
-        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 0; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 1; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 2; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 3; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 4; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 5; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 6; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 7; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 8; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 9; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 10; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
-        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 0; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 1; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 2; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 3; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 4; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 5; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 6; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 7; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 8; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 9; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 10; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
         
         KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(5) if state.active_tab == 1 && state.selected_pid.is_none() => {
             state.process_tree_mode = !state.process_tree_mode;
@@ -708,6 +710,25 @@ fn handle_key_event(
         }
         KeyCode::Up if state.active_tab == 1 && state.selected_pid.is_none() => {
             handle_process_navigation(&mut state, false);
+        }
+        
+        KeyCode::Down if state.active_tab == 2 => {
+            state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_add(1);
+        }
+        KeyCode::Up if state.active_tab == 2 => {
+            state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_sub(1);
+        }
+        KeyCode::PageDown if state.active_tab == 2 => {
+            state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_add(6);
+        }
+        KeyCode::PageUp if state.active_tab == 2 => {
+            state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_sub(6);
+        }
+        KeyCode::Home if state.active_tab == 2 => {
+            state.cpu_cores_scroll = 0;
+        }
+        KeyCode::End if state.active_tab == 2 => {
+            state.cpu_cores_scroll = 999;
         }
         
         KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::F(9) if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {

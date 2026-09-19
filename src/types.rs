@@ -316,6 +316,7 @@ pub struct DynamicData {
     pub sensors: Vec<SensorInfo>,
     pub battery: Option<BatteryInfo>,
     pub reboot_required: bool,
+    pub numa_nodes: Vec<NumaNodeInfo>,
     pub last_update: std::time::Instant,
     pub docker_error: Option<String>,
 }
@@ -340,6 +341,7 @@ impl Default for DynamicData {
             sensors: Vec::new(),
             battery: None,
             reboot_required: false,
+            numa_nodes: Vec::new(),
             last_update: std::time::Instant::now(),
             docker_error: None,
         }
@@ -406,6 +408,21 @@ pub struct AppState {
     pub services_subtab: usize,
     pub user_sessions: Vec<UserSessionInfo>,
     pub user_sessions_loaded: bool,
+    pub cpu_cores_scroll: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
+pub struct NumaNodeInfo {
+    pub id: usize,
+    pub name: String,
+    pub cpus: Vec<usize>,
+    pub cpu_list_str: String,
+    pub mem_total_bytes: u64,
+    pub mem_used_bytes: u64,
+    pub mem_free_bytes: u64,
+    pub numa_hit: Option<u64>,
+    pub numa_miss: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -1539,8 +1539,8 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
+            Constraint::Percentage(45), // Charts & Overview
+            Constraint::Percentage(55), // Detailed Cores Grid
         ])
         .split(area);
         
@@ -1555,11 +1555,24 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     let virt = state.system_info.iter().find(|(k, _)| k == "Virtualization").map(|(_, v)| v.as_str()).unwrap_or("N/A");
     
     let usage = &state.dynamic_data.global_usage;
+    let numa_nodes = &state.dynamic_data.numa_nodes;
+    let is_multi_numa = numa_nodes.len() > 1;
     
-    let top_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[0]);
+    let top_chunks = if is_multi_numa {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(36), // Usage History Chart
+                Constraint::Percentage(34), // CPU Overview
+                Constraint::Percentage(30), // NUMA Topology
+            ])
+            .split(chunks[0])
+    } else {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(chunks[0])
+    };
     
     let avg_freq = if !cores.is_empty() {
         cores.iter().map(|c| c.freq).sum::<u64>() as f64 / cores.len() as f64
@@ -1580,7 +1593,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         None
     };
 
-    let info_text = vec![
+    let mut info_text = vec![
         Line::from(vec![
             Span::styled("Model: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(cpu_model, Style::default().fg(theme.text)),
@@ -1645,6 +1658,33 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             Span::styled(crate::utils::format_duration(usage.uptime), Style::default().fg(theme.text)),
         ]),
     ];
+
+    if !numa_nodes.is_empty() {
+        let numa_summary = if numa_nodes.len() == 1 {
+            let n = &numa_nodes[0];
+            let hit_str = if let (Some(h), Some(m)) = (n.numa_hit, n.numa_miss) {
+                let total = h + m;
+                if total > 0 {
+                    format!(" | Hits: {:.1}%", (h as f64 / total as f64) * 100.0)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            format!("1 Node ({} cores | RAM: {}{})", n.cpus.len(), crate::utils::format_size(n.mem_total_bytes), hit_str)
+        } else {
+            let parts: Vec<String> = numa_nodes.iter().map(|n| {
+                format!("N{}: {}c ({})", n.id, n.cpus.len(), crate::utils::format_size(n.mem_total_bytes))
+            }).collect();
+            format!("{} Nodes [{}]", numa_nodes.len(), parts.join(" | "))
+        };
+
+        info_text.push(Line::from(vec![
+            Span::styled("NUMA: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(numa_summary, Style::default().fg(theme.text)),
+        ]));
+    }
     
     let info_paragraph = Paragraph::new(info_text)
         .block(Block::default()
@@ -1686,85 +1726,196 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             ])
             .style(Style::default().fg(theme.text_secondary)));
     f.render_widget(chart, top_chunks[0]);
+
+    if is_multi_numa {
+        let mut numa_lines = Vec::new();
+        for node in numa_nodes {
+            let mem_pct = if node.mem_total_bytes > 0 {
+                (node.mem_used_bytes as f64 / node.mem_total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
+            let bar_len: usize = 8;
+            let filled = ((mem_pct.clamp(0.0, 100.0) / 100.0) * bar_len as f64).round() as usize;
+            let empty = bar_len.saturating_sub(filled);
+            let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
+
+            numa_lines.push(Line::from(vec![
+                Span::styled(format!("Node {}: ", node.id), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::raw(format!("{} cores ({})", node.cpus.len(), node.cpu_list_str)),
+            ]));
+            numa_lines.push(Line::from(vec![
+                Span::styled("  RAM: ", Style::default().fg(theme.text_secondary)),
+                Span::raw(format!("{} / {} {} {:.0}%", crate::utils::format_size(node.mem_used_bytes), crate::utils::format_size(node.mem_total_bytes), bar, mem_pct)),
+            ]));
+            if let (Some(h), Some(m)) = (node.numa_hit, node.numa_miss) {
+                let total = h + m;
+                let hit_ratio = if total > 0 { (h as f64 / total as f64) * 100.0 } else { 100.0 };
+                numa_lines.push(Line::from(vec![
+                    Span::styled("  Hits: ", Style::default().fg(theme.text_secondary)),
+                    Span::raw(format!("{:.1}% (Hits: {}, Misses: {})", hit_ratio, h, m)),
+                ]));
+            }
+        }
+
+        let numa_block = Block::default()
+            .title(format!(" NUMA Architecture ({} Nodes) ", numa_nodes.len()))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border));
+
+        f.render_widget(Paragraph::new(numa_lines).block(numa_block), top_chunks[2]);
+    }
     
+    // --- Detailed Core Usage Grid with Multi-Core Scalability ---
     let inner_area = chunks[1];
+    let num_cores = cores.len();
+
+    let boxed_col_width = 22;
+    let boxed_cols = (inner_area.width.saturating_sub(2) / boxed_col_width).max(1);
+    let boxed_rows_needed = (num_cores as u16 + boxed_cols - 1) / boxed_cols;
+    let available_height = inner_area.height.saturating_sub(2);
+
+    let use_compact = boxed_rows_needed * 3 > available_height || num_cores > 24;
+
+    let (cores_per_row, rows_needed, row_height) = if use_compact {
+        let compact_col_width = 18;
+        let cols = (inner_area.width.saturating_sub(2) / compact_col_width).max(1);
+        let rows = (num_cores as u16 + cols - 1) / cols;
+        (cols, rows, 1u16)
+    } else {
+        let core_h = (available_height / boxed_rows_needed).min(4).max(3);
+        (boxed_cols, boxed_rows_needed, core_h)
+    };
+
+    let visible_rows = (available_height / row_height) as usize;
+    let max_scroll = (rows_needed as usize).saturating_sub(visible_rows);
+    let current_scroll = state.cpu_cores_scroll.min(max_scroll);
+
+    let title = if rows_needed as usize > visible_rows {
+        let start_row = current_scroll + 1;
+        let end_row = (current_scroll + visible_rows).min(rows_needed as usize);
+        format!(" Detailed Core Usage ({} cores) [Rows {}-{} of {} | ↑↓ to scroll] ", num_cores, start_row, end_row, rows_needed)
+    } else {
+        format!(" Detailed Core Usage ({} cores) ", num_cores)
+    };
+
     let block = Block::default()
-        .title(format!(" Detailed Core Usage ({} cores) ", cores.len()))
+        .title(title)
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
         
     let grid_area = block.inner(inner_area);
     f.render_widget(block, inner_area);
-    
-    let min_core_width = 24;
-    let cores_per_row = (grid_area.width / min_core_width).max(1);
-    let rows_needed = (cores.len() as u16 + cores_per_row - 1) / cores_per_row;
-    
-    if rows_needed == 0 {
+
+    if rows_needed == 0 || grid_area.height == 0 {
         return;
     }
 
-    let core_height = (grid_area.height / rows_needed).max(3);
-    
-    let row_constraints: Vec<Constraint> = (0..rows_needed)
-        .map(|_| Constraint::Length(core_height))
+    let rows_to_render = visible_rows.min((rows_needed as usize).saturating_sub(current_scroll));
+    let row_constraints: Vec<Constraint> = (0..rows_to_render)
+        .map(|_| Constraint::Length(row_height))
         .collect();
-    
+
     let rows_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(row_constraints)
         .split(grid_area);
-    
-    for (row_idx, row_area) in rows_layout.iter().enumerate() {
+
+    for (display_idx, row_area) in rows_layout.iter().enumerate() {
+        let row_idx = current_scroll + display_idx;
         let start_core = row_idx * cores_per_row as usize;
-        if start_core >= cores.len() {
+        if start_core >= num_cores {
             break;
         }
-        
-        let cores_in_this_row = (cores.len() - start_core).min(cores_per_row as usize);
+
+        let cores_in_this_row = (num_cores - start_core).min(cores_per_row as usize);
         let core_constraints = vec![Constraint::Ratio(1, cores_per_row as u32); cores_in_this_row];
-        
+
         let cores_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(core_constraints)
             .split(*row_area);
-        
+
         for (i, core_area) in cores_layout.iter().take(cores_in_this_row).enumerate() {
             let core_idx = start_core + i;
             let core = &cores[core_idx];
-            
             let core_color = get_usage_color(core.usage as f32);
-            
-            let temp_str = core.temp
-                .map(|t| format!(" {:.0}°C", t))
-                .unwrap_or_default();
-            
-            let content = Line::from(vec![
-                Span::styled(format!(" C{} ", core_idx), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" {:.2}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
-                Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
-                Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
-            ]);
-            
-            let core_block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.border));
-                
-            let inner_core_area = core_block.inner(*core_area);
-            f.render_widget(core_block, *core_area);
 
-            let vertical_center = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(core_height.saturating_sub(1) / 2),
-                    Constraint::Length(1),
-                    Constraint::Min(0),
-                ])
-                .split(inner_core_area);
-                
-            f.render_widget(Paragraph::new(content), vertical_center[1]);
+            let core_label = if is_multi_numa {
+                let numa_id = numa_nodes.iter()
+                    .find(|n| n.cpus.contains(&core_idx))
+                    .map(|n| n.id)
+                    .unwrap_or(0);
+                format!("N{}:C{:02}", numa_id, core_idx)
+            } else {
+                format!("C{:02}", core_idx)
+            };
+
+            if use_compact {
+                let bar_len: usize = 6;
+                let filled = ((core.usage.clamp(0.0, 100.0) / 100.0) * bar_len as f32).round() as usize;
+                let empty = bar_len.saturating_sub(filled);
+                let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+
+                let temp_str = core.temp
+                    .map(|t| format!(" {:.0}°", t))
+                    .unwrap_or_default();
+
+                let spans = if core_area.width >= 24 {
+                    vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text_secondary)),
+                        Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
+                    ]
+                } else if core_area.width >= 18 {
+                    vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                    ]
+                } else {
+                    vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {:>4.0}%", core.usage), Style::default().fg(core_color)),
+                    ]
+                };
+
+                f.render_widget(Paragraph::new(Line::from(spans)), *core_area);
+            } else {
+                let temp_str = core.temp
+                    .map(|t| format!(" {:.0}°C", t))
+                    .unwrap_or_default();
+
+                let content = Line::from(vec![
+                    Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" {:.2}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
+                    Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                    Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
+                ]);
+
+                let core_block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border));
+
+                let inner_core_area = core_block.inner(*core_area);
+                f.render_widget(core_block, *core_area);
+
+                let vertical_center = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(row_height.saturating_sub(1) / 2),
+                        Constraint::Length(1),
+                        Constraint::Min(0),
+                    ])
+                    .split(inner_core_area);
+
+                f.render_widget(Paragraph::new(content), vertical_center[1]);
+            }
         }
     }
 }
@@ -2577,6 +2728,7 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         match state.active_tab {
             0 => translator.t("help.dashboard"),
             1 => translator.t("help.process"),
+            2 => "↑↓/PgUp/PgDn: Scroll Cores | Quit: q".to_string(),
             8 => if state.services_subtab == 1 {
                 "←/→: Switch Subtabs | ↑↓/PgUp/PgDn: Scroll Timers | Quit: q".to_string()
             } else {

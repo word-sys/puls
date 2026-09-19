@@ -5,11 +5,13 @@ pub mod gpu_monitor;
 pub mod container_monitor;
 pub mod network_sockets;
 pub mod power_monitor;
+pub mod numa_monitor;
 
 pub use system_monitor::SystemMonitor;
 pub use gpu_monitor::GpuMonitor;
 pub use container_monitor::ContainerMonitor;
 pub use power_monitor::PowerMonitor;
+pub use numa_monitor::NumaMonitor;
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -23,6 +25,7 @@ pub struct DataCollector {
     gpu_monitor: GpuMonitor,
     container_monitor: ContainerMonitor,
     power_monitor: PowerMonitor,
+    numa_monitor: NumaMonitor,
     config: AppConfig,
     last_update: Instant,
 }
@@ -34,6 +37,7 @@ impl DataCollector {
             gpu_monitor: GpuMonitor::new(),
             container_monitor: ContainerMonitor::new(),
             power_monitor: PowerMonitor::new(),
+            numa_monitor: NumaMonitor::new(),
             config,
             last_update: Instant::now(),
         }
@@ -193,6 +197,7 @@ impl DataCollector {
         let battery = self.power_monitor.get_battery_info();
         let reboot_required = std::path::Path::new("/var/run/reboot-required").exists()
             || std::path::Path::new("/run/reboot-required").exists();
+        let numa_nodes = self.numa_monitor.get_numa_nodes();
 
         DynamicData {
             processes,
@@ -208,6 +213,7 @@ impl DataCollector {
             sensors,
             battery,
             reboot_required,
+            numa_nodes,
             last_update: std::time::Instant::now(),
             docker_error,
         }
@@ -227,6 +233,30 @@ impl DataCollector {
             }
             let ac_str = if bat.ac_online { "Connected" } else { "Disconnected" };
             info.push(("Power Source".to_string(), format!("Battery {} (AC: {})", bat.name, ac_str)));
+        }
+
+        let numa_nodes = self.numa_monitor.get_numa_nodes();
+        if !numa_nodes.is_empty() {
+            info.push(("NUMA Nodes".to_string(), format!("{} Node(s)", numa_nodes.len())));
+            for n in &numa_nodes {
+                let mem_str = format!("{} / {}", crate::utils::format_size(n.mem_used_bytes), crate::utils::format_size(n.mem_total_bytes));
+                let cpus_summary = if n.cpu_list_str.is_empty() {
+                    format!("{} cores", n.cpus.len())
+                } else {
+                    format!("cores {} ({} total)", n.cpu_list_str, n.cpus.len())
+                };
+                let hit_str = if let (Some(h), Some(m)) = (n.numa_hit, n.numa_miss) {
+                    let total = h + m;
+                    if total > 0 {
+                        format!(" | Hits: {:.1}%", (h as f64 / total as f64) * 100.0)
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+                info.push((format!("  └─ Node {}", n.id), format!("{} | RAM: {}{}", cpus_summary, mem_str, hit_str)));
+            }
         }
 
         let mut features = Vec::new();
