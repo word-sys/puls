@@ -68,7 +68,7 @@ impl GpuMonitor {
         }
 
         let output = Command::new("nvidia-smi")
-            .arg("--query-gpu=name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,temperature.memory,power.draw,clocks.gr,clocks.mem,fan.speed,driver_version,pcie.link.gen.current,pcie.link.width.current")
+            .arg("--query-gpu=name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,temperature.memory,power.draw,clocks.gr,clocks.mem,fan.speed,driver_version,pcie.link.gen.current,pcie.link.width.current,power.limit,pcie.link.gen.max,pcie.link.width.max,clocks_throttle_reasons.active")
             .arg("--format=csv,noheader,nounits")
             .output();
 
@@ -86,47 +86,9 @@ impl GpuMonitor {
         let mut gpus = Vec::new();
         
         for line in stdout.lines() {
-            let parts: Vec<&str> = line.split(", ").collect();
-            if parts.len() < 13 {
-                continue;
+            if let Some(gpu) = parse_nvidia_smi_line(line) {
+                gpus.push(gpu);
             }
-            
-            let name            = parts[0].to_string();
-            let utilization     = parts[1].parse::<u32>().unwrap_or(0);
-            let mem_util        = parts[2].parse::<u32>().ok(); 
-            let memory_used     = parts[3].parse::<u64>().unwrap_or(0) * 1024 * 1024;
-            let memory_total    = parts[4].parse::<u64>().unwrap_or(0) * 1024 * 1024;
-            let temperature     = parts[5].parse::<u32>().unwrap_or(0);
-            let mem_temp        = parts[6].trim().parse::<u32>().ok();
-            let power_usage     = (parts[7].parse::<f32>().unwrap_or(0.0) * 1000.0) as u32;
-            let graphics_clock  = parts[8].parse::<u32>().unwrap_or(0);
-            let memory_clock    = parts[9].parse::<u32>().unwrap_or(0);
-            let fan_speed       = parts[10].trim().parse::<u32>().ok();
-            let driver_version  = parts.get(11).unwrap_or(&"Unknown").trim().to_string();
-            let pci_link_gen    = parts.get(12).and_then(|s| s.trim().parse::<u32>().ok());
-            let pci_link_width  = parts.get(13).and_then(|s| s.trim().parse::<u32>().ok());
-            
-            gpus.push(GpuInfo {
-                name,
-                brand: "NVIDIA".to_string(),
-                utilization,
-                memory_utilization: mem_util,
-                memory_used,
-                memory_total,
-                temperature,
-                memory_temperature: mem_temp,  
-                vram_temp: None,              
-                power_usage,
-                graphics_clock,
-                memory_clock,
-                fan_speed,
-                fan_rpm: None,                
-                pci_link_gen,
-                pci_link_width,
-                driver_version,
-                utilization_history: Vec::new(),
-                memory_history: Vec::new(),
-            });
         }
         
         self.nvidia_cache = gpus.clone();
@@ -215,23 +177,22 @@ impl GpuMonitor {
         
         let pci_link_gen = fs::read_to_string(device_path.join("current_link_speed"))
             .ok()
-            .and_then(|s| {
-                let s = s.trim();
-                if s.contains("GT/s") {
-                    if s.contains("2.5") { Some(1) }
-                    else if s.contains("5.0") { Some(2) }
-                    else if s.contains("8.0") { Some(3) }
-                    else if s.contains("16.0") { Some(4) }
-                    else if s.contains("32.0") { Some(5) }
-                    else { None }
-                } else {
-                    s.parse::<u32>().ok()
-                }
-            });
+            .and_then(|s| parse_pci_link_speed_from_str(&s));
 
         let pci_link_width = fs::read_to_string(device_path.join("current_link_width"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok());
+
+        let pci_link_gen_max = fs::read_to_string(device_path.join("max_link_speed"))
+            .ok()
+            .and_then(|s| parse_pci_link_speed_from_str(&s));
+
+        let pci_link_width_max = fs::read_to_string(device_path.join("max_link_width"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok());
+
+        let power_limit = self.find_hwmon_power_limit(device_path);
+        let (throttle_reasons, is_throttling) = self.find_amd_throttling(device_path);
 
         let memory_utilization = fs::read_to_string(device_path.join("mem_busy_percent"))
             .ok()
@@ -270,6 +231,11 @@ impl GpuMonitor {
             fan_rpm,
             pci_link_gen,
             pci_link_width,
+            pci_link_gen_max,
+            pci_link_width_max,
+            power_limit,
+            throttle_reasons,
+            is_throttling,
             driver_version: driver_ver,
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
@@ -432,6 +398,23 @@ impl GpuMonitor {
              
         let temperature = self.find_hwmon_temp(device_path).unwrap_or(0);
         let power_usage = self.find_hwmon_power(device_path).unwrap_or(0);
+        let power_limit = self.find_hwmon_power_limit(device_path);
+        let (throttle_reasons, is_throttling) = self.find_intel_throttling(card_path, device_path);
+
+        let pci_link_gen = fs::read_to_string(device_path.join("current_link_speed"))
+            .ok()
+            .and_then(|s| parse_pci_link_speed_from_str(&s));
+        let pci_link_width = fs::read_to_string(device_path.join("current_link_width"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|&w| w > 0);
+        let pci_link_gen_max = fs::read_to_string(device_path.join("max_link_speed"))
+            .ok()
+            .and_then(|s| parse_pci_link_speed_from_str(&s));
+        let pci_link_width_max = fs::read_to_string(device_path.join("max_link_width"))
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|&w| w > 0 && w < 255);
         
         Ok(GpuInfo {
             name,
@@ -448,8 +431,13 @@ impl GpuMonitor {
             memory_clock,
             fan_speed: None, 
             fan_rpm: self.find_hwmon_fan(device_path).0,
-            pci_link_gen: None,
-            pci_link_width: None,
+            pci_link_gen,
+            pci_link_width,
+            pci_link_gen_max,
+            pci_link_width_max,
+            power_limit,
+            throttle_reasons,
+            is_throttling,
             driver_version: "i915/xe".to_string(),
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
@@ -563,6 +551,134 @@ impl GpuMonitor {
         }
         None
     }
+
+    fn find_hwmon_power_limit(&self, device_path: &Path) -> Option<u32> {
+        let hwmon_dir = device_path.join("hwmon");
+        if let Ok(entries) = fs::read_dir(hwmon_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Ok(hwmon_entries) = fs::read_dir(&path) {
+                        for hwmon_entry in hwmon_entries.flatten() {
+                            let file_name = hwmon_entry.file_name().to_string_lossy().to_string();
+                            if file_name == "power1_cap" || file_name == "power1_max" {
+                                if let Ok(s) = fs::read_to_string(hwmon_entry.path()) {
+                                    if let Ok(val) = s.trim().parse::<u32>() {
+                                        return Some(val / 1000);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_amd_throttling(&self, device_path: &Path) -> (Option<String>, bool) {
+        let hwmon_dir = device_path.join("hwmon");
+        let mut reasons = Vec::new();
+        let mut throttled = false;
+
+        if let Ok(entries) = fs::read_dir(&hwmon_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() { continue; }
+
+                for alarm in ["temp1_crit_alarm", "temp2_crit_alarm", "temp3_crit_alarm", "temp1_emergency_alarm", "temp1_alarm"] {
+                    if let Ok(s) = fs::read_to_string(path.join(alarm)) {
+                        if s.trim() == "1" {
+                            reasons.push("Thermal");
+                            throttled = true;
+                            break;
+                        }
+                    }
+                }
+
+                if let Ok(s) = fs::read_to_string(path.join("power1_cap_alarm")) {
+                    if s.trim() == "1" {
+                        reasons.push("Power Cap");
+                        throttled = true;
+                    }
+                }
+            }
+        }
+
+        if throttled {
+            (Some(reasons.join(", ")), true)
+        } else {
+            (Some("None".to_string()), false)
+        }
+    }
+
+    fn find_intel_throttling(&self, card_path: &Path, device_path: &Path) -> (Option<String>, bool) {
+        let mut reasons = Vec::new();
+        let mut throttled = false;
+
+        let check_dirs = [
+            card_path.join("gt/gt0"),
+            card_path.join("gt"),
+            device_path.join("gt/gt0"),
+            device_path.join("gt"),
+        ];
+
+        for dir in &check_dirs {
+            if dir.is_dir() {
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_thermal")) {
+                    if s.trim() == "1" {
+                        reasons.push("Thermal");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_prochot")) {
+                    if s.trim() == "1" {
+                        reasons.push("PROCHOT");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_pl1")) {
+                    if s.trim() == "1" {
+                        reasons.push("Power PL1");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_pl2")) {
+                    if s.trim() == "1" {
+                        reasons.push("Power PL2");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_pl4")) {
+                    if s.trim() == "1" {
+                        reasons.push("Power PL4");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_vr_thermalert")) {
+                    if s.trim() == "1" {
+                        reasons.push("VR Thermal");
+                        throttled = true;
+                    }
+                }
+                if let Ok(s) = fs::read_to_string(dir.join("throttle_reason_status")) {
+                    if s.trim() == "1" && reasons.is_empty() {
+                        reasons.push("Throttled");
+                        throttled = true;
+                    }
+                }
+                if throttled {
+                    break;
+                }
+            }
+        }
+
+        if throttled {
+            (Some(reasons.join(", ")), true)
+        } else {
+            (Some("None".to_string()), false)
+        }
+    }
     
     pub fn get_primary_gpu_utilization(&self, gpus: &[GpuInfo]) -> Option<u32> {
         if gpus.is_empty() {
@@ -602,5 +718,249 @@ impl GpuMonitor {
     
     pub fn is_available(&self) -> bool {
         true
+    }
+}
+
+pub fn parse_pci_link_speed_from_str(s: &str) -> Option<u32> {
+    let s = s.trim();
+    if s.contains("GT/s") {
+        if s.contains("2.5") { Some(1) }
+        else if s.contains("5.0") { Some(2) }
+        else if s.contains("8.0") { Some(3) }
+        else if s.contains("16.0") { Some(4) }
+        else if s.contains("32.0") { Some(5) }
+        else if s.contains("64.0") { Some(6) }
+        else { None }
+    } else {
+        s.parse::<u32>().ok()
+    }
+}
+
+pub fn parse_nvidia_throttle_mask(mask: u64) -> (Option<String>, bool) {
+    let mut reasons = Vec::new();
+
+    let has_hw_thermal = (mask & 0x0040) != 0;
+    let has_sw_thermal = (mask & 0x0020) != 0;
+    let has_sw_power_cap = (mask & 0x0004) != 0;
+    let has_hw_power_brake = (mask & 0x0080) != 0;
+    let has_hw_slowdown = (mask & 0x0008) != 0;
+
+    if has_hw_thermal {
+        reasons.push("HW Thermal");
+    } else if has_sw_thermal {
+        reasons.push("SW Thermal");
+    }
+
+    if has_sw_power_cap {
+        reasons.push("Power Cap");
+    }
+    if has_hw_power_brake {
+        reasons.push("Power Brake");
+    }
+
+    if has_hw_slowdown && !has_hw_thermal && !has_sw_thermal && !has_hw_power_brake {
+        reasons.push("HW Slowdown");
+    }
+
+    let is_throttling = has_hw_thermal || has_sw_thermal || has_sw_power_cap || has_hw_power_brake || has_hw_slowdown;
+
+    if reasons.is_empty() {
+        if (mask & 0x0001) != 0 {
+            (Some("Idle".to_string()), false)
+        } else if mask == 0 {
+            (Some("None".to_string()), false)
+        } else {
+            (Some("Normal".to_string()), false)
+        }
+    } else {
+        (Some(reasons.join(", ")), is_throttling)
+    }
+}
+
+pub fn parse_nvidia_smi_line(line: &str) -> Option<GpuInfo> {
+    let parts: Vec<&str> = line.split(", ").collect();
+    if parts.len() < 13 {
+        return None;
+    }
+
+    let name            = parts[0].to_string();
+    let utilization     = parts[1].parse::<u32>().unwrap_or(0);
+    let mem_util        = parts[2].parse::<u32>().ok(); 
+    let memory_used     = parts[3].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+    let memory_total    = parts[4].parse::<u64>().unwrap_or(0) * 1024 * 1024;
+    let temperature     = parts[5].parse::<u32>().unwrap_or(0);
+    let mem_temp        = parts[6].trim().parse::<u32>().ok();
+    let power_usage     = (parts[7].parse::<f32>().unwrap_or(0.0) * 1000.0) as u32;
+    let graphics_clock  = parts[8].parse::<u32>().unwrap_or(0);
+    let memory_clock    = parts[9].parse::<u32>().unwrap_or(0);
+    let fan_speed       = parts[10].trim().parse::<u32>().ok();
+    let driver_version  = parts.get(11).unwrap_or(&"Unknown").trim().to_string();
+    let pci_link_gen    = parts.get(12).and_then(|s| s.trim().parse::<u32>().ok());
+    let pci_link_width  = parts.get(13).and_then(|s| s.trim().parse::<u32>().ok());
+
+    let power_limit = parts.get(14).and_then(|s| {
+        let s = s.trim();
+        if s == "[N/A]" || s == "N/A" || s == "[Not Supported]" {
+            None
+        } else {
+            s.parse::<f32>().ok().map(|w| (w * 1000.0) as u32)
+        }
+    });
+
+    let pci_link_gen_max = parts.get(15).and_then(|s| {
+        let s = s.trim();
+        if s == "[N/A]" || s == "N/A" || s == "[Not Supported]" {
+            None
+        } else {
+            s.parse::<u32>().ok()
+        }
+    });
+
+    let pci_link_width_max = parts.get(16).and_then(|s| {
+        let s = s.trim();
+        if s == "[N/A]" || s == "N/A" || s == "[Not Supported]" {
+            None
+        } else {
+            s.parse::<u32>().ok()
+        }
+    });
+
+    let (throttle_reasons, is_throttling) = if let Some(raw) = parts.get(17) {
+        let s = raw.trim();
+        if s == "[N/A]" || s == "N/A" || s == "[Not Supported]" {
+            (None, false)
+        } else {
+            let hex_str = s.trim_start_matches("0x").trim_start_matches("0X");
+            if let Ok(mask) = u64::from_str_radix(hex_str, 16) {
+                parse_nvidia_throttle_mask(mask)
+            } else {
+                (None, false)
+            }
+        }
+    } else {
+        (None, false)
+    };
+
+    Some(GpuInfo {
+        name,
+        brand: "NVIDIA".to_string(),
+        utilization,
+        memory_utilization: mem_util,
+        memory_used,
+        memory_total,
+        temperature,
+        memory_temperature: mem_temp,
+        vram_temp: None,
+        power_usage,
+        graphics_clock,
+        memory_clock,
+        fan_speed,
+        fan_rpm: None,
+        pci_link_gen,
+        pci_link_width,
+        pci_link_gen_max,
+        pci_link_width_max,
+        power_limit,
+        throttle_reasons,
+        is_throttling,
+        driver_version,
+        utilization_history: Vec::new(),
+        memory_history: Vec::new(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_pci_link_speed() {
+        assert_eq!(parse_pci_link_speed_from_str("2.5 GT/s PCIe"), Some(1));
+        assert_eq!(parse_pci_link_speed_from_str("5.0 GT/s PCIe"), Some(2));
+        assert_eq!(parse_pci_link_speed_from_str("8.0 GT/s PCIe"), Some(3));
+        assert_eq!(parse_pci_link_speed_from_str("16.0 GT/s PCIe"), Some(4));
+        assert_eq!(parse_pci_link_speed_from_str("32.0 GT/s PCIe"), Some(5));
+        assert_eq!(parse_pci_link_speed_from_str("64.0 GT/s PCIe"), Some(6));
+        assert_eq!(parse_pci_link_speed_from_str("4"), Some(4));
+        assert_eq!(parse_pci_link_speed_from_str("Unknown"), None);
+    }
+
+    #[test]
+    fn test_parse_nvidia_throttle_mask() {
+        // Idle
+        let (reason, throttling) = parse_nvidia_throttle_mask(0x1);
+        assert_eq!(reason.as_deref(), Some("Idle"));
+        assert!(!throttling);
+
+        // None
+        let (reason, throttling) = parse_nvidia_throttle_mask(0x0);
+        assert_eq!(reason.as_deref(), Some("None"));
+        assert!(!throttling);
+
+        // SW Power Cap
+        let (reason, throttling) = parse_nvidia_throttle_mask(0x4);
+        assert_eq!(reason.as_deref(), Some("Power Cap"));
+        assert!(throttling);
+
+        // HW Thermal
+        let (reason, throttling) = parse_nvidia_throttle_mask(0x40);
+        assert_eq!(reason.as_deref(), Some("HW Thermal"));
+        assert!(throttling);
+
+        // SW Thermal + Power Cap
+        let (reason, throttling) = parse_nvidia_throttle_mask(0x24);
+        assert_eq!(reason.as_deref(), Some("SW Thermal, Power Cap"));
+        assert!(throttling);
+    }
+
+    #[test]
+    fn test_parse_nvidia_smi_line() {
+        let line = "NVIDIA GeForce RTX 4090, 45, 20, 4096, 24576, 55, 60, 220.5, 2520, 10500, 40, 550.54, 4, 16, 450.0, 4, 16, 0x0000000000000004";
+        let gpu = parse_nvidia_smi_line(line).expect("parse failed");
+        assert_eq!(gpu.name, "NVIDIA GeForce RTX 4090");
+        assert_eq!(gpu.brand, "NVIDIA");
+        assert_eq!(gpu.utilization, 45);
+        assert_eq!(gpu.memory_utilization, Some(20));
+        assert_eq!(gpu.memory_used, 4096 * 1024 * 1024);
+        assert_eq!(gpu.memory_total, 24576 * 1024 * 1024);
+        assert_eq!(gpu.temperature, 55);
+        assert_eq!(gpu.memory_temperature, Some(60));
+        assert_eq!(gpu.power_usage, 220500);
+        assert_eq!(gpu.graphics_clock, 2520);
+        assert_eq!(gpu.memory_clock, 10500);
+        assert_eq!(gpu.fan_speed, Some(40));
+        assert_eq!(gpu.driver_version, "550.54");
+        assert_eq!(gpu.pci_link_gen, Some(4));
+        assert_eq!(gpu.pci_link_width, Some(16));
+        assert_eq!(gpu.power_limit, Some(450000));
+        assert_eq!(gpu.pci_link_gen_max, Some(4));
+        assert_eq!(gpu.pci_link_width_max, Some(16));
+        assert_eq!(gpu.throttle_reasons.as_deref(), Some("Power Cap"));
+        assert!(gpu.is_throttling);
+    }
+
+    #[test]
+    fn test_parse_nvidia_smi_line_with_na() {
+        let line = "NVIDIA GeForce RTX 4060 Laptop GPU, 0, 0, 15, 8188, 44, N/A, 15.91, 2250, 7825, [N/A], 580.178.04, 4, 8, [N/A], 4, 8, 0x0000000000000001";
+        let gpu = parse_nvidia_smi_line(line).expect("parse failed");
+        assert_eq!(gpu.name, "NVIDIA GeForce RTX 4060 Laptop GPU");
+        assert_eq!(gpu.power_limit, None);
+        assert_eq!(gpu.pci_link_gen, Some(4));
+        assert_eq!(gpu.pci_link_width, Some(8));
+        assert_eq!(gpu.pci_link_gen_max, Some(4));
+        assert_eq!(gpu.pci_link_width_max, Some(8));
+        assert_eq!(gpu.throttle_reasons.as_deref(), Some("Idle"));
+        assert!(!gpu.is_throttling);
+    }
+
+    #[test]
+    fn test_gpu_monitor_query() {
+        let mut monitor = GpuMonitor::new();
+        if let Ok(gpus) = monitor.get_gpu_info() {
+            for gpu in gpus {
+                assert!(!gpu.name.is_empty());
+                assert!(!gpu.brand.is_empty());
+            }
+        }
     }
 }

@@ -87,6 +87,11 @@ pub struct GpuInfo {
     pub memory_history: Vec<u32>,
     pub pci_link_gen: Option<u32>,
     pub pci_link_width: Option<u32>,
+    pub pci_link_gen_max: Option<u32>,
+    pub pci_link_width_max: Option<u32>,
+    pub power_limit: Option<u32>,
+    pub throttle_reasons: Option<String>,
+    pub is_throttling: bool,
     pub driver_version: String,
 }
 

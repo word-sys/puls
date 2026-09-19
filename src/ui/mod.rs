@@ -760,7 +760,11 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
 
     let gpu_str = if let Ok(gpus) = &state.dynamic_data.gpus {
         if let Some(gpu) = gpus.first() {
-            format!(" | GPU: {}% ({}°C)", gpu.utilization, gpu.temperature)
+            if gpu.is_throttling {
+                format!(" | GPU: {}% ({}°C [THROTTLED])", gpu.utilization, gpu.temperature)
+            } else {
+                format!(" | GPU: {}% ({}°C)", gpu.utilization, gpu.temperature)
+            }
         } else {
             String::new()
         }
@@ -2164,13 +2168,23 @@ fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect,
 }
 
 fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize, theme: &crate::ui::colors::ColorScheme) {
-    let title = format!(" GPU {} - {}°C ", index, gpu.temperature);
+    let title = if gpu.is_throttling {
+        format!(" GPU {} - {}°C [THROTTLED: {}] ", index, gpu.temperature, gpu.throttle_reasons.as_deref().unwrap_or("Active"))
+    } else {
+        format!(" GPU {} - {}°C ", index, gpu.temperature)
+    };
+
+    let border_color = if gpu.is_throttling {
+        theme.warning
+    } else {
+        theme.border
+    };
     
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(theme.border));
+        .border_style(Style::default().fg(border_color));
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -2182,7 +2196,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
             Constraint::Length(1),  // Gauge
             Constraint::Percentage(30), // Utilization Chart
             Constraint::Percentage(30), // Memory Chart
-            Constraint::Min(3),     // Details
+            Constraint::Min(5),     // Details
         ])
         .split(inner_area);
     
@@ -2271,15 +2285,57 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         0.0
     };
     
-    let pcie_str = match (gpu.pci_link_gen, gpu.pci_link_width) {
-        (Some(gen), Some(width)) => format!("PCIe Gen {} x{}", gen, width),
-        (Some(gen), None) => format!("PCIe Gen {}", gen),
-        _ => "N/A".to_string(),
+    let cur_pcie = match (gpu.pci_link_gen, gpu.pci_link_width) {
+        (Some(gen), Some(width)) => Some(format!("Gen {} x{}", gen, width)),
+        (Some(gen), None) => Some(format!("Gen {}", gen)),
+        _ => None,
+    };
+    let max_pcie = match (gpu.pci_link_gen_max, gpu.pci_link_width_max) {
+        (Some(gen), Some(width)) => Some(format!("Gen {} x{}", gen, width)),
+        (Some(gen), None) => Some(format!("Gen {}", gen)),
+        _ => None,
+    };
+    let pcie_str = match (cur_pcie, max_pcie) {
+        (Some(cur), Some(max)) if cur != max => format!("{} (Max {})", cur, max),
+        (Some(cur), Some(_)) => format!("{} (Max)", cur),
+        (Some(cur), None) => cur,
+        (None, Some(max)) => format!("Max {}", max),
+        (None, None) => "N/A".to_string(),
     };
 
     let mem_util_str = gpu.memory_utilization
         .map(|u| format!("{}% (eng)", u))
         .unwrap_or_else(|| "N/A".to_string());
+
+    let power_str = if let Some(limit) = gpu.power_limit {
+        format!("{:.1} W / {:.1} W", gpu.power_usage as f64 / 1000.0, limit as f64 / 1000.0)
+    } else {
+        format!("{:.2} W", gpu.power_usage as f64 / 1000.0)
+    };
+
+    let throttle_cell = if gpu.is_throttling {
+        Cell::from(Span::styled(
+            gpu.throttle_reasons.as_deref().unwrap_or("Active"),
+            Style::default().fg(theme.error).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        Cell::from(Span::styled(
+            gpu.throttle_reasons.as_deref().unwrap_or("None"),
+            Style::default().fg(theme.success),
+        ))
+    };
+
+    let fan_str = if let Some(fan) = gpu.fan_speed {
+        if let Some(rpm) = gpu.fan_rpm {
+            format!("{}% ({} RPM)", fan, rpm)
+        } else {
+            format!("{}%", fan)
+        }
+    } else if let Some(rpm) = gpu.fan_rpm {
+        format!("{} RPM", rpm)
+    } else {
+        "N/A".to_string()
+    };
 
     let mut table_rows = vec![
         Row::new(vec![
@@ -2295,10 +2351,16 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
             Cell::from(format!("{} MHz", gpu.memory_clock)),
         ]),
         Row::new(vec![
-            Cell::from(Span::styled("Power Draw:", Style::default().fg(theme.accent))),
-            Cell::from(format!("{:.2} W", gpu.power_usage as f64 / 1000.0)),
-            Cell::from(Span::styled("PCIe Version:", Style::default().fg(theme.accent))),
+            Cell::from(Span::styled("Power (Draw/Lim):", Style::default().fg(theme.accent))),
+            Cell::from(power_str),
+            Cell::from(Span::styled("PCIe Link:", Style::default().fg(theme.accent))),
             Cell::from(pcie_str),
+        ]),
+        Row::new(vec![
+            Cell::from(Span::styled("Throttling:", Style::default().fg(theme.accent))),
+            throttle_cell,
+            Cell::from(Span::styled("Fan Speed:", Style::default().fg(theme.accent))),
+            Cell::from(fan_str),
         ]),
         Row::new(vec![
             Cell::from(Span::styled("Driver:", Style::default().fg(theme.accent))),
@@ -2319,27 +2381,6 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         table_rows.push(Row::new(vec![
             Cell::from(Span::styled("Junction Temp:", Style::default().fg(theme.accent))),
             Cell::from(format!("{}°C", junc)),
-            Cell::from(""),
-            Cell::from(""),
-        ]));
-    }
-
-    if let Some(fan) = gpu.fan_speed {
-        let fan_str = if let Some(rpm) = gpu.fan_rpm {
-            format!("{}% ({} RPM)", fan, rpm)
-        } else {
-            format!("{}%", fan)
-        };
-        table_rows.push(Row::new(vec![
-            Cell::from(Span::styled("Fan Speed:", Style::default().fg(theme.accent))),
-            Cell::from(fan_str),
-            Cell::from(""),
-            Cell::from(""),
-        ]));
-    } else if let Some(rpm) = gpu.fan_rpm {
-        table_rows.push(Row::new(vec![
-            Cell::from(Span::styled("Fan RPM:", Style::default().fg(theme.accent))),
-            Cell::from(format!("{} RPM", rpm)),
             Cell::from(""),
             Cell::from(""),
         ]));
