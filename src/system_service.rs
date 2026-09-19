@@ -2,7 +2,7 @@ use std::process::Command;
 use std::path::Path;
 use std::io::Write;
 use std::collections::{HashMap, HashSet};
-use crate::types::{ServiceInfo, LogEntry, ConfigItem};
+use crate::types::{ServiceInfo, LogEntry, ConfigItem, SystemTimerInfo, UserSessionInfo};
 
 pub struct SystemManager {
     has_sudo: bool,
@@ -531,10 +531,185 @@ impl SystemManager {
 
         Ok(())
     }
+
+    pub fn get_systemd_timers(&self) -> Vec<SystemTimerInfo> {
+        let mut timers = Vec::new();
+        if let Ok(output) = Command::new("systemctl")
+            .args(["list-timers", "--no-pager", "--no-legend", "--full"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Some(timer) = parse_systemd_timer_line(line) {
+                    timers.push(timer);
+                }
+            }
+        }
+        timers
+    }
+
+    pub fn get_logged_in_users(&self) -> Vec<UserSessionInfo> {
+        let mut sessions = Vec::new();
+        if let Ok(output) = Command::new("who").output() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Some(session) = parse_who_line(line) {
+                    sessions.push(session);
+                }
+            }
+        }
+        sessions
+    }
+
+    #[allow(dead_code)]
+    pub fn is_reboot_required(&self) -> bool {
+        Path::new("/var/run/reboot-required").exists() || Path::new("/run/reboot-required").exists()
+    }
+}
+
+pub fn parse_systemd_timer_line(line: &str) -> Option<SystemTimerInfo> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 2 {
+        return None;
+    }
+
+    let activates = tokens[tokens.len() - 1].to_string();
+    let unit = tokens[tokens.len() - 2].to_string();
+    if !unit.ends_with(".timer") {
+        return None;
+    }
+
+    let body = &tokens[..tokens.len() - 2];
+    let (next, left, rest) = if let Some(left_idx) = body.iter().position(|&t| t == "left") {
+        let (next_tokens, left_tokens) = if left_idx >= 4 && body[1].contains('-') {
+            let split_pt = if left_idx > 4 && (body[3].starts_with('+') || body[3].starts_with('-')) { 4 }
+            else if left_idx > 3 && (body[4].starts_with('+') || body[4].starts_with('-')) { 5 }
+            else { 3.min(left_idx.saturating_sub(1)) };
+            (&body[..split_pt], &body[split_pt..=left_idx])
+        } else if left_idx > 0 {
+            (&body[..left_idx.saturating_sub(1)], &body[left_idx.saturating_sub(1)..=left_idx])
+        } else {
+            (&body[..left_idx], &body[left_idx..=left_idx])
+        };
+        (next_tokens.join(" "), left_tokens.join(" "), &body[left_idx + 1..])
+    } else if body.first() == Some(&"n/a") {
+        let end_na = body.iter().take_while(|&&t| t == "n/a").count();
+        ("n/a".to_string(), "n/a".to_string(), &body[end_na..])
+    } else {
+        ("—".to_string(), "—".to_string(), body)
+    };
+
+    let (last, passed) = if let Some(ago_idx) = rest.iter().position(|&t| t == "ago") {
+        let split_pt = if ago_idx >= 4 && rest[1].contains('-') {
+            if ago_idx > 4 && (rest[4].starts_with('+') || rest[4].starts_with('-')) { 5 }
+            else { 4 }
+        } else if ago_idx > 0 {
+            ago_idx.saturating_sub(1)
+        } else {
+            ago_idx
+        };
+        (rest[..split_pt].join(" "), rest[split_pt..=ago_idx].join(" "))
+    } else if rest.first() == Some(&"n/a") {
+        ("n/a".to_string(), "n/a".to_string())
+    } else {
+        (rest.join(" "), String::new())
+    };
+
+    Some(SystemTimerInfo {
+        next,
+        left,
+        last,
+        passed,
+        unit,
+        activates,
+    })
+}
+
+pub fn parse_who_line(line: &str) -> Option<UserSessionInfo> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return None;
+    }
+
+    let user = tokens[0].to_string();
+    let line_tty = tokens[1].to_string();
+    let login_time = if tokens.len() >= 4 && tokens[2].contains('-') {
+        format!("{} {}", tokens[2], tokens[3])
+    } else {
+        tokens[2].to_string()
+    };
+
+    let host = if let Some(last) = tokens.last() {
+        if last.starts_with('(') && last.ends_with(')') {
+            last.trim_start_matches('(').trim_end_matches(')').to_string()
+        } else if tokens.len() > 4 {
+            tokens[4..].join(" ")
+        } else {
+            "local".to_string()
+        }
+    } else {
+        "local".to_string()
+    };
+
+    Some(UserSessionInfo {
+        user,
+        line: line_tty,
+        login_time,
+        host,
+    })
 }
 
 impl Default for SystemManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_systemd_timer_line() {
+        let line = "Sat 2026-09-19 14:07:16 +03 6s left Sat 2026-09-19 13:25:42 +03 41min ago fwupd-refresh.timer fwupd-refresh.service";
+        let timer = parse_systemd_timer_line(line).expect("parse timer failed");
+        assert_eq!(timer.unit, "fwupd-refresh.timer");
+        assert_eq!(timer.activates, "fwupd-refresh.service");
+        assert_eq!(timer.left, "6s left");
+        assert_eq!(timer.passed, "41min ago");
+    }
+
+    #[test]
+    fn test_parse_systemd_timer_line_na() {
+        let line = "Sun 2026-09-20 00:00:00 +03 9h left n/a n/a dpkg-db-backup.timer dpkg-db-backup.service";
+        let timer = parse_systemd_timer_line(line).expect("parse timer failed");
+        assert_eq!(timer.unit, "dpkg-db-backup.timer");
+        assert_eq!(timer.activates, "dpkg-db-backup.service");
+        assert_eq!(timer.left, "9h left");
+        assert_eq!(timer.last, "n/a");
+        assert_eq!(timer.passed, "n/a");
+    }
+
+    #[test]
+    fn test_parse_who_line() {
+        let line = "word-sys :0 2026-09-19 12:43 ? 2506 (:0)";
+        let session = parse_who_line(line).expect("parse who failed");
+        assert_eq!(session.user, "word-sys");
+        assert_eq!(session.line, ":0");
+        assert_eq!(session.login_time, "2026-09-19 12:43");
+        assert_eq!(session.host, ":0");
+
+        let line2 = "alice pts/1 2026-09-19 10:15 (192.168.1.100)";
+        let session2 = parse_who_line(line2).expect("parse who failed");
+        assert_eq!(session2.user, "alice");
+        assert_eq!(session2.line, "pts/1");
+        assert_eq!(session2.login_time, "2026-09-19 10:15");
+        assert_eq!(session2.host, "192.168.1.100");
+    }
+
+    #[test]
+    fn test_reboot_check_runs() {
+        let mgr = SystemManager::new();
+        let _ = mgr.is_reboot_required();
     }
 }

@@ -772,13 +772,35 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
         String::new()
     };
 
+    let bat_str = if let Some(bat) = &state.dynamic_data.battery {
+        let is_charging = bat.status.eq_ignore_ascii_case("charging");
+        let sym = if is_charging {
+            "+"
+        } else if bat.ac_online {
+            "="
+        } else {
+            "-"
+        };
+        format!(" | BAT: {}% ({}{})", bat.capacity, sym, bat.status)
+    } else {
+        String::new()
+    };
+
+    let reboot_str = if state.dynamic_data.reboot_required {
+        " | [REBOOT REQUIRED]"
+    } else {
+        ""
+    };
+
     let status_text = format!(
-        "Status {} | CPU: {:.0}% (Eff: {}){}{} | Load: {:.2}/core | Mem: {:.0}% ({} FREE) | Swap: {:.0}% | Up: {} | Procs: {}",
+        "Status {} | CPU: {:.0}% (Eff: {}){}{}{}{} | Load: {:.2}/core | Mem: {:.0}% ({} FREE) | Swap: {:.0}% | Up: {} | Procs: {}",
         status_str,
         usage.cpu,
         cpu_efficiency,
         cpu_temp_str,
         gpu_str,
+        bat_str,
+        reboot_str,
         load_per_core.parse::<f64>().unwrap_or(0.0),
         mem_percent,
         format_size(mem_available),
@@ -787,15 +809,21 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
         state.dynamic_data.processes.len()
     );
     
+    let (border_color, title_suffix) = if state.dynamic_data.reboot_required {
+        (theme.warning, " [REBOOT REQUIRED]")
+    } else {
+        (theme.success, "")
+    };
+
     let status_paragraph = Paragraph::new(status_text)
         .alignment(Alignment::Left)
         .style(Style::default().fg(theme.text))
         .block(
             Block::default()
-                .title(translator.t("title.system_overview"))
+                .title(format!("{}{}", translator.t("title.system_overview"), title_suffix))
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(theme.success))
+                .border_style(Style::default().fg(border_color))
         );
     
     f.render_widget(status_paragraph, area);
@@ -2402,7 +2430,11 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .constraints([
+            Constraint::Percentage(50), // System Info Key-Value Table
+            Constraint::Percentage(35), // Active User Sessions Table
+            Constraint::Percentage(15), // Process & Reboot Summary
+        ])
         .split(area);
     
     let rows = state.system_info.iter().map(|(key, value)| {
@@ -2411,7 +2443,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
     
     let table = Table::new(
         rows,
-        [Constraint::Length(20), Constraint::Min(30)]
+        [Constraint::Length(22), Constraint::Min(30)]
     )
     .block(
         Block::default()
@@ -2423,28 +2455,91 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
     .column_spacing(2);
     
     f.render_widget(table, layout[0]);
+
+    // Active User Sessions
+    let user_rows: Vec<Row> = if state.user_sessions.is_empty() {
+        vec![
+            Row::new(vec![
+                if state.user_sessions_loaded { "No active user sessions found".to_string() } else { "Loading user sessions...".to_string() },
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+            ]).style(Style::default().fg(theme.text_secondary))
+        ]
+    } else {
+        state.user_sessions.iter().map(|s| {
+            Row::new(vec![
+                s.user.clone(),
+                s.line.clone(),
+                s.login_time.clone(),
+                s.host.clone(),
+            ]).style(Style::default().fg(theme.text))
+        }).collect()
+    };
+
+    let user_headers = vec!["User", "Line / TTY", "Login Time", "Remote Host"];
+    let user_table = Table::new(
+        user_rows,
+        [
+            Constraint::Length(18),
+            Constraint::Length(16),
+            Constraint::Length(24),
+            Constraint::Min(20),
+        ]
+    )
+    .header(
+        Row::new(user_headers)
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+    )
+    .block(
+        Block::default()
+            .title(format!(" Active User Sessions ({}) ", state.user_sessions.len()))
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+    )
+    .column_spacing(2);
+
+    f.render_widget(user_table, layout[1]);
     
     use crate::utils::count_process_states;
     let (running, sleeping, zombie, other) = count_process_states(&state.dynamic_data.processes);
     
+    let reboot_badge = if state.dynamic_data.reboot_required {
+        " | Reboot Required: [YES - Pending system restart]"
+    } else {
+        " | Reboot Required: [NO - Clean]"
+    };
+
     let stats_text = format!(
-        "Process Summary: {} Running | {} Sleeping | {} Zombie | {} Other | Total: {}",
+        "Process Summary: {} Running | {} Sleeping | {} Zombie | {} Other | Total: {}{}",
         running, sleeping, zombie, other,
-        state.dynamic_data.processes.len()
+        state.dynamic_data.processes.len(),
+        reboot_badge,
     );
     
+    let stats_style = if state.dynamic_data.reboot_required {
+        Style::default().fg(theme.warning)
+    } else {
+        Style::default().fg(theme.text)
+    };
+
     let stats = Paragraph::new(stats_text)
         .alignment(Alignment::Left)
-        .style(Style::default().fg(theme.text))
+        .style(stats_style)
         .block(
             Block::default()
                 .title(translator.t("title.process_stats"))
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(theme.border))
+                .border_style(if state.dynamic_data.reboot_required {
+                    Style::default().fg(theme.warning)
+                } else {
+                    Style::default().fg(theme.border)
+                })
         );
     
-    f.render_widget(stats, layout[1]);
+    f.render_widget(stats, layout[2]);
 }
 
 fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
@@ -2482,7 +2577,11 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         match state.active_tab {
             0 => translator.t("help.dashboard"),
             1 => translator.t("help.process"),
-            8 => translator.t("help.services"),
+            8 => if state.services_subtab == 1 {
+                "←/→: Switch Subtabs | ↑↓/PgUp/PgDn: Scroll Timers | Quit: q".to_string()
+            } else {
+                translator.t("help.services")
+            },
             9 => translator.t("help.logs"),
             10 => translator.t("help.config"),
             11 => translator.t("help.containers"),
@@ -2513,85 +2612,178 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
 }
 
 fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    let services = &state.services;
-    
-    if services.is_empty() {
-        let paragraph = Paragraph::new(translator.t("msg.no_services"))
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(theme.text_secondary))
-            .block(Block::default()
-                .title(translator.t("title.services"))
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Subtab switcher
+            Constraint::Min(0),    // Table view
+        ])
+        .split(area);
+
+    let services_count = state.services.len();
+    let timers_count = state.timers.len();
+
+    let subtab_titles = vec![
+        format!(" 1: Systemd Services ({}) ", services_count),
+        format!(" 2: Systemd Timers ({}) ", timers_count),
+    ];
+    let tabs = Tabs::new(subtab_titles)
+        .select(state.services_subtab)
+        .style(Style::default().fg(theme.text_secondary))
+        .highlight_style(Style::default().fg(theme.highlight).bg(theme.border).add_modifier(Modifier::BOLD))
+        .divider("│")
+        .block(
+            Block::default()
+                .title(" Services & Timers [←/→: Switch Subtabs] ")
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(theme.success)));
-        f.render_widget(paragraph, area);
-        return;
-    }
-    
-    let header_name = translator.t("header.name");
-    let header_status = translator.t("header.status");
-    let header_enabled = translator.t("header.enabled");
-    
-    let headers = vec![
-        header_name.as_str(),
-        header_status.as_str(),
-        header_enabled.as_str(),
-    ];
-    
-    let rows = services.iter().enumerate().map(|(i, s)| {
-        let enabled = if s.enabled { "[+]" } else { "[-]" };
-        let name_display = if state.has_sudo {
-            s.name.clone()
-        } else {
-            format!("{} [RO]", s.name)
-        };
+                .border_style(Style::default().fg(theme.primary))
+        );
+    f.render_widget(tabs, chunks[0]);
+
+    if state.services_subtab == 0 {
+        let services = &state.services;
+        if services.is_empty() {
+            let paragraph = Paragraph::new(translator.t("msg.no_services"))
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(theme.text_secondary))
+                .block(Block::default()
+                    .title(translator.t("title.services"))
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.success)));
+            f.render_widget(paragraph, chunks[1]);
+            return;
+        }
         
-        let style = if state.editing_service == Some(i) && state.has_sudo {
-            Style::default().bg(theme.secondary).fg(theme.text)
-        } else if !state.has_sudo {
-            Style::default().fg(theme.text_secondary)
-        } else {
-            Style::default().fg(theme.text)
-        };
+        let header_name = translator.t("header.name");
+        let header_status = translator.t("header.status");
+        let header_enabled = translator.t("header.enabled");
         
-        Row::new(vec![
-            name_display,
-            s.status.clone(),
-            enabled.to_string(),
-        ]).style(style)
-    });
-    
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(25),
-            Constraint::Length(15),
-            Constraint::Length(10),
-        ]
-    )
-    .header(
-        Row::new(headers)
-            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
-    )
-    .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
-    .block(
-        Block::default()
-            .title(if state.has_sudo {
-                translator.t("title.services")
+        let headers = vec![
+            header_name.as_str(),
+            header_status.as_str(),
+            header_enabled.as_str(),
+        ];
+        
+        let rows = services.iter().enumerate().map(|(i, s)| {
+            let enabled = if s.enabled { "[+]" } else { "[-]" };
+            let name_display = if state.has_sudo {
+                s.name.clone()
             } else {
-                format!("{} (Read-Only)", translator.t("title.services"))
-            })
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(if state.has_sudo {
-                Style::default().fg(theme.border)
-            } else {
+                format!("{} [RO]", s.name)
+            };
+            
+            let style = if state.editing_service == Some(i) && state.has_sudo {
+                Style::default().bg(theme.secondary).fg(theme.text)
+            } else if !state.has_sudo {
                 Style::default().fg(theme.text_secondary)
-            })
-    );
-    
-    let service_state = state.services_table_state.clone();
-    f.render_stateful_widget(table, area, &mut service_state.clone());
+            } else {
+                Style::default().fg(theme.text)
+            };
+            
+            Row::new(vec![
+                name_display,
+                s.status.clone(),
+                enabled.to_string(),
+            ]).style(style)
+        });
+        
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(28),
+                Constraint::Length(16),
+                Constraint::Length(12),
+            ]
+        )
+        .header(
+            Row::new(headers)
+                .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+        )
+        .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .title(if state.has_sudo {
+                    translator.t("title.services")
+                } else {
+                    format!("{} (Read-Only)", translator.t("title.services"))
+                })
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(if state.has_sudo {
+                    Style::default().fg(theme.border)
+                } else {
+                    Style::default().fg(theme.text_secondary)
+                })
+        );
+        
+        let mut service_state = state.services_table_state.clone();
+        f.render_stateful_widget(table, chunks[1], &mut service_state);
+    } else {
+        let timers = &state.timers;
+        if timers.is_empty() {
+            let msg = if state.timers_loaded {
+                "No systemd timers active or systemctl not available."
+            } else {
+                "Loading systemd timers..."
+            };
+            let paragraph = Paragraph::new(msg)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(theme.text_secondary))
+                .block(Block::default()
+                    .title(" Scheduled Systemd Timers ")
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border)));
+            f.render_widget(paragraph, chunks[1]);
+            return;
+        }
+
+        let headers = vec!["Unit", "Next Execution", "Time Left", "Last Execution", "Passed Ago", "Activates Service"];
+        let rows = timers.iter().map(|t| {
+            let style = if t.left.contains("min") || t.left.contains("s") {
+                Style::default().fg(theme.highlight)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            Row::new(vec![
+                t.unit.clone(),
+                t.next.clone(),
+                t.left.clone(),
+                t.last.clone(),
+                t.passed.clone(),
+                t.activates.clone(),
+            ]).style(style)
+        });
+
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Length(32),
+                Constraint::Length(22),
+                Constraint::Length(15),
+                Constraint::Length(22),
+                Constraint::Length(15),
+                Constraint::Min(25),
+            ]
+        )
+        .header(
+            Row::new(headers)
+                .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+        )
+        .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .title(format!(" Scheduled Systemd Timers ({}) ", timers.len()))
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border))
+        );
+
+        let mut timers_state = state.timers_table_state.clone();
+        f.render_stateful_widget(table, chunks[1], &mut timers_state);
+    }
 }
 
 fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -2883,6 +3075,76 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
 }
 
 fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+    let (bat_area, sensors_area) = if state.dynamic_data.battery.is_some() {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(5), // Battery & Power Supply Card
+                Constraint::Min(0),    // Hardware Sensors Table
+            ])
+            .split(area);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, area)
+    };
+
+    if let (Some(b_area), Some(bat)) = (bat_area, &state.dynamic_data.battery) {
+        let is_charging = bat.status.eq_ignore_ascii_case("charging");
+        let fill_len = (((bat.capacity as f64).clamp(0.0, 100.0) / 100.0) * 16.0) as usize;
+        let empty_len = 16_usize.saturating_sub(fill_len);
+        let bar = format!("[{}{}]", "█".repeat(fill_len), "░".repeat(empty_len));
+
+        let health_str = if let Some(h) = bat.health_percent {
+            let full_wh = bat.energy_full_wh.unwrap_or(0.0);
+            let des_wh = bat.energy_design_wh.unwrap_or(0.0);
+            if des_wh > 0.0 {
+                format!("{:.1}% ({:.1} / {:.1} Wh)", h, full_wh, des_wh)
+            } else {
+                format!("{:.1}%", h)
+            }
+        } else {
+            "—".to_string()
+        };
+
+        let power_str = bat.power_watts.map(|w| format!("{:.2} W", w)).unwrap_or_else(|| "—".into());
+        let volt_str = bat.voltage_volts.map(|v| format!("{:.3} V", v)).unwrap_or_else(|| "—".into());
+        let cycle_str = bat.cycle_count.map(|c| c.to_string()).unwrap_or_else(|| "—".into());
+        let tech_str = bat.technology.as_deref().unwrap_or("—");
+        let model_str = bat.model_name.as_deref().unwrap_or("—");
+        let gov_str = bat.cpu_governor.as_deref().unwrap_or("—");
+        let driver_str = bat.cpu_driver.as_deref().unwrap_or("");
+        let gov_full = if driver_str.is_empty() {
+            gov_str.to_string()
+        } else {
+            format!("{} ({})", gov_str, driver_str)
+        };
+        let ac_status = if bat.ac_online { "Connected (Online)" } else { "Disconnected (On Battery)" };
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(" Battery: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::raw(format!("{}  {} {}%  Status: {}  Health: {}", bat.name, bar, bat.capacity, bat.status, health_str)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Power:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::raw(format!("Draw: {}  Voltage: {}  Cycles: {}  Tech: {}  Model: {}", power_str, volt_str, cycle_str, tech_str, model_str)),
+            ]),
+            Line::from(vec![
+                Span::styled(" AC / CPU:", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::raw(format!("AC Adapter: {}  |  CPU Scaling Governor: {}", ac_status, gov_full)),
+            ]),
+        ];
+
+        let bat_block = Block::default()
+            .title(format!(" Power Supply & Battery ({}) ", bat.name))
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(if is_charging { theme.highlight } else { theme.border }));
+
+        let bat_p = Paragraph::new(lines).block(bat_block);
+        f.render_widget(bat_p, b_area);
+    }
+
     let sensors = &state.dynamic_data.sensors;
     
     if sensors.is_empty() {
@@ -2895,7 +3157,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
                     .border_type(ratatui::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
             );
-        f.render_widget(message, area);
+        f.render_widget(message, sensors_area);
         return;
     }
 
@@ -3077,7 +3339,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
             .border_style(Style::default().fg(theme.border))
     );
     
-    f.render_widget(table, area);
+    f.render_widget(table, sensors_area);
 }
 
 fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, new_value: &str, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {

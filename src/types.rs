@@ -314,6 +314,8 @@ pub struct DynamicData {
     pub global_usage: GlobalUsage,
     pub temperatures: SystemTemperatures,
     pub sensors: Vec<SensorInfo>,
+    pub battery: Option<BatteryInfo>,
+    pub reboot_required: bool,
     pub last_update: std::time::Instant,
     pub docker_error: Option<String>,
 }
@@ -336,6 +338,8 @@ impl Default for DynamicData {
                 motherboard_temp: None,
             },
             sensors: Vec::new(),
+            battery: None,
+            reboot_required: false,
             last_update: std::time::Instant::now(),
             docker_error: None,
         }
@@ -396,6 +400,52 @@ pub struct AppState {
     pub process_detail_subtab: usize,
     pub process_detail_scroll: usize,
     pub network_socket_scroll: usize,
+    pub timers: Vec<SystemTimerInfo>,
+    pub timers_loaded: bool,
+    pub timers_table_state: TableState,
+    pub services_subtab: usize,
+    pub user_sessions: Vec<UserSessionInfo>,
+    pub user_sessions_loaded: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
+pub struct BatteryInfo {
+    pub name: String,
+    pub status: String,
+    pub capacity: u32,
+    pub capacity_level: Option<String>,
+    pub power_watts: Option<f64>,
+    pub voltage_volts: Option<f64>,
+    pub energy_now_wh: Option<f64>,
+    pub energy_full_wh: Option<f64>,
+    pub energy_design_wh: Option<f64>,
+    pub cycle_count: Option<u32>,
+    pub health_percent: Option<f32>,
+    pub technology: Option<String>,
+    pub model_name: Option<String>,
+    pub manufacturer: Option<String>,
+    pub ac_online: bool,
+    pub cpu_governor: Option<String>,
+    pub cpu_driver: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SystemTimerInfo {
+    pub next: String,
+    pub left: String,
+    pub last: String,
+    pub passed: String,
+    pub unit: String,
+    pub activates: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct UserSessionInfo {
+    pub user: String,
+    pub line: String,
+    pub login_time: String,
+    pub host: String,
 }
 
 #[derive(Clone, Debug)]

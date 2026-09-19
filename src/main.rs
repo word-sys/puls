@@ -114,12 +114,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn check_and_load_lazy_data(state: &mut AppState) {
     let sys_mgr = system_service::SystemManager::new();
     
+    if state.active_tab == 7 && !state.user_sessions_loaded {
+        state.user_sessions = sys_mgr.get_logged_in_users();
+        state.user_sessions_loaded = true;
+    }
+
     if state.active_tab == 8 && !state.services_loaded {
         state.services = sys_mgr.get_services();
         if !state.services.is_empty() {
             state.services_table_state.select(Some(0));
         }
+        state.timers = sys_mgr.get_systemd_timers();
+        if !state.timers.is_empty() {
+            state.timers_table_state.select(Some(0));
+        }
         state.services_loaded = true;
+        state.timers_loaded = true;
     }
     
     if state.active_tab == 9 && !state.logs_loaded {
@@ -831,18 +841,68 @@ fn handle_key_event(
             state.pending_container_action = None;
         }
         
+        KeyCode::Left | KeyCode::Right if state.active_tab == 8 && state.pending_service_action.is_none() => {
+            state.services_subtab = (state.services_subtab + 1) % 2;
+        }
+
         KeyCode::Down if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            let len = state.services.len();
-            if len > 0 {
-                let current = state.services_table_state.selected().unwrap_or(0);
-                state.services_table_state.select(Some((current + 1) % len));
+            if state.services_subtab == 0 {
+                let len = state.services.len();
+                if len > 0 {
+                    let current = state.services_table_state.selected().unwrap_or(0);
+                    state.services_table_state.select(Some((current + 1) % len));
+                }
+            } else {
+                let len = state.timers.len();
+                if len > 0 {
+                    let current = state.timers_table_state.selected().unwrap_or(0);
+                    state.timers_table_state.select(Some((current + 1) % len));
+                }
             }
         }
         KeyCode::Up if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            let len = state.services.len();
-            if len > 0 {
-                let current = state.services_table_state.selected().unwrap_or(0);
-                state.services_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            if state.services_subtab == 0 {
+                let len = state.services.len();
+                if len > 0 {
+                    let current = state.services_table_state.selected().unwrap_or(0);
+                    state.services_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                }
+            } else {
+                let len = state.timers.len();
+                if len > 0 {
+                    let current = state.timers_table_state.selected().unwrap_or(0);
+                    state.timers_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                }
+            }
+        }
+        KeyCode::PageDown if state.active_tab == 8 && state.pending_service_action.is_none() => {
+            if state.services_subtab == 0 {
+                let len = state.services.len();
+                if len > 0 {
+                    let current = state.services_table_state.selected().unwrap_or(0);
+                    state.services_table_state.select(Some((current + 10).min(len - 1)));
+                }
+            } else {
+                let len = state.timers.len();
+                if len > 0 {
+                    let current = state.timers_table_state.selected().unwrap_or(0);
+                    state.timers_table_state.select(Some((current + 10).min(len - 1)));
+                }
+            }
+        }
+        KeyCode::PageUp if state.active_tab == 8 && state.pending_service_action.is_none() => {
+            if state.services_subtab == 0 {
+                let len = state.services.len();
+                if len > 0 {
+                    let current = state.services_table_state.selected().unwrap_or(0);
+                    state.services_table_state.select(Some(current.saturating_sub(10)));
+                }
+            } else {
+                let len = state.timers.len();
+                if len > 0 {
+                    let current = state.timers_table_state.selected().unwrap_or(0);
+                    state.timers_table_state.select(Some(current.saturating_sub(10)));
+                }
             }
         }
         

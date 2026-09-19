@@ -4,10 +4,12 @@ pub mod system_monitor;
 pub mod gpu_monitor;
 pub mod container_monitor;
 pub mod network_sockets;
+pub mod power_monitor;
 
 pub use system_monitor::SystemMonitor;
 pub use gpu_monitor::GpuMonitor;
 pub use container_monitor::ContainerMonitor;
+pub use power_monitor::PowerMonitor;
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -20,6 +22,7 @@ pub struct DataCollector {
     system_monitor: SystemMonitor,
     gpu_monitor: GpuMonitor,
     container_monitor: ContainerMonitor,
+    power_monitor: PowerMonitor,
     config: AppConfig,
     last_update: Instant,
 }
@@ -30,6 +33,7 @@ impl DataCollector {
             system_monitor: SystemMonitor::new(),
             gpu_monitor: GpuMonitor::new(),
             container_monitor: ContainerMonitor::new(),
+            power_monitor: PowerMonitor::new(),
             config,
             last_update: Instant::now(),
         }
@@ -186,6 +190,10 @@ impl DataCollector {
         global_usage.disk_write_history = prev_global_usage.disk_write_history;
         global_usage.gpu_history = prev_global_usage.gpu_history;
 
+        let battery = self.power_monitor.get_battery_info();
+        let reboot_required = std::path::Path::new("/var/run/reboot-required").exists()
+            || std::path::Path::new("/run/reboot-required").exists();
+
         DynamicData {
             processes,
             detailed_process,
@@ -198,6 +206,8 @@ impl DataCollector {
             global_usage,
             temperatures,
             sensors,
+            battery,
+            reboot_required,
             last_update: std::time::Instant::now(),
             docker_error,
         }
@@ -210,6 +220,15 @@ impl DataCollector {
             info.push(("Mode".to_string(), "Safe Mode".to_string()));
         }
         
+        if let Some(ref bat) = self.power_monitor.get_battery_info() {
+            if let Some(ref gov) = bat.cpu_governor {
+                let driver_str = bat.cpu_driver.as_deref().unwrap_or("unknown");
+                info.push(("CPU Governor".to_string(), format!("{} ({})", gov, driver_str)));
+            }
+            let ac_str = if bat.ac_online { "Connected" } else { "Disconnected" };
+            info.push(("Power Source".to_string(), format!("Battery {} (AC: {})", bat.name, ac_str)));
+        }
+
         let mut features = Vec::new();
         if self.config.enable_docker && self.container_monitor.is_available() {
             features.push("Docker");
