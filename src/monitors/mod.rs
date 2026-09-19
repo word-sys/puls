@@ -3,6 +3,7 @@
 pub mod system_monitor;
 pub mod gpu_monitor;
 pub mod container_monitor;
+pub mod network_sockets;
 
 pub use system_monitor::SystemMonitor;
 pub use gpu_monitor::GpuMonitor;
@@ -89,6 +90,12 @@ impl DataCollector {
         
         let networks = if self.config.enable_network_monitoring {
             self.system_monitor.get_networks()
+        } else {
+            Vec::new()
+        };
+
+        let sockets = if active_tab == 5 && self.config.enable_network_monitoring {
+            network_sockets::get_active_sockets()
         } else {
             Vec::new()
         };
@@ -185,6 +192,7 @@ impl DataCollector {
             cores,
             disks,
             networks,
+            sockets,
             containers,
             gpus,
             global_usage,

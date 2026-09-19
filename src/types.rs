@@ -180,6 +180,39 @@ pub struct DetailedNetInfo {
     pub is_up: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SocketProtocol {
+    Tcp,
+    Tcp6,
+    Udp,
+    Udp6,
+}
+
+impl SocketProtocol {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SocketProtocol::Tcp => "TCP",
+            SocketProtocol::Tcp6 => "TCP6",
+            SocketProtocol::Udp => "UDP",
+            SocketProtocol::Udp6 => "UDP6",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct SocketInfo {
+    pub protocol: SocketProtocol,
+    pub local_addr: String,
+    pub local_port: u16,
+    pub remote_addr: String,
+    pub remote_port: u16,
+    pub state: String,
+    pub inode: u64,
+    pub pid: Option<u32>,
+    pub process_name: Option<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct SystemTemperatures {
@@ -270,6 +303,7 @@ pub struct DynamicData {
     pub cores: Vec<CoreInfo>,
     pub disks: Vec<DetailedDiskInfo>,
     pub networks: Vec<DetailedNetInfo>,
+    pub sockets: Vec<SocketInfo>,
     pub containers: Vec<ContainerInfo>,
     pub gpus: Result<Vec<GpuInfo>, String>,
     pub global_usage: GlobalUsage,
@@ -287,6 +321,7 @@ impl Default for DynamicData {
             cores: Vec::new(),
             disks: Vec::new(),
             networks: Vec::new(),
+            sockets: Vec::new(),
             containers: Vec::new(),
             gpus: Ok(Vec::new()),
             global_usage: GlobalUsage::default(),
@@ -353,6 +388,7 @@ pub struct AppState {
     pub process_tree_mode: bool,
     pub process_detail_subtab: usize,
     pub process_detail_scroll: usize,
+    pub network_socket_scroll: usize,
 }
 
 #[derive(Clone, Debug)]

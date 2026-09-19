@@ -1766,6 +1766,15 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     }
     
     let networks = &state.dynamic_data.networks;
+    let iface_height = ((networks.len() as u16) + 4).clamp(5, 9);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(iface_height), // Interfaces
+            Constraint::Min(6),               // Active Sockets & Connections
+        ])
+        .split(area);
+
     let headers = ["Interface", "Status", "Download/s", "Upload/s", "Total Down", "Total Up", "Packets Rx/Tx"];
     
     let rows = networks.iter().map(|net| {
@@ -1782,7 +1791,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
         ))
     });
     
-    let table = Table::new(
+    let iface_table = Table::new(
         rows,
         [
             Constraint::Min(12),     // Interface
@@ -1800,13 +1809,116 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     )
     .block(
         Block::default()
-            .title(translator.t("title.network_interfaces"))
+            .title(format!(" {} ", translator.t("title.network_interfaces")))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
-    f.render_widget(table, area);
+    f.render_widget(iface_table, chunks[0]);
+
+    // Active Sockets & Connections table
+    let sockets = &state.dynamic_data.sockets;
+    let socket_headers = ["Proto", "Local Address", "Remote Address", "State", "PID/Program", "Inode"];
+
+    let total_sockets = sockets.len();
+    let socket_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.border));
+
+    let inner_area = socket_block.inner(chunks[1]);
+    let visible_rows = inner_area.height.saturating_sub(1) as usize;
+
+    let (visible_sockets, range_title) = if total_sockets == 0 {
+        (&[][..], " Active Sockets & Connections (0) ".to_string())
+    } else {
+        let max_scroll = total_sockets.saturating_sub(visible_rows);
+        let scroll = state.network_socket_scroll.min(max_scroll);
+        let end = (scroll + visible_rows).min(total_sockets);
+        let slice = &sockets[scroll..end];
+        let title = format!(
+            " Active Sockets & Connections (Showing {}-{} of {}) ",
+            scroll + 1,
+            end,
+            total_sockets
+        );
+        (slice, title)
+    };
+
+    let socket_rows = visible_sockets.iter().map(|s| {
+        let local = if s.local_port == 0 {
+            if matches!(s.protocol, crate::types::SocketProtocol::Tcp6 | crate::types::SocketProtocol::Udp6) {
+                format!("[{}]:*", s.local_addr)
+            } else {
+                format!("{}:*", s.local_addr)
+            }
+        } else if matches!(s.protocol, crate::types::SocketProtocol::Tcp6 | crate::types::SocketProtocol::Udp6) {
+            format!("[{}]:{}", s.local_addr, s.local_port)
+        } else {
+            format!("{}:{}", s.local_addr, s.local_port)
+        };
+
+        let remote = if s.remote_port == 0 {
+            if matches!(s.protocol, crate::types::SocketProtocol::Tcp6 | crate::types::SocketProtocol::Udp6) {
+                format!("[{}]:*", s.remote_addr)
+            } else {
+                format!("{}:*", s.remote_addr)
+            }
+        } else if matches!(s.protocol, crate::types::SocketProtocol::Tcp6 | crate::types::SocketProtocol::Udp6) {
+            format!("[{}]:{}", s.remote_addr, s.remote_port)
+        } else {
+            format!("{}:{}", s.remote_addr, s.remote_port)
+        };
+
+        let proc_display = match (s.pid, &s.process_name) {
+            (Some(pid), Some(name)) => format!("{}/{}", pid, name),
+            (Some(pid), None) => pid.to_string(),
+            _ => "-".to_string(),
+        };
+
+        let state_style = match s.state.as_str() {
+            "LISTEN" => Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+            "ESTABLISHED" | "ESTAB" => Style::default().fg(theme.success),
+            "TIME_WAIT" | "CLOSE_WAIT" | "SYN_SENT" | "SYN_RECV" => Style::default().fg(theme.warning),
+            _ => Style::default().fg(theme.text_secondary),
+        };
+
+        Row::new(vec![
+            Cell::from(s.protocol.as_str().to_string()).style(Style::default().fg(theme.accent)),
+            Cell::from(truncate_string(&local, 30)),
+            Cell::from(truncate_string(&remote, 30)),
+            Cell::from(s.state.clone()).style(state_style),
+            Cell::from(truncate_string(&proc_display, 24)).style(Style::default().fg(theme.highlight)),
+            Cell::from(if s.inode > 0 { s.inode.to_string() } else { "-".to_string() }).style(Style::default().fg(theme.text_secondary)),
+        ]).style(Style::default().fg(theme.text))
+    });
+
+    let socket_table = Table::new(
+        socket_rows,
+        [
+            Constraint::Length(6),   // Proto
+            Constraint::Min(22),     // Local Address
+            Constraint::Min(22),     // Remote Address
+            Constraint::Length(13),  // State
+            Constraint::Length(24),  // PID/Program
+            Constraint::Length(10),  // Inode
+        ],
+    )
+    .header(
+        Row::new(socket_headers)
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+    )
+    .block(
+        socket_block
+            .title(range_title)
+            .title(
+                ratatui::widgets::block::Title::from(" [↑/↓/PgUp/PgDn] Scroll ")
+                    .alignment(Alignment::Right),
+            ),
+    );
+
+    f.render_widget(socket_table, chunks[1]);
 }
 
 fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
