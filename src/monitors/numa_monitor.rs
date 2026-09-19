@@ -29,7 +29,7 @@ impl NumaMonitor {
                             .unwrap_or_default();
                         let cpus = parse_cpulist(&cpu_list_str);
 
-                        let (mem_total_bytes, mem_used_bytes, mem_free_bytes) = parse_meminfo(&node_dir.join("meminfo"), id);
+                        let (mem_total_bytes, mem_used_bytes, mem_free_bytes, mem_cached_bytes) = parse_meminfo(&node_dir.join("meminfo"), id);
                         let (numa_hit, numa_miss) = parse_numastat(&node_dir.join("numastat"));
 
                         nodes.push(NumaNodeInfo {
@@ -40,6 +40,7 @@ impl NumaMonitor {
                             mem_total_bytes,
                             mem_used_bytes,
                             mem_free_bytes,
+                            mem_cached_bytes,
                             numa_hit,
                             numa_miss,
                         });
@@ -86,14 +87,18 @@ pub fn parse_cpulist(s: &str) -> Vec<usize> {
     cpus
 }
 
-pub fn parse_meminfo_str(content: &str, node_id: usize) -> (u64, u64, u64) {
+pub fn parse_meminfo_str(content: &str, node_id: usize) -> (u64, u64, u64, u64) {
     let mut total_kb: u64 = 0;
     let mut free_kb: u64 = 0;
-    let mut used_kb: Option<u64> = None;
+    let mut file_pages_kb: u64 = 0;
+    let mut sreclaimable_kb: u64 = 0;
+    let mut raw_used_kb: Option<u64> = None;
 
     let prefix_total = format!("Node {} MemTotal:", node_id);
     let prefix_free = format!("Node {} MemFree:", node_id);
     let prefix_used = format!("Node {} MemUsed:", node_id);
+    let prefix_file = format!("Node {} FilePages:", node_id);
+    let prefix_srec = format!("Node {} SReclaimable:", node_id);
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -107,20 +112,34 @@ pub fn parse_meminfo_str(content: &str, node_id: usize) -> (u64, u64, u64) {
             }
         } else if trimmed.starts_with(&prefix_used) {
             if let Some(val) = extract_kb_val(trimmed) {
-                used_kb = Some(val);
+                raw_used_kb = Some(val);
+            }
+        } else if trimmed.starts_with(&prefix_file) {
+            if let Some(val) = extract_kb_val(trimmed) {
+                file_pages_kb = val;
+            }
+        } else if trimmed.starts_with(&prefix_srec) {
+            if let Some(val) = extract_kb_val(trimmed) {
+                sreclaimable_kb = val;
             }
         }
     }
 
-    let used_final = used_kb.unwrap_or_else(|| total_kb.saturating_sub(free_kb));
-    (total_kb * 1024, used_final * 1024, free_kb * 1024)
+    let cache_kb = file_pages_kb + sreclaimable_kb;
+    let used_final_kb = if cache_kb > 0 && total_kb >= (free_kb + cache_kb) {
+        total_kb - free_kb - cache_kb
+    } else {
+        raw_used_kb.unwrap_or_else(|| total_kb.saturating_sub(free_kb))
+    };
+
+    (total_kb * 1024, used_final_kb * 1024, free_kb * 1024, cache_kb * 1024)
 }
 
-fn parse_meminfo(path: &Path, node_id: usize) -> (u64, u64, u64) {
+fn parse_meminfo(path: &Path, node_id: usize) -> (u64, u64, u64, u64) {
     if let Ok(content) = fs::read_to_string(path) {
         parse_meminfo_str(&content, node_id)
     } else {
-        (0, 0, 0)
+        (0, 0, 0, 0)
     }
 }
 
@@ -176,12 +195,15 @@ mod tests {
 Node 0 MemTotal:       16384000 kB
 Node 0 MemFree:         4096000 kB
 Node 0 MemUsed:        12288000 kB
-Node 0 Active:          8000000 kB
+Node 0 FilePages:       6144000 kB
+Node 0 SReclaimable:    1024000 kB
 ";
-        let (total, used, free) = parse_meminfo_str(content, 0);
+        let (total, used, free, cached) = parse_meminfo_str(content, 0);
         assert_eq!(total, 16384000 * 1024);
-        assert_eq!(used, 12288000 * 1024);
         assert_eq!(free, 4096000 * 1024);
+        assert_eq!(cached, (6144000 + 1024000) * 1024);
+        // used = total (16384000) - free (4096000) - cached (7168000) = 5120000
+        assert_eq!(used, 5120000 * 1024);
     }
 
     #[test]

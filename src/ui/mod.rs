@@ -1557,14 +1557,15 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     let usage = &state.dynamic_data.global_usage;
     let numa_nodes = &state.dynamic_data.numa_nodes;
     let is_multi_numa = numa_nodes.len() > 1;
+    let show_numa_panel = !numa_nodes.is_empty() && chunks[0].width >= 90;
     
-    let top_chunks = if is_multi_numa {
+    let top_chunks = if show_numa_panel {
         Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(36), // Usage History Chart
-                Constraint::Percentage(34), // CPU Overview
-                Constraint::Percentage(30), // NUMA Topology
+                Constraint::Percentage(35), // Usage History Chart
+                Constraint::Percentage(37), // CPU Overview
+                Constraint::Percentage(28), // NUMA Architecture & Locality
             ])
             .split(chunks[0])
     } else {
@@ -1659,25 +1660,12 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         ]),
     ];
 
-    if !numa_nodes.is_empty() {
+    if !numa_nodes.is_empty() && !show_numa_panel {
         let numa_summary = if numa_nodes.len() == 1 {
             let n = &numa_nodes[0];
-            let hit_str = if let (Some(h), Some(m)) = (n.numa_hit, n.numa_miss) {
-                let total = h + m;
-                if total > 0 {
-                    format!(" | Hits: {:.1}%", (h as f64 / total as f64) * 100.0)
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            };
-            format!("1 Node ({} cores | RAM: {}{})", n.cpus.len(), crate::utils::format_size(n.mem_total_bytes), hit_str)
+            format!("1 Node ({} cores | RAM: {})", n.cpus.len(), crate::utils::format_size(n.mem_total_bytes))
         } else {
-            let parts: Vec<String> = numa_nodes.iter().map(|n| {
-                format!("N{}: {}c ({})", n.id, n.cpus.len(), crate::utils::format_size(n.mem_total_bytes))
-            }).collect();
-            format!("{} Nodes [{}]", numa_nodes.len(), parts.join(" | "))
+            format!("{} Nodes detected", numa_nodes.len())
         };
 
         info_text.push(Line::from(vec![
@@ -1727,7 +1715,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             .style(Style::default().fg(theme.text_secondary)));
     f.render_widget(chart, top_chunks[0]);
 
-    if is_multi_numa {
+    if show_numa_panel {
         let mut numa_lines = Vec::new();
         for node in numa_nodes {
             let mem_pct = if node.mem_total_bytes > 0 {
@@ -1735,31 +1723,65 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             } else {
                 0.0
             };
-            let bar_len: usize = 8;
+            let bar_len: usize = 10;
             let filled = ((mem_pct.clamp(0.0, 100.0) / 100.0) * bar_len as f64).round() as usize;
             let empty = bar_len.saturating_sub(filled);
-            let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
+            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
 
             numa_lines.push(Line::from(vec![
                 Span::styled(format!("Node {}: ", node.id), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::raw(format!("{} cores ({})", node.cpus.len(), node.cpu_list_str)),
+                Span::styled(format!("{} Cores", node.cpus.len()), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" ({})", if node.cpu_list_str.is_empty() { format!("0-{}", node.cpus.len().saturating_sub(1)) } else { node.cpu_list_str.clone() }), Style::default().fg(theme.text_secondary)),
             ]));
             numa_lines.push(Line::from(vec![
-                Span::styled("  RAM: ", Style::default().fg(theme.text_secondary)),
-                Span::raw(format!("{} / {} {} {:.0}%", crate::utils::format_size(node.mem_used_bytes), crate::utils::format_size(node.mem_total_bytes), bar, mem_pct)),
+                Span::styled("  RAM:  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(bar, Style::default().fg(get_usage_color(mem_pct as f32))),
+                Span::styled(format!(" {:.1}%", mem_pct), Style::default().fg(get_usage_color(mem_pct as f32)).add_modifier(Modifier::BOLD)),
             ]));
+            numa_lines.push(Line::from(vec![
+                Span::styled("        ", Style::default()),
+                Span::styled(format!("{} / {}", 
+                    crate::utils::format_size(node.mem_used_bytes), 
+                    crate::utils::format_size(node.mem_total_bytes)
+                ), Style::default().fg(theme.text)),
+            ]));
+            if node.mem_cached_bytes > 0 || node.mem_free_bytes > 0 {
+                numa_lines.push(Line::from(vec![
+                    Span::styled("  Cache:", Style::default().fg(theme.text_secondary)),
+                    Span::styled(format!(" {} ", crate::utils::format_size(node.mem_cached_bytes)), Style::default().fg(theme.text)),
+                    Span::styled("| Free: ", Style::default().fg(theme.text_secondary)),
+                    Span::styled(crate::utils::format_size(node.mem_free_bytes), Style::default().fg(theme.text)),
+                ]));
+            }
             if let (Some(h), Some(m)) = (node.numa_hit, node.numa_miss) {
                 let total = h + m;
                 let hit_ratio = if total > 0 { (h as f64 / total as f64) * 100.0 } else { 100.0 };
                 numa_lines.push(Line::from(vec![
-                    Span::styled("  Hits: ", Style::default().fg(theme.text_secondary)),
-                    Span::raw(format!("{:.1}% (Hits: {}, Misses: {})", hit_ratio, h, m)),
+                    Span::styled("  Hits: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{:.1}%", hit_ratio), Style::default().fg(if hit_ratio > 95.0 { theme.success } else { theme.warning }).add_modifier(Modifier::BOLD)),
+                    Span::styled(" Locality", Style::default().fg(theme.text)),
+                    Span::styled(if m == 0 { " (Local)".to_string() } else { format!(" ({}/{} hit/miss)", h, m) }, Style::default().fg(theme.text_secondary)),
                 ]));
+            }
+            if numa_nodes.len() == 1 {
+                numa_lines.push(Line::from(vec![
+                    Span::styled("  Mode: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("SMP / Uniform Memory", Style::default().fg(theme.text_secondary)),
+                ]));
+            }
+            if numa_nodes.len() > 1 {
+                numa_lines.push(Line::raw(""));
             }
         }
 
+        let numa_title = if numa_nodes.len() == 1 {
+            " NUMA & Memory Locality "
+        } else {
+            " NUMA Architecture "
+        };
+
         let numa_block = Block::default()
-            .title(format!(" NUMA Architecture ({} Nodes) ", numa_nodes.len()))
+            .title(numa_title)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border));
@@ -1770,23 +1792,60 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     // --- Detailed Core Usage Grid with Multi-Core Scalability ---
     let inner_area = chunks[1];
     let num_cores = cores.len();
-
-    let boxed_col_width = 22;
-    let boxed_cols = (inner_area.width.saturating_sub(2) / boxed_col_width).max(1);
-    let boxed_rows_needed = (num_cores as u16 + boxed_cols - 1) / boxed_cols;
+    let available_width = inner_area.width.saturating_sub(2);
     let available_height = inner_area.height.saturating_sub(2);
 
-    let use_compact = boxed_rows_needed * 3 > available_height || num_cores > 24;
+    // Compute optimal balanced grid
+    let mut use_compact = num_cores > 24;
+    let mut cores_per_row = 1u16;
+    let mut rows_needed = 1u16;
+    let mut row_height = 3u16;
 
-    let (cores_per_row, rows_needed, row_height) = if use_compact {
-        let compact_col_width = 18;
-        let cols = (inner_area.width.saturating_sub(2) / compact_col_width).max(1);
-        let rows = (num_cores as u16 + cols - 1) / cols;
-        (cols, rows, 1u16)
-    } else {
-        let core_h = (available_height / boxed_rows_needed).min(4).max(3);
-        (boxed_cols, boxed_rows_needed, core_h)
-    };
+    if !use_compact {
+        let max_rows_by_height = (available_height / 3).max(1);
+        let min_card_w: u16 = 20;
+
+        let mut best_score = i64::MIN;
+        let mut best_cfg = None;
+
+        for r in 1..=max_rows_by_height.min(num_cores as u16) {
+            let cols = (num_cores as u16 + r - 1) / r;
+            let col_w = available_width / cols.max(1);
+            if col_w >= min_card_w {
+                let row_h = (available_height / r).clamp(3, 5);
+                let empty_slots = (r * cols).saturating_sub(num_cores as u16);
+                let h_score = match row_h {
+                    4 => 50,
+                    5 => 45,
+                    3 => 20,
+                    _ => 0,
+                };
+                let w_score = if (24..=45).contains(&col_w) { 40 } else { 15 };
+                let balance_score = 100 - (empty_slots as i64 * 35);
+                let total_score = h_score + w_score + balance_score;
+                if total_score > best_score {
+                    best_score = total_score;
+                    best_cfg = Some((r, cols, row_h));
+                }
+            }
+        }
+
+        if let Some((r, cols, rh)) = best_cfg {
+            rows_needed = r;
+            cores_per_row = cols;
+            row_height = rh;
+        } else {
+            use_compact = true;
+        }
+    }
+
+    if use_compact {
+        let compact_col_width = 22;
+        let cols = (available_width / compact_col_width).clamp(2, 8);
+        rows_needed = (num_cores as u16 + cols - 1) / cols;
+        cores_per_row = cols;
+        row_height = 1;
+    }
 
     let visible_rows = (available_height / row_height) as usize;
     let max_scroll = (rows_needed as usize).saturating_sub(visible_rows);
@@ -1831,7 +1890,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         }
 
         let cores_in_this_row = (num_cores - start_core).min(cores_per_row as usize);
-        let core_constraints = vec![Constraint::Ratio(1, cores_per_row as u32); cores_in_this_row];
+        let core_constraints = vec![Constraint::Ratio(1, cores_per_row as u32); cores_per_row as usize];
 
         let cores_layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -1867,7 +1926,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                     vec![
                         Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
                         Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
                         Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text_secondary)),
                         Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
                     ]
@@ -1875,46 +1934,97 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                     vec![
                         Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
                         Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
                     ]
                 } else {
                     vec![
                         Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {:>4.0}%", core.usage), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.0}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
                     ]
                 };
 
                 f.render_widget(Paragraph::new(Line::from(spans)), *core_area);
             } else {
-                let temp_str = core.temp
-                    .map(|t| format!(" {:.0}°C", t))
-                    .unwrap_or_default();
-
-                let content = Line::from(vec![
-                    Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!(" {:.2}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
-                    Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color)),
-                    Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
-                ]);
+                let border_style = if core.usage > 80.0 {
+                    Style::default().fg(theme.error)
+                } else if core.usage > 50.0 {
+                    Style::default().fg(theme.warning)
+                } else {
+                    Style::default().fg(theme.border)
+                };
 
                 let core_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(theme.border));
+                    .border_style(border_style);
 
                 let inner_core_area = core_block.inner(*core_area);
                 f.render_widget(core_block, *core_area);
 
-                let vertical_center = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(row_height.saturating_sub(1) / 2),
-                        Constraint::Length(1),
-                        Constraint::Min(0),
-                    ])
-                    .split(inner_core_area);
+                let temp_str = core.temp
+                    .map(|t| format!(" {:.0}°C", t))
+                    .unwrap_or_default();
 
-                f.render_widget(Paragraph::new(content), vertical_center[1]);
+                if inner_core_area.height >= 2 {
+                    // Line 1: Header (Badge, Freq, Temp)
+                    let header_spans = vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {:.2} GHz", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
+                        Span::styled(temp_str, Style::default().fg(core.temp.map(get_usage_color).unwrap_or(theme.text_secondary))),
+                    ];
+
+                    // Line 2: Progress bar with percentage
+                    let bar_width = (inner_core_area.width as usize).saturating_sub(9);
+                    let filled = if bar_width > 0 {
+                        ((core.usage.clamp(0.0, 100.0) / 100.0) * bar_width as f32).round() as usize
+                    } else {
+                        0
+                    };
+                    let empty = bar_width.saturating_sub(filled);
+                    let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+
+                    let bar_spans = vec![
+                        Span::styled(bar_str, Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
+                    ];
+
+                    let mut lines = vec![
+                        Line::from(header_spans),
+                        Line::from(bar_spans),
+                    ];
+
+                    if inner_core_area.height >= 3 {
+                        let load_tag = if core.usage < 15.0 {
+                            "Idle"
+                        } else if core.usage < 65.0 {
+                            "Normal"
+                        } else {
+                            "Heavy Load"
+                        };
+                        let sub_spans = vec![
+                            Span::styled(format!("Load: {}", load_tag), Style::default().fg(theme.text_secondary)),
+                        ];
+                        lines.push(Line::from(sub_spans));
+                    }
+
+                    f.render_widget(Paragraph::new(lines), inner_core_area);
+                } else {
+                    // Single inner line (height == 1): render compact meter inside box
+                    let bar_len: usize = 6;
+                    let filled = ((core.usage.clamp(0.0, 100.0) / 100.0) * bar_len as f32).round() as usize;
+                    let empty = bar_len.saturating_sub(filled);
+                    let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+
+                    let line = Line::from(vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
+                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
+                        Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
+                    ]);
+
+                    f.render_widget(Paragraph::new(line), inner_core_area);
+                }
             }
         }
     }

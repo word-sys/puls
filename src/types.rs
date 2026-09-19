@@ -421,6 +421,7 @@ pub struct NumaNodeInfo {
     pub mem_total_bytes: u64,
     pub mem_used_bytes: u64,
     pub mem_free_bytes: u64,
+    pub mem_cached_bytes: u64,
     pub numa_hit: Option<u64>,
     pub numa_miss: Option<u64>,
 }
