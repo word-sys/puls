@@ -4,10 +4,9 @@ use futures_util::{future, stream::StreamExt};
 use tokio::time::timeout;
 
 #[cfg(feature = "docker")]
-#[cfg(feature = "docker")]
 use bollard::Docker;
 #[cfg(feature = "docker")]
-use bollard::query_parameters::{StatsOptions, ListContainersOptions, LogsOptions};
+use bollard::query_parameters::{StatsOptions, ListContainersOptions, LogsOptions, StartContainerOptions, StopContainerOptions, RestartContainerOptions};
 #[cfg(feature = "docker")]
 use bollard::models::ContainerStatsResponse;
 
@@ -358,17 +357,127 @@ impl ContainerMonitor {
         }
     }
 
-    pub async fn get_container_logs(&self, container_id: &str) -> Result<Vec<String>, String> {
+    pub async fn start_container(&self, container_id: &str) -> Result<(), String> {
+        #[cfg(feature = "docker")]
         if let Some(ref docker) = self.docker {
-            fetch_container_logs(docker, container_id).await
-        } else {
-            Err("Docker not available".to_string())
+            if let Err(e) = docker.start_container(container_id, None::<StartContainerOptions>).await {
+                return Err(format!("Docker start failed: {}", e));
+            }
+            return Ok(());
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["start", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to execute docker: {}", e)),
         }
     }
 
-    #[cfg(not(feature = "docker"))]
-    pub async fn get_container_logs(&self, _container_id: &str) -> Result<Vec<String>, String> {
-         Err("Docker support not compiled".to_string())
+    pub async fn stop_container(&self, container_id: &str) -> Result<(), String> {
+        #[cfg(feature = "docker")]
+        if let Some(ref docker) = self.docker {
+            if let Err(e) = docker.stop_container(container_id, None::<StopContainerOptions>).await {
+                return Err(format!("Docker stop failed: {}", e));
+            }
+            return Ok(());
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["stop", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to execute docker: {}", e)),
+        }
+    }
+
+    pub async fn restart_container(&self, container_id: &str) -> Result<(), String> {
+        #[cfg(feature = "docker")]
+        if let Some(ref docker) = self.docker {
+            if let Err(e) = docker.restart_container(container_id, None::<RestartContainerOptions>).await {
+                return Err(format!("Docker restart failed: {}", e));
+            }
+            return Ok(());
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["restart", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to execute docker: {}", e)),
+        }
+    }
+
+    pub async fn pause_container(&self, container_id: &str) -> Result<(), String> {
+        #[cfg(feature = "docker")]
+        if let Some(ref docker) = self.docker {
+            if let Err(e) = docker.pause_container(container_id).await {
+                return Err(format!("Docker pause failed: {}", e));
+            }
+            return Ok(());
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["pause", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to execute docker: {}", e)),
+        }
+    }
+
+    pub async fn unpause_container(&self, container_id: &str) -> Result<(), String> {
+        #[cfg(feature = "docker")]
+        if let Some(ref docker) = self.docker {
+            if let Err(e) = docker.unpause_container(container_id).await {
+                return Err(format!("Docker unpause failed: {}", e));
+            }
+            return Ok(());
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["unpause", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => Ok(()),
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to execute docker: {}", e)),
+        }
+    }
+
+    pub async fn get_container_logs(&self, container_id: &str) -> Result<Vec<String>, String> {
+        #[cfg(feature = "docker")]
+        if let Some(ref docker) = self.docker {
+            if let Ok(logs) = fetch_container_logs(docker, container_id).await {
+                if !logs.is_empty() {
+                    return Ok(logs);
+                }
+            }
+        }
+
+        let output = std::process::Command::new("docker")
+            .args(["logs", "--tail", "100", container_id])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut lines: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+                if !stderr.is_empty() {
+                    lines.extend(stderr.lines().map(|s| s.to_string()));
+                }
+                Ok(lines)
+            }
+            Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => Err(format!("Failed to fetch container logs: {}", e)),
+        }
     }
     
     #[cfg(feature = "docker")]
@@ -469,5 +578,16 @@ mod tests {
         let monitor = ContainerMonitor::new();
         let _result = monitor.health_check(1000).await;
         assert!(true);
+    }
+
+    #[tokio::test]
+    async fn test_container_actions_call() {
+        let monitor = ContainerMonitor::new();
+        let _ = monitor.start_container("puls_test_nonexistent").await;
+        let _ = monitor.stop_container("puls_test_nonexistent").await;
+        let _ = monitor.restart_container("puls_test_nonexistent").await;
+        let _ = monitor.pause_container("puls_test_nonexistent").await;
+        let _ = monitor.unpause_container("puls_test_nonexistent").await;
+        let _ = monitor.get_container_logs("puls_test_nonexistent").await;
     }
 }

@@ -358,6 +358,14 @@ fn handle_key_event(
                 state.edit_buffer.clear();
                 return Ok(false);
             }
+            if state.pending_container_action.is_some() {
+                state.pending_container_action = None;
+                return Ok(false);
+            }
+            if state.viewing_container_logs.is_some() {
+                state.viewing_container_logs = None;
+                return Ok(false);
+            }
             if state.active_tab == 1 && state.selected_pid.is_some() {
                 state.selected_pid = None;
                 state.process_detail_subtab = 0;
@@ -371,36 +379,79 @@ fn handle_key_event(
             }
             return Ok(true);
         }
-        
-        KeyCode::Char('l') if state.active_tab == 11 && state.service_status_modal.is_none() => {
+
+        KeyCode::Up if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, _, ref mut scroll)) = state.viewing_container_logs {
+                *scroll = scroll.saturating_sub(1);
+            }
+        }
+        KeyCode::Down if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, ref logs, ref mut scroll)) = state.viewing_container_logs {
+                let max_scroll = logs.len().saturating_sub(1);
+                *scroll = (*scroll + 1).min(max_scroll);
+            }
+        }
+        KeyCode::PageUp if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, _, ref mut scroll)) = state.viewing_container_logs {
+                *scroll = scroll.saturating_sub(15);
+            }
+        }
+        KeyCode::PageDown if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, ref logs, ref mut scroll)) = state.viewing_container_logs {
+                let max_scroll = logs.len().saturating_sub(1);
+                *scroll = (*scroll + 15).min(max_scroll);
+            }
+        }
+        KeyCode::Home if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, _, ref mut scroll)) = state.viewing_container_logs {
+                *scroll = 0;
+            }
+        }
+        KeyCode::End if state.viewing_container_logs.is_some() => {
+            if let Some((_, _, ref logs, ref mut scroll)) = state.viewing_container_logs {
+                *scroll = logs.len().saturating_sub(1);
+            }
+        }
+
+        KeyCode::Enter | KeyCode::Char('l') if state.active_tab == 11 && state.pending_container_action.is_none() && state.viewing_container_logs.is_none() => {
              if let Some(idx) = state.container_table_state.selected() {
                  if let Some(container) = state.dynamic_data.containers.get(idx) {
                      let container_id = container.id.clone();
                      let container_name = container.name.clone();
                      
                      let app_state_clone = app_state.clone();
-                     let data_collector_reader = data_collector.lock().unwrap();
+                     let data_collector_clone = data_collector.clone();
+
+                     state.viewing_container_logs = Some((
+                         container_name.clone(),
+                         container_id.clone(),
+                         vec!["Fetching container logs...".to_string()],
+                         0,
+                     ));
                      
-                     #[cfg(feature = "docker")]
-                     if let Some(client) = data_collector_reader.get_docker_client() {
-                         tokio::task::spawn_local(async move {
-                            match crate::monitors::container_monitor::fetch_container_logs(&client, &container_id).await {
-                                Ok(logs) => {
-                                    let mut state = app_state_clone.lock().unwrap();
-                                    state.service_status_modal = Some((format!("Logs: {}", container_name), logs.join("\n")));
-                                }
-                                Err(e) => {
-                                    let mut state = app_state_clone.lock().unwrap();
-                                    state.service_status_modal = Some(("Error fetching logs".to_string(), e));
-                                }
-                            }
-                         });
-                         state.service_status_modal = Some(("Fetching Logs...".to_string(), "Please wait...".to_string()));
-                     }
-                     #[cfg(not(feature = "docker"))]
-                     {
-                         state.service_status_modal = Some(("Error".to_string(), "Docker support not compiled".to_string()));
-                     }
+                     tokio::task::spawn_local(async move {
+                         let logs_res = {
+                             let dc = data_collector_clone.lock().unwrap();
+                             dc.get_container_logs(&container_id).await
+                         };
+                         let mut st = app_state_clone.lock().unwrap();
+                         if let Some((_, ref id, ref mut logs, _)) = st.viewing_container_logs {
+                             if *id == container_id {
+                                 match logs_res {
+                                     Ok(l) => {
+                                         if l.is_empty() {
+                                             *logs = vec!["(No log entries found for container)".to_string()];
+                                         } else {
+                                             *logs = l;
+                                         }
+                                     }
+                                     Err(e) => {
+                                         *logs = vec![format!("Failed to retrieve logs: {}", e)];
+                                     }
+                                 }
+                             }
+                         }
+                     });
                  }
              }
         }
@@ -463,7 +514,7 @@ fn handle_key_event(
             }
         }
 
-        KeyCode::Char('p') | KeyCode::Char('P') => {
+        KeyCode::Char('p') | KeyCode::Char('P') if state.active_tab != 11 => {
             state.paused = !state.paused;
         }
         
@@ -578,26 +629,30 @@ fn handle_key_event(
             state.active_tab = (state.active_tab + 1) % 13;
             state.selected_pid = None;
             state.network_socket_scroll = 0;
+            state.pending_container_action = None;
+            state.viewing_container_logs = None;
         }
         KeyCode::BackTab => {
             state.active_tab = (state.active_tab + 12) % 13;
             state.selected_pid = None;
             state.network_socket_scroll = 0;
+            state.pending_container_action = None;
+            state.viewing_container_logs = None;
         }
         
-        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 0; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 1; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 2; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 3; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 4; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 5; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 6; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 7; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 8; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 9; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 10; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; state.network_socket_scroll = 0; },
-        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; state.network_socket_scroll = 0; },
+        KeyCode::Char('1') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 0; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('2') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 1; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('3') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 2; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('4') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 3; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('5') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 4; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('6') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 5; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('7') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 6; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('8') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 7; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('9') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 8; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('0') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 9; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('-') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 10; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
+        KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; state.network_socket_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
         
         KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(5) if state.active_tab == 1 && state.selected_pid.is_none() => {
             state.process_tree_mode = !state.process_tree_mode;
@@ -732,6 +787,49 @@ fn handle_key_event(
         KeyCode::Char('n') | KeyCode::Char('N') if state.pending_service_action.is_some() => {
              state.pending_service_action = None;
         }
+
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_container_action.is_some() => {
+            if let Some((action, name, id)) = state.pending_container_action.take() {
+                let app_state_clone = app_state.clone();
+                let data_collector_clone = data_collector.clone();
+                tokio::task::spawn_local(async move {
+                    let result = {
+                        let dc = data_collector_clone.lock().unwrap();
+                        match action.as_str() {
+                            "start" => dc.start_container(&id).await,
+                            "stop" => dc.stop_container(&id).await,
+                            "restart" => dc.restart_container(&id).await,
+                            "pause" => dc.pause_container(&id).await,
+                            "unpause" => dc.unpause_container(&id).await,
+                            _ => Ok(()),
+                        }
+                    };
+                    let mut st = app_state_clone.lock().unwrap();
+                    match result {
+                        Ok(_) => {
+                            st.service_status_modal = Some((
+                                "Success".to_string(),
+                                format!("Container '{}' successfully {}.", name, match action.as_str() {
+                                    "start" => "started",
+                                    "stop" => "stopped",
+                                    "restart" => "restarted",
+                                    "pause" => "paused",
+                                    "unpause" => "unpaused",
+                                    _ => "processed",
+                                }),
+                            ));
+                        }
+                        Err(e) => {
+                            st.service_status_modal = Some(("Container Action Error".to_string(), e));
+                        }
+                    }
+                });
+            }
+        }
+
+        KeyCode::Char('n') | KeyCode::Char('N') if state.pending_container_action.is_some() => {
+            state.pending_container_action = None;
+        }
         
         KeyCode::Down if state.active_tab == 8 && state.pending_service_action.is_none() => {
             let len = state.services.len();
@@ -848,6 +946,43 @@ fn handle_key_event(
                         }
                         state.services = sys_mgr.get_services();
                     }
+                }
+            }
+        }
+
+        KeyCode::Char('s') if state.active_tab == 11 && state.pending_container_action.is_none() && state.viewing_container_logs.is_none() => {
+            if let Some(idx) = state.container_table_state.selected() {
+                if let Some(c) = state.dynamic_data.containers.get(idx) {
+                    state.pending_container_action = Some(("start".to_string(), c.name.clone(), c.id.clone()));
+                }
+            }
+        }
+
+        KeyCode::Char('x') if state.active_tab == 11 && state.pending_container_action.is_none() && state.viewing_container_logs.is_none() => {
+            if let Some(idx) = state.container_table_state.selected() {
+                if let Some(c) = state.dynamic_data.containers.get(idx) {
+                    state.pending_container_action = Some(("stop".to_string(), c.name.clone(), c.id.clone()));
+                }
+            }
+        }
+
+        KeyCode::Char('r') if state.active_tab == 11 && state.pending_container_action.is_none() && state.viewing_container_logs.is_none() => {
+            if let Some(idx) = state.container_table_state.selected() {
+                if let Some(c) = state.dynamic_data.containers.get(idx) {
+                    state.pending_container_action = Some(("restart".to_string(), c.name.clone(), c.id.clone()));
+                }
+            }
+        }
+
+        KeyCode::Char('p') | KeyCode::Char('P') if state.active_tab == 11 && state.pending_container_action.is_none() && state.viewing_container_logs.is_none() => {
+            if let Some(idx) = state.container_table_state.selected() {
+                if let Some(c) = state.dynamic_data.containers.get(idx) {
+                    let action = if c.status.to_lowercase().contains("pause") {
+                        "unpause".to_string()
+                    } else {
+                        "pause".to_string()
+                    };
+                    state.pending_container_action = Some((action, c.name.clone(), c.id.clone()));
                 }
             }
         }

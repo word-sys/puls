@@ -383,6 +383,8 @@ pub struct AppState {
     pub viewing_log: Option<LogEntry>,
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,
+    pub pending_container_action: Option<(String, String, String)>,
+    pub viewing_container_logs: Option<(String, String, Vec<String>, usize)>,
     pub pending_grub_update_confirmation: bool,
     pub language: crate::language::Language,
     pub process_tree_mode: bool,

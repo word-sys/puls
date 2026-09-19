@@ -257,6 +257,30 @@ impl DataCollector {
     pub fn get_docker_client(&self) -> Option<()> {
         None
     }
+
+    pub async fn start_container(&self, id: &str) -> Result<(), String> {
+        self.container_monitor.start_container(id).await
+    }
+
+    pub async fn stop_container(&self, id: &str) -> Result<(), String> {
+        self.container_monitor.stop_container(id).await
+    }
+
+    pub async fn restart_container(&self, id: &str) -> Result<(), String> {
+        self.container_monitor.restart_container(id).await
+    }
+
+    pub async fn pause_container(&self, id: &str) -> Result<(), String> {
+        self.container_monitor.pause_container(id).await
+    }
+
+    pub async fn unpause_container(&self, id: &str) -> Result<(), String> {
+        self.container_monitor.unpause_container(id).await
+    }
+
+    pub async fn get_container_logs(&self, id: &str) -> Result<Vec<String>, String> {
+        self.container_monitor.get_container_logs(id).await
+    }
 }
 
 pub type SharedDataCollector = Arc<Mutex<DataCollector>>;

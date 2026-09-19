@@ -58,6 +58,14 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     if let Some((action, name)) = &state.pending_service_action {
         render_service_action_confirmation(f, action, name, theme);
     }
+
+    if let Some((action, name, id)) = &state.pending_container_action {
+        render_container_action_confirmation(f, action, name, id, theme);
+    }
+
+    if let Some((name, id, logs, scroll)) = &state.viewing_container_logs {
+        render_container_logs_modal(f, name, id, logs, *scroll, theme);
+    }
     
     if let Some((idx, new_value)) = &state.pending_config_confirmation {
         if let Some(item) = state.config_items.get(*idx) {
@@ -201,6 +209,75 @@ fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, t
         .block(block)
         .style(Style::default().fg(theme.text))
         .alignment(Alignment::Center);
+
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_container_action_confirmation(f: &mut Frame, action: &str, name: &str, id: &str, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    let popup_area = Rect {
+        x: area.width / 4,
+        y: area.height / 2 - 3,
+        width: area.width / 2,
+        height: 6,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let title = format!("[*] {} Container", action.to_uppercase());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.warning));
+
+    let text = format!("{} container '{}' ({})?\n\ny: Confirm  |  n / Esc: Cancel", action.to_uppercase(), name, id);
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .alignment(Alignment::Center);
+
+    f.render_widget(paragraph, popup_area);
+}
+
+fn render_container_logs_modal(f: &mut Frame, name: &str, id: &str, logs: &[String], scroll: usize, theme: &crate::ui::colors::ColorScheme) {
+    let area = f.size();
+    let popup_area = Rect {
+        x: area.width / 10,
+        y: area.height / 10,
+        width: area.width * 8 / 10,
+        height: area.height * 8 / 10,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let block = Block::default()
+        .title(format!(" Container Logs: {} [{}] (Esc to close) ", name, id))
+        .title(
+            ratatui::widgets::block::Title::from(" [↑/↓/PgUp/PgDn] Scroll ")
+                .alignment(Alignment::Right),
+        )
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.highlight));
+
+    let inner_area = block.inner(popup_area);
+    let visible_height = inner_area.height as usize;
+    let total_lines = logs.len();
+
+    let display_text = if logs.is_empty() {
+        "No log output available for this container.".to_string()
+    } else {
+        let max_scroll = total_lines.saturating_sub(visible_height);
+        let effective_scroll = scroll.min(max_scroll);
+        let slice = &logs[effective_scroll..];
+        slice.join("\n")
+    };
+
+    let paragraph = Paragraph::new(display_text)
+        .block(block)
+        .style(Style::default().fg(theme.text))
+        .wrap(ratatui::widgets::Wrap { trim: false });
 
     f.render_widget(paragraph, popup_area);
 }
@@ -2008,7 +2085,7 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator
     .highlight_symbol(">> ")
     .block(
         Block::default()
-            .title(format!("Containers ({} running)", containers.len()))
+            .title(format!(" Containers ({}) [s: Start | x: Stop | r: Restart | p: Pause | Enter: Logs] ", containers.len()))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
