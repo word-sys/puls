@@ -28,7 +28,7 @@ impl SystemManager {
         let mut visited_services = HashSet::new();
 
         if let Ok(output) = Command::new("systemctl")
-            .args(&["list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--full"])
+            .args(["list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--full"])
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -50,7 +50,7 @@ impl SystemManager {
         }
 
         if let Ok(output) = Command::new("systemctl")
-            .args(&["list-unit-files", "--type=service", "--no-pager", "--no-legend", "--full"])
+            .args(["list-unit-files", "--type=service", "--no-pager", "--no-legend", "--full"])
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -124,7 +124,7 @@ impl SystemManager {
         }
 
         let output = Command::new("systemctl")
-            .args(&["start", &format!("{}.service", service_name)])
+            .args(["start", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -141,7 +141,7 @@ impl SystemManager {
         }
 
         let output = Command::new("systemctl")
-            .args(&["stop", &format!("{}.service", service_name)])
+            .args(["stop", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -158,7 +158,7 @@ impl SystemManager {
         }
 
         let output = Command::new("systemctl")
-            .args(&["restart", &format!("{}.service", service_name)])
+            .args(["restart", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -175,7 +175,7 @@ impl SystemManager {
         }
 
         let output = Command::new("systemctl")
-            .args(&["enable", &format!("{}.service", service_name)])
+            .args(["enable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -192,7 +192,7 @@ impl SystemManager {
         }
 
         let output = Command::new("systemctl")
-            .args(&["disable", &format!("{}.service", service_name)])
+            .args(["disable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -205,7 +205,7 @@ impl SystemManager {
 
     pub fn get_service_status(&self, service_name: &str) -> String {
         let output = Command::new("systemctl")
-            .args(&["status", &format!("{}.service", service_name), "--no-pager"])
+            .args(["status", &format!("{}.service", service_name), "--no-pager"])
             .output();
 
         match output {
@@ -223,7 +223,7 @@ impl SystemManager {
 
     pub fn get_service_logs(&self, service_name: &str) -> String {
         let output = Command::new("journalctl")
-            .args(&["-u", &format!("{}.service", service_name), "-n", "50", "--no-pager"])
+            .args(["-u", &format!("{}.service", service_name), "-n", "50", "--no-pager"])
             .output();
 
         match output {
@@ -313,7 +313,7 @@ impl SystemManager {
             let parts: Vec<&str> = line.splitn(4, ' ').collect();
 
             if parts.len() >= 3 {
-                let timestamp = format!("{} {}", parts.get(0).unwrap_or(&""), parts.get(1).unwrap_or(&""));
+                let timestamp = format!("{} {}", parts.first().unwrap_or(&""), parts.get(1).unwrap_or(&""));
                 let service_and_msg = parts.get(3).unwrap_or(&"");
                 let (service, message) = if let Some(colon_pos) = service_and_msg.find(':') {
                     let svc = &service_and_msg[..colon_pos];
@@ -369,7 +369,6 @@ impl SystemManager {
                             value: value.clone(),
                             original_value: value,
                             description: "GRUB boot parameter".to_string(),
-                            category: "GRUB".to_string(),
                         });
                     }
                 }
@@ -383,7 +382,6 @@ impl SystemManager {
                 value: hostname.trim().to_string(),
                 original_value: hostname.trim().to_string(),
                 description: "System hostname".to_string(),
-                category: "System".to_string(),
             });
         }
 
@@ -400,7 +398,6 @@ impl SystemManager {
                     value: tz.clone(),
                     original_value: tz,
                     description: "System timezone".to_string(),
-                    category: "System".to_string(),
                 });
             }
         }
@@ -436,7 +433,7 @@ impl SystemManager {
             let backup_file = format!("{}.bak.{}", grub_file, timestamp);
 
             Command::new("cp")
-                .args(&[grub_file, &backup_file])
+                .args([grub_file, &backup_file])
                 .output()
                 .map_err(|e| format!("Failed to create backup of {}: {}", grub_file, e))?;
 
@@ -486,13 +483,13 @@ impl SystemManager {
                 format!("update-grub succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
             } else if Command::new("grub-mkconfig").output().is_ok() {
                 let output = Command::new("grub-mkconfig")
-                    .args(&["-o", "/boot/grub/grub.cfg"])
+                    .args(["-o", "/boot/grub/grub.cfg"])
                     .output()
                     .map_err(|e| format!("Failed to run grub-mkconfig: {}", e))?;
                 format!("grub-mkconfig succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
             } else if Command::new("grub2-mkconfig").output().is_ok() {
                 let output = Command::new("grub2-mkconfig")
-                    .args(&["-o", "/boot/grub2/grub.cfg"])
+                    .args(["-o", "/boot/grub2/grub.cfg"])
                     .output()
                     .map_err(|e| format!("Failed to run grub2-mkconfig: {}", e))?;
                 format!("grub2-mkconfig succeeded:\n{}", String::from_utf8_lossy(&output.stdout))
@@ -512,7 +509,7 @@ impl SystemManager {
         }
 
         Command::new("hostnamectl")
-            .args(&["set-hostname", new_hostname])
+            .args(["set-hostname", new_hostname])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -525,7 +522,7 @@ impl SystemManager {
         }
 
         Command::new("timedatectl")
-            .args(&["set-timezone", timezone])
+            .args(["set-timezone", timezone])
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -559,11 +556,6 @@ impl SystemManager {
             }
         }
         sessions
-    }
-
-    #[allow(dead_code)]
-    pub fn is_reboot_required(&self) -> bool {
-        Path::new("/var/run/reboot-required").exists() || Path::new("/run/reboot-required").exists()
     }
 }
 
@@ -705,11 +697,5 @@ mod tests {
         assert_eq!(session2.line, "pts/1");
         assert_eq!(session2.login_time, "2026-09-19 10:15");
         assert_eq!(session2.host, "192.168.1.100");
-    }
-
-    #[test]
-    fn test_reboot_check_runs() {
-        let mgr = SystemManager::new();
-        let _ = mgr.is_reboot_required();
     }
 }

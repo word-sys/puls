@@ -13,13 +13,6 @@ impl PowerMonitor {
         }
     }
 
-    #[cfg(test)]
-    pub fn with_path(path: &str) -> Self {
-        Self {
-            power_supply_path: path.to_string(),
-        }
-    }
-
     pub fn get_battery_info(&self) -> Option<BatteryInfo> {
         let base_path = Path::new(&self.power_supply_path);
         if !base_path.exists() {

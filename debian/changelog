@@ -1,3 +1,21 @@
+puls (0.9.4) buster; urgency=medium
+
+  * Added full 7-language internationalization (English, Turkish, French, German, Spanish, Italian, Russian)
+  * Added persistent settings modal (F2/Shift+S) saving to ~/.config/puls/config.ini
+  * Added terminal mouse event support for header tabs and table scrolling
+  * Added hierarchical process tree view (t toggle)
+  * Added POSIX signal selector modal (k/F9) and process priority renicing ([/])
+  * Added extended process inspector modal for file descriptors, sockets, and threads
+  * Added per-process disk I/O tracking and filesystem inode metrics
+  * Added active network socket connection mapping
+  * Added container lifecycle controls (start/stop/restart/pause) and live log viewer
+  * Added GPU power limit, PCIe generation/width, and thermal throttling indicators
+  * Added battery power telemetry, CPU governors, systemd timers, and reboot-required indicator
+  * Added multi-core scalability and NUMA node topology awareness
+  * Added multi-architecture support for x86_64 and aarch64
+
+ -- word-sys <baringuzeldemir@gmail.com>  Sun, 20 Sep 2026 12:00:00 +0300
+
 puls (0.9.3) buster; urgency=medium
 
   * Added full Turkish language support

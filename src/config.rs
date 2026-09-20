@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::types::AppConfig;
 use crate::language::Language;
 
@@ -53,7 +51,7 @@ impl Cli {
                     println!("  --no-gpu             Disable GPU usage queries");
                     println!("  --no-network         Disable advanced network metrics collection");
                     println!("  --auto-scroll        Enable automatic scroll for logs");
-                    println!("  --lang <LANG>        Language setting (\"auto\", \"en\", \"tr\")");
+                    println!("  --lang <LANG>        Language setting (\"auto\", \"en\", \"tr\", \"fr\", \"de\", \"es\", \"it\", \"ru\")");
                     println!("  --tr                 Shortcut for Turkish language");
                     println!("  -v, --verbose        Enable verbose stderr error logging");
                     println!("  --telemetry          Show initialization telemetry");
@@ -184,7 +182,7 @@ pub fn parse_settings_from_path(path: &std::path::Path) -> UserSettings {
                     }
                     "refresh_rate_ms" | "refresh" => {
                         if let Ok(r) = val.parse::<u64>() {
-                            settings.refresh_rate_ms = Some(r.max(100).min(10000));
+                            settings.refresh_rate_ms = Some(r.clamp(100, 10000));
                         }
                     }
                     "temp_unit" | "temp_unit_fahrenheit" | "fahrenheit" => {
@@ -217,10 +215,7 @@ pub fn save_user_settings(
     let dir = get_config_dir();
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("config.ini");
-    let lang_str = match language {
-        Language::English => "en",
-        Language::Turkish => "tr",
-    };
+    let lang_str = language.code();
     let content = format!(
         "[puls]\nlanguage = {}\ntheme = {}\nrefresh_rate_ms = {}\ntemp_unit_fahrenheit = {}\ndefault_tab = {}\nprocess_tree_view = {}\n",
         lang_str, theme, refresh_rate_ms, temp_unit_fahrenheit, default_tab, process_tree_view
@@ -244,11 +239,9 @@ impl From<Cli> for AppConfig {
         };
 
         let refresh_rate_ms = if cli.refresh != 1000 {
-            cli.refresh.max(100).min(10000)
-        } else if let Some(saved_refresh) = saved.refresh_rate_ms {
-            saved_refresh
+            cli.refresh.clamp(100, 10000)
         } else {
-            1000
+            saved.refresh_rate_ms.unwrap_or(1000)
         };
 
         let theme = saved.theme.unwrap_or(0);
@@ -259,7 +252,7 @@ impl From<Cli> for AppConfig {
         Self {
             safe_mode: cli.safe,
             refresh_rate_ms, 
-            history_length: cli.history.max(10).min(300),     
+            history_length: cli.history.clamp(10, 300),     
             enable_docker: !cli.safe && !cli.no_docker,
             enable_gpu_monitoring: !cli.safe && !cli.no_gpu,
             enable_network_monitoring: !cli.safe && !cli.no_network,
@@ -274,27 +267,6 @@ impl From<Cli> for AppConfig {
 }
 
 impl AppConfig {
-    pub fn ui_refresh_rate_ms(&self) -> u64 {
-        33  //30FPS i think
-    }
-    
-    pub fn data_refresh_rate_ms(&self) -> u64 {
-        self.refresh_rate_ms
-    }
-    
-    pub fn is_feature_enabled(&self, feature: &str) -> bool {
-        match feature {
-            "docker" => self.enable_docker,
-            "gpu" => self.enable_gpu_monitoring,
-            "network" => self.enable_network_monitoring,
-            _ => true,
-        }
-    }
-    
-    pub fn get_collection_sleep_duration(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.data_refresh_rate_ms())
-    }
-    
     pub fn get_operation_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.refresh_rate_ms / 2)
     }

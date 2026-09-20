@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use ratatui::style::Color;
 
 #[derive(Debug, Clone)]
@@ -122,56 +120,6 @@ impl ColorScheme {
     }
 }
 
-pub fn cpu_usage_color(usage: f32) -> Color {
-    match usage {
-        x if x >= 85.0 => Color::Red,
-        x if x >= 65.0 => Color::Yellow,
-        x if x >= 40.0 => Color::Rgb(255, 165, 0), 
-        x if x >= 20.0 => Color::Cyan,
-        _ => Color::Green,
-    }
-}
-
-pub fn memory_usage_color(usage: f32) -> Color {
-    match usage {
-        x if x >= 90.0 => Color::Red,
-        x if x >= 75.0 => Color::Yellow,
-        x if x >= 60.0 => Color::Rgb(255, 165, 0), 
-        x if x >= 40.0 => Color::Cyan,
-        _ => Color::Green,
-    }
-}
-
-pub fn disk_usage_color(usage: f32) -> Color {
-    match usage {
-        x if x >= 90.0 => Color::Red,
-        x if x >= 80.0 => Color::Yellow,
-        x if x >= 70.0 => Color::Rgb(255, 165, 0), 
-        x if x >= 50.0 => Color::Cyan,
-        _ => Color::Green,
-    }
-}
-
-pub fn temperature_color(temp: f32) -> Color {
-    match temp {
-        x if x >= 90.0 => Color::Red,
-        x if x >= 75.0 => Color::Yellow,
-        x if x >= 60.0 => Color::Rgb(255, 165, 0), 
-        x if x >= 45.0 => Color::Cyan,
-        _ => Color::Green,
-    }
-}
-
-pub fn network_activity_color(rate_mbps: f64) -> Color {
-    match rate_mbps {
-        x if x >= 100.0 => Color::Red,
-        x if x >= 50.0 => Color::Yellow,
-        x if x >= 10.0 => Color::Rgb(255, 165, 0),
-        x if x >= 1.0 => Color::Cyan,
-        _ => Color::Green,
-    }
-}
-
 pub fn process_status_color(status: &str) -> Color {
     match status.to_lowercase().as_str() {
         "running" | "r" => Color::Green,
@@ -182,20 +130,6 @@ pub fn process_status_color(status: &str) -> Color {
         "dead" | "x" => Color::DarkGray,
         "idle" | "i" => Color::Cyan,
         _ => Color::White,
-    }
-}
-
-pub fn container_status_color(status: &str) -> Color {
-    if status.to_lowercase().contains("up") || status.to_lowercase().contains("running") {
-        Color::Green
-    } else if status.to_lowercase().contains("exit") || status.to_lowercase().contains("dead") {
-        Color::Red
-    } else if status.to_lowercase().contains("pause") {
-        Color::Yellow
-    } else if status.to_lowercase().contains("restart") {
-        Color::Cyan
-    } else {
-        Color::Gray
     }
 }
 
@@ -252,13 +186,6 @@ impl Default for ThemeManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_usage_colors() {
-        assert_eq!(cpu_usage_color(95.0), Color::Red);
-        assert_eq!(cpu_usage_color(70.0), Color::Yellow);
-        assert_eq!(cpu_usage_color(15.0), Color::Green);
-    }
-    
     #[test]
     fn test_color_schemes() {
         let dark = ColorScheme::dark();

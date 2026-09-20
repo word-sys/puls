@@ -7,7 +7,6 @@ use std::fs;
 pub struct GpuMonitor {
     gpu_history: VecDeque<Vec<u32>>,
     gpu_memory_history: VecDeque<Vec<u32>>,
-    last_update: std::time::Instant,
     nvidia_cache: Vec<GpuInfo>,
     last_nvidia_update: Option<std::time::Instant>,
 }
@@ -17,7 +16,6 @@ impl GpuMonitor {
         Self {
             gpu_history: VecDeque::new(),
             gpu_memory_history: VecDeque::new(),
-            last_update: std::time::Instant::now(),
             nvidia_cache: Vec::new(),
             last_nvidia_update: None,
         }
@@ -272,9 +270,8 @@ impl GpuMonitor {
             for line in content.lines() {
                 if line.contains('*') {
                     for part in line.split_whitespace() {
-                        if part.ends_with("Mhz") {
-                             let num_str = &part[..part.len()-3];
-                             return num_str.parse::<u32>().ok();
+                        if let Some(num_str) = part.strip_suffix("Mhz") {
+                            return num_str.parse::<u32>().ok();
                         }
                     }
                 }
@@ -707,13 +704,6 @@ impl GpuMonitor {
         while self.gpu_memory_history.len() > max_history {
             self.gpu_memory_history.pop_front();
         }
-    }
-    
-    pub fn get_gpu_history_flat(&self) -> Vec<u64> {
-        self.gpu_history
-            .iter()
-            .map(|frame| frame.iter().cloned().max().unwrap_or(0) as u64)
-            .collect()
     }
     
     pub fn is_available(&self) -> bool {

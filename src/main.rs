@@ -8,6 +8,7 @@ mod system_service;
 mod error_logger;
 
 use crate::types::{AppState, ProcessSortBy};
+use crate::monitors::{DataCollector, SharedDataCollector};
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,7 +24,6 @@ use ratatui::{prelude::*, Terminal};
 use tokio::time::sleep;
 
 use crate::config::{Cli};
-use crate::monitors::DataCollector;
 use crate::types::AppConfig;
 use crate::ui::render_ui;
 
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let startup_start = Instant::now();
     
     let coll_start = Instant::now();
-    let data_collector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
+    let data_collector: SharedDataCollector = Arc::new(tokio::sync::Mutex::new(DataCollector::new(config.clone())));
     let coll_duration = coll_start.elapsed();
     if telemetry {
         println!("[TELEMETRY] Collector creation took {:?}", coll_duration);
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let sys_info_start = Instant::now();
     let system_info = {
-        let collector = data_collector.lock().unwrap();
+        let collector = data_collector.lock().await;
         collector.get_system_info()
     };
     let sys_info_duration = sys_info_start.elapsed();
@@ -171,7 +171,7 @@ fn check_and_load_lazy_data(state: &mut AppState) {
 async fn ui_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app_state: Arc<Mutex<AppState>>,
-    data_collector: Arc<Mutex<DataCollector>>,
+    data_collector: SharedDataCollector,
     config: &AppConfig,
 ) -> io::Result<()> {
     let mut last_render = Instant::now();
@@ -216,7 +216,7 @@ async fn ui_loop(
 fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
-    data_collector: &Arc<Mutex<DataCollector>>,
+    data_collector: &SharedDataCollector,
     _config: &AppConfig,
 ) -> io::Result<bool> {
     let mut state = app_state.lock().unwrap();
@@ -292,10 +292,8 @@ fn handle_key_event(
             KeyCode::Backspace => {
                 state.edit_buffer.pop();
             }
-            KeyCode::Char(c) => {
-                if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
-                    state.edit_buffer.push(c);
-                }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) => {
+                state.edit_buffer.push(c);
             }
             _ => {}
         }
@@ -495,7 +493,7 @@ fn handle_key_event(
                      
                      tokio::task::spawn_local(async move {
                          let logs_res = {
-                             let dc = data_collector_clone.lock().unwrap();
+                             let dc = data_collector_clone.lock().await;
                              dc.get_container_logs(&container_id).await
                          };
                          let mut st = app_state_clone.lock().unwrap();
@@ -553,28 +551,24 @@ fn handle_key_event(
         // Filter and edit keys are now handled in the early is_editing check at the top of handle_key_event
 
         KeyCode::Char('>') | KeyCode::Right if state.active_tab == 9 && !state.editing_filter => {
-            if !state.boots.is_empty() {
-                if state.current_boot_idx > 0 {
-                    state.current_boot_idx -= 1;
-                    let sys_mgr = system_service::SystemManager::new();
-                    let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
-                    let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
-                    state.logs = sys_mgr.get_logs(1000, filter, boot_id);
-                    state.logs_table_state.select(Some(0));
-                }
+            if !state.boots.is_empty() && state.current_boot_idx > 0 {
+                state.current_boot_idx -= 1;
+                let sys_mgr = system_service::SystemManager::new();
+                let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+                let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
+                state.logs = sys_mgr.get_logs(1000, filter, boot_id);
+                state.logs_table_state.select(Some(0));
             }
         }
 
         KeyCode::Char('<') | KeyCode::Left if state.active_tab == 9 && !state.editing_filter => {
-            if !state.boots.is_empty() {
-                if state.current_boot_idx < state.boots.len() - 1 {
-                    state.current_boot_idx += 1;
-                    let sys_mgr = system_service::SystemManager::new();
-                    let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
-                    let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
-                    state.logs = sys_mgr.get_logs(1000, filter, boot_id);
-                    state.logs_table_state.select(Some(0));
-                }
+            if !state.boots.is_empty() && state.current_boot_idx < state.boots.len() - 1 {
+                state.current_boot_idx += 1;
+                let sys_mgr = system_service::SystemManager::new();
+                let boot_id = state.boots.get(state.current_boot_idx).map(|b| b.id.as_str());
+                let filter = if state.log_filter.is_empty() { None } else { Some(state.log_filter.as_str()) };
+                state.logs = sys_mgr.get_logs(1000, filter, boot_id);
+                state.logs_table_state.select(Some(0));
             }
         }
 
@@ -755,17 +749,11 @@ fn handle_key_event(
             persist_settings(&state);
         }
         KeyCode::Char('L') => {
-            state.language = match state.language {
-                crate::language::Language::English => crate::language::Language::Turkish,
-                crate::language::Language::Turkish => crate::language::Language::English,
-            };
+            state.language = state.language.next();
             persist_settings(&state);
         }
         KeyCode::Char('l') if state.active_tab != 8 && state.active_tab != 11 => {
-            state.language = match state.language {
-                crate::language::Language::English => crate::language::Language::Turkish,
-                crate::language::Language::Turkish => crate::language::Language::English,
-            };
+            state.language = state.language.next();
             persist_settings(&state);
         }
         
@@ -889,7 +877,7 @@ fn handle_key_event(
                 let data_collector_clone = data_collector.clone();
                 tokio::task::spawn_local(async move {
                     let result = {
-                        let dc = data_collector_clone.lock().unwrap();
+                        let dc = data_collector_clone.lock().await;
                         match action.as_str() {
                             "start" => dc.start_container(&id).await,
                             "stop" => dc.stop_container(&id).await,
@@ -1308,9 +1296,10 @@ fn modify_setting(state: &mut AppState, direction: i32) {
             }
         }
         5 => {
-            state.language = match state.language {
-                crate::language::Language::English => crate::language::Language::Turkish,
-                crate::language::Language::Turkish => crate::language::Language::English,
+            state.language = if direction >= 0 {
+                state.language.next()
+            } else {
+                state.language.prev()
             };
         }
         _ => {}
@@ -1505,7 +1494,7 @@ fn handle_mouse_event(
 
 async fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
-    data_collector: Arc<Mutex<DataCollector>>,
+    data_collector: SharedDataCollector,
     _config: AppConfig,
 ) {
     let mut prev_global_usage = types::GlobalUsage::default();
@@ -1538,7 +1527,7 @@ async fn data_collection_loop(
         };
         
         let new_data = {
-            let mut collector = data_collector.lock().unwrap();
+            let mut collector = data_collector.lock().await;
             collector.collect_data(
                 selected_pid,
                 show_system_processes,
@@ -1740,6 +1729,18 @@ mod tests {
         modify_setting(&mut state, 1);
         assert_eq!(state.language, crate::language::Language::Turkish);
         modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::French);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::German);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::Spanish);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::Italian);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::Russian);
+        modify_setting(&mut state, 1);
         assert_eq!(state.language, crate::language::Language::English);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.language, crate::language::Language::Russian);
     }
 }

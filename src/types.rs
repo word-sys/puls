@@ -495,8 +495,7 @@ impl Default for ServiceInfo {
     }
 }
 
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[derive(Clone, Debug, Default)]
 pub struct LogEntry {
     pub timestamp: String,
     pub level: String,
@@ -504,55 +503,21 @@ pub struct LogEntry {
     pub message: String,
 }
 
-impl Default for LogEntry {
-    fn default() -> Self {
-        Self {
-            timestamp: String::new(),
-            level: String::new(),
-            service: String::new(),
-            message: String::new(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[derive(Clone, Debug, Default)]
 pub struct ConfigItem {
     pub key: String,
     pub value: String,
     pub original_value: String,
     pub description: String,
-    pub category: String,
 }
 
-impl Default for ConfigItem {
-    fn default() -> Self {
-        Self {
-            key: String::new(),
-            value: String::new(),
-            original_value: String::new(),
-            description: String::new(),
-            category: String::new(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum ProcessSortBy {
+    #[default]
     Cpu,
     Memory,
     Name,
-    Pid,
-    DiskRead,
-    DiskWrite,
     General,
-}
-
-impl Default for ProcessSortBy {
-    fn default() -> Self {
-        ProcessSortBy::Cpu
-    }
 }
 
 

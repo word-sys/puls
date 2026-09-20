@@ -10,5 +10,23 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	mkdir -p debian/puls/usr/bin
-	cp target/x86_64-unknown-linux-musl/release/puls debian/puls/usr/bin/
+	if [ -f target/x86_64-unknown-linux-musl/release/puls ]; then \
+		cp target/x86_64-unknown-linux-musl/release/puls debian/puls/usr/bin/puls; \
+	elif [ -f target/aarch64-unknown-linux-musl/release/puls ]; then \
+		cp target/aarch64-unknown-linux-musl/release/puls debian/puls/usr/bin/puls; \
+	elif [ -f target/release/puls ]; then \
+		cp target/release/puls debian/puls/usr/bin/puls; \
+	fi
+	chmod 755 debian/puls/usr/bin/puls
+	mkdir -p debian/puls/usr/share/applications
+	cp puls.desktop debian/puls/usr/share/applications/
+	mkdir -p debian/puls/usr/share/icons/hicolor/scalable/apps
+	cp puls_icon.svg debian/puls/usr/share/icons/hicolor/scalable/apps/puls.svg
+
+override_dh_shlibdeps:
+	# Static binary, no shared library dependencies to resolve
+
+override_dh_strip:
+	# Pre-stripped static binary
+
 

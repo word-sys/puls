@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.9.4] - 2026-09-20
+
+### Added
+- **Multi-Language Expansion (7 Languages)**: Added complete localization and automatic environment detection for English (default), Turkish, French, German, Spanish, Italian, and Russian. Supported runtime cycling with hotkeys (`L` / `l`) and from the settings dialog
+- **Granular Settings Modal & Configuration Persistence**: Added an interactive Settings dialog (`F2` / `Shift+S` / `s`) supporting direct configuration of Interface Language, Color Theme, Default Startup Tab, Temperature Units (Celsius / Fahrenheit), Refresh Rate (500ms - 5000ms), and Process Tree View default. Automatically persisted across sessions to `~/.config/puls/config.ini`
+- **Terminal Mouse Event Capture**: Full mouse click and scroll support across the TUI. Left click on tab titles to navigate, click the Settings button in the header, and scroll tables, logs, and modal windows using the mouse wheel. Protected with a safe panic hook to ensure terminal state is cleanly restored
+- **Hierarchical Process Tree View**: Added parent-child process tree mode (`t` toggle) with branch tree glyphs (`├─`, `└─`) for intuitive hierarchy navigation
+- **POSIX Signal Selector & Dynamic Niceness**: Added interactive process signal selector modal (`k` / `F9`) supporting SIGTERM, SIGKILL, SIGHUP, SIGSTOP, SIGCONT, and SIGINT. Added dynamic priority renicing with `[` (increase priority / lower nice) and `]` (decrease priority / raise nice)
+- **Extended Process Inspector**: Deep-dive process inspection modal (`Enter`) displaying open file descriptor counts (`/proc/[pid]/fd`), active socket counts, and per-thread metrics with thread CPU utilization (`/proc/[pid]/task`)
+- **Filesystem Inodes & Per-Process Disk I/O**: Real-time per-process disk read/write bandwidth calculations (`/proc/[pid]/io`). Partition view now reports inode capacity, usage percentages, and mount flags via `statvfs`
+- **Network Sockets & Active Connection Mapping**: Parsed native `/proc/net/tcp`, `/proc/net/udp`, `/proc/net/tcp6`, and `/proc/net/udp6` to track active network sockets, remote endpoints, connection states, and mapped owning PIDs
+- **Container Management & Logs**: Added interactive container management in the Containers tab (`s` start, `x` stop, `r` restart, `p` pause) and live container log streaming (`Enter` / `l`). Supported Podman socket detection fallback
+- **GPU Extended Telemetry & Throttling Flags**: Added power limit and current power draw, PCIe link generation and width indicators (current vs maximum), fan RPM, and hardware thermal throttling indicators for NVIDIA, AMD, and Intel GPUs
+- **Hardware Power & System Administration**: Added battery telemetry (charge percentage, capacity, wattage, health, AC status via `/sys/class/power_supply/`), CPU frequency scaling governors, systemd scheduled timers overview (`systemctl list-timers`), active user login sessions (`who`/`utmp`), and `/var/run/reboot-required` pending reboot detection
+- **Multi-Core Scalability & NUMA Node Awareness**: Adaptive grid layouts for systems with up to 128+ logical cores. Parsed NUMA node topologies (`/sys/devices/system/node/`) with per-node core affinity and memory distribution
+- **New Color Themes**: Added Dracula, Solarized Dark, and High Contrast themes alongside Default, Dark Blue, and Light (`THEME_COUNT = 6`)
+- **Multi-Architecture Release Pipeline**: CI/CD automation for building static MUSL binaries and Debian packages for both `x86_64` (AMD64) and `aarch64` (ARM64) with buildinfo, changes, and SHA256 checksums, builds from now on will be more improved
+
+### Changed
+- **No New Dependencies**: All new features implemented natively using standard library interfaces, `/proc`, `/sys`, and core Unix APIs without adding external crates
+- **Optimized Tokio Features**: Trimmed Tokio features to only required runtime modules (`rt-multi-thread`, `time`, `sync`, `macros`) reducing binary size
+- **Documentation Changes**: Documentation changed to 7 interconnected README files (`README.md`, `README.tr.md`, `README.fr.md`, `README.de.md`, `README.es.md`, `README.it.md`, `README.ru.md`)
+
 ## [v0.9.3] - 2026-07-19
 
 ### Added

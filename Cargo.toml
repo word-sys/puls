@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"
@@ -44,6 +44,7 @@ debug = true
 [package.metadata.deb]
 maintainer = "word-sys <baringuzeldemir@gmail.com>"
 copyright = "2026, word-sys"
+revision = ""
 depends = "$auto" 
 section = "utils"
 priority = "optional"

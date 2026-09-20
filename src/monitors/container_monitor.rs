@@ -71,17 +71,18 @@ impl ContainerMonitor {
         if let Some(ref docker) = self.docker {
             let docker_clone = docker.clone();
             match self.get_docker_containers(&docker_clone, timeout_ms).await {
-                Ok(containers) => return Ok(containers),
+                Ok(containers) => Ok(containers),
                 Err(e) => {
                     let err_str = e.to_string();
                     if err_str.contains("hyper") || err_str.contains("Connect") {
-                        return Err("Docker daemon is not running".to_string());
+                        Err("Docker daemon is not running".to_string())
+                    } else {
+                        Err(format!("Docker: {}", err_str))
                     }
-                    return Err(format!("Docker: {}", err_str));
                 }
             }
         } else {
-             return Err("Docker not available".to_string());
+            Err("Docker not available".to_string())
         }
         
         #[cfg(not(feature = "docker"))]
@@ -243,7 +244,7 @@ impl ContainerMonitor {
         let memory_display = format_size(memory_usage);
         
         if let Some(ref networks) = stats.networks {
-            for (_, net_data) in networks {
+            for net_data in networks.values() {
                 container_io_stats.net_rx += net_data.rx_bytes.unwrap_or(0);
                 container_io_stats.net_tx += net_data.tx_bytes.unwrap_or(0);
             }
@@ -338,11 +339,11 @@ impl ContainerMonitor {
         if let Some(ports) = ports {
             let port_strings: Vec<String> = ports
                 .iter()
-                .filter_map(|port| {
+                .map(|port| {
                     if let Some(public_port) = port.public_port {
-                        Some(format!("{}:{}", public_port, port.private_port))
+                        format!("{}:{}", public_port, port.private_port)
                     } else {
-                        Some(format!("{}", port.private_port))
+                        format!("{}", port.private_port)
                     }
                 })
                 .collect();
@@ -480,16 +481,6 @@ impl ContainerMonitor {
         }
     }
     
-    #[cfg(feature = "docker")]
-    pub fn client(&self) -> Option<Docker> {
-        self.docker.clone()
-    }
-    
-    #[cfg(not(feature = "docker"))]
-    pub fn client(&self) -> Option<()> {
-        None
-    }
-
     #[cfg(not(feature = "docker"))]
     async fn get_docker_containers(&mut self, _timeout_ms: u64) -> Result<Vec<ContainerInfo>, Box<dyn std::error::Error + Send + Sync>> {
         Err("Docker support not compiled".into())
@@ -501,33 +492,6 @@ impl ContainerMonitor {
         
         #[cfg(not(feature = "docker"))]
         false
-    }
-    
-    pub async fn health_check(&self, timeout_ms: u64) -> bool {
-        #[cfg(feature = "docker")]
-        if let Some(ref docker) = self.docker {
-            return timeout(
-                Duration::from_millis(timeout_ms),
-                docker.ping()
-            ).await.is_ok();
-        }
-        
-        false
-    }
-    
-    pub async fn get_runtime_info(&self) -> Option<String> {
-        #[cfg(feature = "docker")]
-        if let Some(ref docker) = self.docker {
-            if let Ok(version) = docker.version().await {
-                return Some(format!(
-                    "Docker {} (API {})",
-                    version.version.unwrap_or_else(|| "unknown".to_string()),
-                    version.api_version.unwrap_or_else(|| "unknown".to_string())
-                ));
-            }
-        }
-        
-        None
     }
 }
 
@@ -570,13 +534,6 @@ mod tests {
     #[test]
     fn test_container_monitor_creation() {
         let _monitor = ContainerMonitor::new();
-        assert!(true);
-    }
-    
-    #[tokio::test]
-    async fn test_container_health_check() {
-        let monitor = ContainerMonitor::new();
-        let _result = monitor.health_check(1000).await;
         assert!(true);
     }
 

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::VecDeque;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -46,32 +44,6 @@ pub fn format_rate(bytes_per_sec: u64) -> String {
         format!("{} {}", bytes_per_sec, UNITS[unit_index])
     } else {
         format!("{:.1} {}", rate, UNITS[unit_index])
-    }
-}
-
-pub fn format_frequency(hz: u64) -> String {
-    let hz_value = hz * 1_000_000;
-    
-    if hz_value >= 1_000_000_000 {
-        format!("{:.2} GHz", hz_value as f64 / 1_000_000_000.0)
-    } else if hz_value >= 1_000_000 {
-        format!("{:.0} MHz", hz_value as f64 / 1_000_000.0)
-    } else if hz_value >= 1_000 {
-        format!("{:.0} KHz", hz_value as f64 / 1_000.0)
-    } else {
-        format!("{} Hz", hz_value)
-    }
-}
-
-pub fn format_frequency_hz(hz: u64) -> String {
-    if hz >= 1_000_000_000 {
-        format!("{:.2} GHz", hz as f64 / 1_000_000_000.0)
-    } else if hz >= 1_000_000 {
-        format!("{:.0} MHz", hz as f64 / 1_000_000.0)
-    } else if hz >= 1_000 {
-        format!("{:.0} KHz", hz as f64 / 1_000.0)
-    } else {
-        format!("{} Hz", hz)
     }
 }
 
@@ -124,51 +96,11 @@ pub fn format_count(n: u64) -> String {
     }
 }
 
-pub fn format_temperature(celsius: f32) -> String {
-    format!("{:.1}°C", celsius)
-}
-
-pub fn format_temperature_with_status(celsius: f32) -> String {
-    let status = match celsius {
-        x if x >= 90.0 => "HOT",
-        x if x >= 75.0 => "WARM",
-        x if x >= 60.0 => "NORMAL",
-        _ => "COOL",
-    };
-    format!("{:.1}°C {}", celsius, status)
-}
-
 pub fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-pub fn safe_percentage(used: u64, total: u64) -> f32 {
-    if total == 0 {
-        0.0
-    } else {
-        (used as f64 / total as f64 * 100.0) as f32
-    }
-}
-
-pub fn clamp<T: PartialOrd>(value: T, min: T, max: T) -> T {
-    if value < min {
-        min
-    } else if value > max {
-        max
-    } else {
-        value
-    }
-}
-
-pub fn bytes_to_mb(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0)
-}
-
-pub fn bytes_to_gb(bytes: u64) -> f64 {
-    bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
 pub fn get_usage_color(percentage: f32) -> ratatui::style::Color {
@@ -230,26 +162,6 @@ pub fn matches_filter(text: &str, filter: &str) -> bool {
     text_lower.contains(&filter_lower)
 }
 
-pub fn get_top_processes(processes: &[crate::types::ProcessInfo], top_n: usize) -> Vec<String> {
-    let mut sorted = processes.to_vec();
-    sorted.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
-    
-    sorted.iter()
-        .take(top_n)
-        .map(|p| format!("{}: {:.1}%", p.name, p.cpu))
-        .collect()
-}
-
-pub fn get_top_memory_consumers(processes: &[crate::types::ProcessInfo], top_n: usize) -> Vec<String> {
-    let mut sorted = processes.to_vec();
-    sorted.sort_by(|a, b| b.mem.cmp(&a.mem));
-    
-    sorted.iter()
-        .take(top_n)
-        .map(|p| format!("{}: {}", p.name, p.mem_display))
-        .collect()
-}
-
 pub fn count_process_states(processes: &[crate::types::ProcessInfo]) -> (usize, usize, usize, usize) {
     let mut running = 0;
     let mut sleeping = 0;
@@ -266,57 +178,6 @@ pub fn count_process_states(processes: &[crate::types::ProcessInfo]) -> (usize, 
     }
     
     (running, sleeping, zombie, other)
-}
-
-pub fn estimate_memory_per_core(mem_used: u64, cpu_cores: usize) -> u64 {
-    if cpu_cores > 0 {
-        mem_used / cpu_cores as u64
-    } else {
-        mem_used
-    }
-}
-
-pub fn get_cpu_efficiency(cpu_percent: f32, load_avg: f64, cpu_cores: usize) -> String {
-    if cpu_percent < 5.0 && load_avg < 0.2 * cpu_cores as f64 {
-        return "IDLE".to_string();
-    }
-
-    let load_per_core = if cpu_cores > 0 {
-        load_avg / cpu_cores as f64
-    } else {
-        load_avg
-    };
-
-    let efficiency = if load_per_core > 0.0 {
-        ((cpu_percent as f64 / 100.0) / load_per_core * 100.0).min(100.0)
-    } else {
-        100.0
-    };
-    
-    match efficiency {
-        x if x >= 90.0 => "OPTIMAL".to_string(),
-        x if x >= 70.0 => "GOOD".to_string(),
-        x if x >= 50.0 => "FAIR".to_string(),
-        _ => "POOR".to_string(),
-    }
-}
-
-pub fn estimate_memory_availability(mem_used: u64, mem_total: u64) -> (u64, String) {
-    let available = mem_total.saturating_sub(mem_used);
-    let percent_free = if mem_total > 0 {
-        (available as f64 / mem_total as f64) * 100.0
-    } else {
-        0.0
-    };
-    
-    let level = match percent_free {
-        x if x >= 40.0 => "COMFORTABLE",
-        x if x >= 20.0 => "MODERATE",
-        x if x >= 10.0 => "TIGHT",
-        _ => "CRITICAL",
-    };
-    
-    (available, level.to_string())
 }
 
 pub fn format_uptime(seconds: u64) -> String {
@@ -336,11 +197,51 @@ pub fn format_uptime(seconds: u64) -> String {
     }
 }
 
-pub fn format_load_average(load1: f64, load5: f64, load15: f64) -> String {
-    format!("{:.2} {:.2} {:.2}", load1, load5, load15)
+pub fn get_cpu_efficiency_localized(cpu_percent: f32, load_avg: f64, cpu_cores: usize, translator: &crate::language::Translator) -> String {
+    if cpu_percent < 5.0 && load_avg < 0.2 * cpu_cores as f64 {
+        return translator.t("health.idle");
+    }
+
+    let load_per_core = if cpu_cores > 0 {
+        load_avg / cpu_cores as f64
+    } else {
+        load_avg
+    };
+
+    let efficiency = if load_per_core > 0.0 {
+        ((cpu_percent as f64 / 100.0) / load_per_core * 100.0).min(100.0)
+    } else {
+        100.0
+    };
+    
+    let key = match efficiency {
+        x if x >= 90.0 => "efficiency.optimal",
+        x if x >= 70.0 => "efficiency.good",
+        x if x >= 50.0 => "efficiency.fair",
+        _ => "efficiency.poor",
+    };
+    translator.t(key)
 }
 
-pub fn get_system_health(load_avg: f64, cpu_cores: usize, mem_used: u64, mem_total: u64) -> (String, String) {
+pub fn estimate_memory_availability_localized(mem_used: u64, mem_total: u64, translator: &crate::language::Translator) -> (u64, String) {
+    let available = mem_total.saturating_sub(mem_used);
+    let percent_free = if mem_total > 0 {
+        (available as f64 / mem_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    
+    let key = match percent_free {
+        x if x >= 40.0 => "memory.comfortable",
+        x if x >= 20.0 => "memory.moderate",
+        x if x >= 10.0 => "memory.tight",
+        _ => "memory.critical",
+    };
+    
+    (available, translator.t(key))
+}
+
+pub fn get_system_health_localized(load_avg: f64, cpu_cores: usize, mem_used: u64, mem_total: u64, translator: &crate::language::Translator) -> (String, String) {
     let load_per_core = if cpu_cores > 0 {
         load_avg / cpu_cores as f64
     } else {
@@ -353,28 +254,23 @@ pub fn get_system_health(load_avg: f64, cpu_cores: usize, mem_used: u64, mem_tot
         0.0
     };
     
-    let load_status = match load_per_core {
-        x if x >= 2.0 => ("CRITICAL", "red"),
-        x if x >= 1.5 => ("OVERLOAD", "yellow"),
-        x if x >= 1.0 => ("HIGH", "yellow"),
-        x if x >= 0.5 => ("NORMAL", "green"),
-        _ => ("IDLE", "green"),
+    let load_key = match load_per_core {
+        x if x >= 2.0 => "health.critical",
+        x if x >= 1.5 => "health.overload",
+        x if x >= 1.0 => "health.high",
+        x if x >= 0.5 => "health.normal",
+        _ => "health.idle",
     };
     
-    let mem_status = match mem_percent {
-        x if x >= 90.0 => ("CRITICAL", "red"),
-        x if x >= 80.0 => ("HIGH", "yellow"),
-        x if x >= 60.0 => ("MODERATE", "cyan"),
-        _ => ("HEALTHY", "green"),
+    let mem_key = match mem_percent {
+        x if x >= 90.0 => "health.critical",
+        x if x >= 80.0 => "health.high",
+        x if x >= 60.0 => "health.moderate",
+        _ => "health.healthy",
     };
     
-    let status = format!("[{}/{}]", load_status.0, mem_status.0);
-    (status, format!("{}", load_per_core))
-}
-
-pub fn get_memory_breakdown(mem_available: u64, mem_total: u64) -> (u64, u64) {
-    let mem_used = mem_total.saturating_sub(mem_available);
-    (mem_used, mem_available)
+    let status = format!("[{}/{}]", translator.t(load_key), translator.t(mem_key));
+    (status, format!("{:.2}", load_per_core))
 }
 
 use std::os::raw::{c_int, c_long, c_char};
@@ -485,13 +381,6 @@ mod tests {
         assert_eq!(format_rate(500), "500 B/s");
         assert_eq!(format_rate(1000), "1.0 KB/s");
         assert_eq!(format_rate(1500), "1.5 KB/s");
-    }
-
-    #[test]
-    fn test_safe_percentage() {
-        assert_eq!(safe_percentage(50, 100), 50.0);
-        assert_eq!(safe_percentage(0, 0), 0.0);
-        assert_eq!(safe_percentage(100, 0), 0.0);
     }
 
     #[test]

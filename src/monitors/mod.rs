@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod system_monitor;
 pub mod gpu_monitor;
 pub mod container_monitor;
@@ -14,8 +12,7 @@ pub use power_monitor::PowerMonitor;
 pub use numa_monitor::NumaMonitor;
 
 use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::time::Instant;
+use tokio::sync::Mutex;
 
 use crate::types::{DynamicData, AppConfig, GlobalUsage};
 use crate::utils::update_history;
@@ -27,7 +24,6 @@ pub struct DataCollector {
     power_monitor: PowerMonitor,
     numa_monitor: NumaMonitor,
     config: AppConfig,
-    last_update: Instant,
 }
 
 impl DataCollector {
@@ -39,10 +35,10 @@ impl DataCollector {
             power_monitor: PowerMonitor::new(),
             numa_monitor: NumaMonitor::new(),
             config,
-            last_update: Instant::now(),
         }
     }
     
+    #[allow(clippy::too_many_arguments)]
     pub async fn collect_data(
         &mut self,
         selected_pid: Option<sysinfo::Pid>,
@@ -275,36 +271,6 @@ impl DataCollector {
         }
         
         info
-    }
-    
-    pub async fn health_check(&self) -> Vec<(String, bool)> {
-        let mut health = Vec::new();
-        
-        health.push(("System".to_string(), true));
-        
-        if self.config.enable_docker {
-            let docker_health = self.container_monitor.health_check(1000).await;
-            health.push(("Docker".to_string(), docker_health));
-        }
-        
-        if self.config.enable_gpu_monitoring {
-            health.push(("GPU".to_string(), self.gpu_monitor.is_available()));
-        }
-        
-        if self.config.enable_network_monitoring {
-            health.push(("Network".to_string(), true));
-        }
-        
-        health
-    }
-    #[cfg(feature = "docker")]
-    pub fn get_docker_client(&self) -> Option<bollard::Docker> {
-        self.container_monitor.client()
-    }
-    
-    #[cfg(not(feature = "docker"))]
-    pub fn get_docker_client(&self) -> Option<()> {
-        None
     }
 
     pub async fn start_container(&self, id: &str) -> Result<(), String> {

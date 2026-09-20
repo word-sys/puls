@@ -108,7 +108,7 @@ impl SystemMonitor {
             ("OS".into(), System::long_os_version().unwrap_or_default()),
             ("Kernel".into(), System::kernel_version().unwrap_or_default()),
             ("Hostname".into(), System::host_name().unwrap_or_default()),
-            ("CPU".into(), self.system.cpus().get(0).map_or("N/A".into(), |c| c.brand().to_string())),
+            ("CPU".into(), self.system.cpus().first().map_or("N/A".into(), |c| c.brand().to_string())),
             ("Cores".into(), format!("{} Physical / {} Logical", 
                 self.system.physical_core_count().unwrap_or(0), 
                 self.system.cpus().len())),
@@ -124,15 +124,15 @@ impl SystemMonitor {
 
             for line in content.lines() {
                 if line.starts_with("cache size") {
-                    cache_size = line.split(':').last().unwrap_or("").trim().to_string();
+                    cache_size = line.split(':').next_back().unwrap_or("").trim().to_string();
                 } else if line.starts_with("bogomips") {
-                    bogomips = line.split(':').last().unwrap_or("").trim().to_string();
+                    bogomips = line.split(':').next_back().unwrap_or("").trim().to_string();
                 } else if line.starts_with("vendor_id") {
-                    vendor = line.split(':').last().unwrap_or("").trim().to_string();
+                    vendor = line.split(':').next_back().unwrap_or("").trim().to_string();
                 } else if line.starts_with("cpu family") {
-                    family = line.split(':').last().unwrap_or("").trim().to_string();
+                    family = line.split(':').next_back().unwrap_or("").trim().to_string();
                 } else if line.starts_with("flags") && virtualization == "Disabled/None" {
-                    let flags = line.split(':').last().unwrap_or("");
+                    let flags = line.split(':').next_back().unwrap_or("");
                     if flags.contains("vmx") {
                         virtualization = "Intel VT-x".to_string();
                     } else if flags.contains("svm") {
@@ -210,17 +210,17 @@ impl SystemMonitor {
                 for line in content.lines() {
                     let line = line.trim();
                     if line.starts_with("Type:") {
-                        let t = line.split(':').last().unwrap_or("").trim();
+                        let t = line.split(':').next_back().unwrap_or("").trim();
                         if !t.is_empty() && !["Unknown", "Other", "<OUT OF SPEC>"].contains(&t) {
                             mem_gen = t.to_string();
                         }
                     } else if line.starts_with("Speed:") {
-                        let s = line.split(':').last().unwrap_or("").trim();
+                        let s = line.split(':').next_back().unwrap_or("").trim();
                         if !s.is_empty() && !["Unknown", "Unknown Speed", "0 MT/s", "0 MHz"].contains(&s) {
                             mem_speed = s.to_string();
                         }
                     } else if line.starts_with("Form Factor:") {
-                        let f = line.split(':').last().unwrap_or("").trim();
+                        let f = line.split(':').next_back().unwrap_or("").trim();
                         if !f.is_empty() && f != "Unknown" {
                             mem_type = f.to_string();
                         }
@@ -454,7 +454,7 @@ impl SystemMonitor {
             .or_else(|| {
                 core_sensors.first().map(|(_, t)| *t)
             })
-            .or_else(|| Self::read_cpu_temp_from_hwmon());
+            .or_else(Self::read_cpu_temp_from_hwmon);
 
         self.system.cpus().iter().enumerate().map(|(i, cpu)| {
             let temp = core_sensors.iter()
@@ -508,7 +508,7 @@ impl SystemMonitor {
         let result: Vec<DetailedDiskInfo> = disks.iter().map(|disk| {
             let used = disk.total_space().saturating_sub(disk.available_space());
             let dev_path = disk.name().to_string_lossy();
-            let block_dev = dev_path.split('/').last().unwrap_or(&dev_path);
+            let block_dev = dev_path.split('/').next_back().unwrap_or(&dev_path);
             let mount_point = disk.mount_point().to_string_lossy();
             let (inodes_total, inodes_free, inodes_used) = Self::get_mount_inodes(&mount_point);
             let mount_options = mount_options_map.get(mount_point.as_ref()).cloned();
@@ -957,26 +957,6 @@ impl SystemMonitor {
         
         sensors
     }
-    
-    pub fn refresh(&mut self) {
-        self.system.refresh_cpu_all();
-        self.system.refresh_memory();
-        self.components.refresh(true);
-    }
-    
-    pub fn calculate_total_disk_io(&self, processes: &[ProcessInfo]) -> (u64, u64) {
-        let mut total_read = 0;
-        let mut total_write = 0;
-        for p in processes {
-             if let Some(r) = p.disk_read.split(' ').next().and_then(|s| s.parse::<f64>().ok()) {
-                 total_read += (r * if p.disk_read.contains("MB/s") { 1024.0 * 1024.0 } else if p.disk_read.contains("KB/s") { 1024.0 } else { 1.0 }) as u64;
-             }
-             if let Some(w) = p.disk_write.split(' ').next().and_then(|s| s.parse::<f64>().ok()) {
-                 total_write += (w * if p.disk_write.contains("MB/s") { 1024.0 * 1024.0 } else if p.disk_write.contains("KB/s") { 1024.0 } else { 1.0 }) as u64;
-             }
-        }
-        (total_read, total_write)
-    }
 
     pub fn get_global_disk_io(&mut self) -> (u64, u64) {
         let current_stats = self.parse_disk_stats();
@@ -1204,7 +1184,7 @@ impl Default for SystemMonitor {
     }
 }
 
-pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy, ascending: bool, total_memory: u64) {
+pub fn sort_processes(processes: &mut [ProcessInfo], sort_by: &ProcessSortBy, ascending: bool, total_memory: u64) {
     match sort_by {
         ProcessSortBy::Cpu => {
             processes.sort_by(|a, b| {
@@ -1221,20 +1201,6 @@ pub fn sort_processes(processes: &mut Vec<ProcessInfo>, sort_by: &ProcessSortBy,
         ProcessSortBy::Name => {
             processes.sort_by(|a, b| {
                 let cmp = a.name.cmp(&b.name);
-                if ascending { cmp } else { cmp.reverse() }
-            });
-        },
-        ProcessSortBy::Pid => {
-            processes.sort_by(|a, b| {
-                let a_pid: u32 = a.pid.parse().unwrap_or(0);
-                let b_pid: u32 = b.pid.parse().unwrap_or(0);
-                let cmp = a_pid.cmp(&b_pid);
-                if ascending { cmp } else { cmp.reverse() }
-            });
-        },
-        ProcessSortBy::DiskRead | ProcessSortBy::DiskWrite => {
-            processes.sort_by(|a, b| {
-                let cmp = a.cpu.partial_cmp(&b.cpu).unwrap_or(std::cmp::Ordering::Equal);
                 if ascending { cmp } else { cmp.reverse() }
             });
         },
@@ -1285,6 +1251,7 @@ pub fn build_process_tree(
     let mut ordered: Vec<ProcessInfo> = Vec::with_capacity(processes.len());
     let mut visited: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
+    #[allow(clippy::too_many_arguments)]
     fn traverse(
         idx: usize,
         processes: &[ProcessInfo],
@@ -1450,7 +1417,7 @@ mod tests {
             },
         ];
 
-        build_process_tree(&mut processes, &ProcessSortBy::Pid, true, 8192 * 1024 * 1024);
+        build_process_tree(&mut processes, &ProcessSortBy::Cpu, true, 8192 * 1024 * 1024);
         assert_eq!(processes.len(), 2);
         assert_eq!(processes[0].name, "systemd");
         assert_eq!(processes[0].tree_prefix, "");
