@@ -270,6 +270,10 @@ impl AppConfig {
     pub fn get_operation_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.refresh_rate_ms / 2)
     }
+
+    pub fn ui_refresh_rate_ms(&self) -> u64 {
+        33
+    }
 }
 
 impl Default for AppConfig {

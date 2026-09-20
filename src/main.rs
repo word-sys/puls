@@ -27,7 +27,7 @@ use crate::config::{Cli};
 use crate::types::AppConfig;
 use crate::ui::render_ui;
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     init_logging(cli.verbose)?;
@@ -98,18 +98,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.has_sudo = sys_mgr.has_sudo_privileges();
     }
     
-    let local = tokio::task::LocalSet::new();
+    let app_state_clone = app_state.clone();
+    let data_collector_clone = data_collector.clone();
+    let config_clone = config.clone();
+    let collector_handle = tokio::spawn(async move {
+        data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
+    });
 
-    let result = local.run_until(async {
-        let app_state_clone = app_state.clone();
-        let data_collector_clone = data_collector.clone();
-        let config_clone = config.clone();
-        tokio::task::spawn_local(async move {
-            data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
-        });
-
-        ui_loop(&mut terminal, app_state, data_collector, &config).await
-    }).await;
+    let result = ui_loop(&mut terminal, app_state, data_collector, &config).await;
+    collector_handle.abort();
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
@@ -124,6 +121,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn check_and_load_lazy_data(state: &mut AppState) {
+    let needs_load = (state.active_tab == 7 && !state.user_sessions_loaded)
+        || (state.active_tab == 8 && !state.services_loaded)
+        || (state.active_tab == 9 && !state.logs_loaded)
+        || (state.active_tab == 10 && !state.config_loaded);
+
+    if !needs_load {
+        return;
+    }
+
     let sys_mgr = system_service::SystemManager::new();
     
     if state.active_tab == 7 && !state.user_sessions_loaded {
@@ -174,42 +180,48 @@ async fn ui_loop(
     data_collector: SharedDataCollector,
     config: &AppConfig,
 ) -> io::Result<()> {
+    let frame_duration = Duration::from_millis(config.ui_refresh_rate_ms());
     let mut last_render = Instant::now();
+    let mut needs_redraw = true;
     
     loop {
-        let now = Instant::now();
+        let timeout = frame_duration.saturating_sub(last_render.elapsed());
         
-        while event::poll(Duration::from_millis(0))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    let should_quit = handle_key_event(key, &app_state, &data_collector, config)?;
-                    if should_quit {
-                        return Ok(());
+        if event::poll(timeout)? {
+            while event::poll(Duration::from_millis(0))? {
+                match event::read()? {
+                    Event::Key(key) => {
+                        let should_quit = handle_key_event(key, &app_state, &data_collector, config)?;
+                        if should_quit {
+                            return Ok(());
+                        }
+                        needs_redraw = true;
                     }
+                    Event::Mouse(mouse) => {
+                        handle_mouse_event(mouse, &app_state, config)?;
+                        needs_redraw = true;
+                    }
+                    Event::Resize(_, _) => {
+                        needs_redraw = true;
+                    }
+                    _ => {}
                 }
-                Event::Mouse(mouse) => {
-                    handle_mouse_event(mouse, &app_state, config)?;
-                }
-                _ => {}
             }
         }
         
-        let ui_refresh_interval = {
-            let state = app_state.lock().unwrap();
-            Duration::from_millis(state.refresh_rate_ms.max(100))
-        };
-        
-        if now.duration_since(last_render) >= ui_refresh_interval {
+        let now = Instant::now();
+        if needs_redraw || now.duration_since(last_render) >= frame_duration {
             {
                 let mut state = app_state.lock().unwrap();
                 check_and_load_lazy_data(&mut state);
                 let translator = crate::language::Translator::new(state.language);
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
-            last_render = now;
+            last_render = Instant::now();
+            needs_redraw = false;
         }
         
-        sleep(Duration::from_millis(2)).await;
+        tokio::task::yield_now().await;
     }
 }
 
