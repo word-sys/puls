@@ -1,6 +1,6 @@
 **Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
-<p align="center">
+<p align="left">
   <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="Icône PULS"/>
 </p>
 
@@ -10,7 +10,21 @@
 
 PULS associe une surveillance des ressources haute fidélité à des fonctionnalités natives d'administration système sous Linux. Il vous permet de surveiller la télémétrie matérielle, de gérer les services systemd, d'analyser les journaux système, d'examiner les arbres de processus hiérarchiques, d'émettre des signaux POSIX, de modifier en toute sécurité les configurations de démarrage et de suivre les conteneurs directement depuis une interface utilisateur de terminal interactive (TUI).
 
-![Capture d'écran PULS](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
+## Captures d'écran
+
+| **Tableau de bord & Vue d'ensemble du système** | **Arborescence hiérarchique des processus** |
+| :---: | :---: |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Tableau de bord & Vue d'ensemble" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Arborescence des processus" width="450"/></a> |
+| **Architecture CPU & NUMA** | **Répartition Mémoire & Swap** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="Architecture CPU & NUMA" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Répartition Mémoire & Swap" width="450"/></a> |
+| **Stockage, Inodes & Options de montage** | **Interfaces réseau & Sockets actifs** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Stockage, Inodes & Options" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Interfaces réseau & Sockets" width="450"/></a> |
+| **Surveillance Multi-GPU (NVIDIA & Intel)** | **Informations système, Sessions & Diagnostics** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Surveillance Multi-GPU" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Informations système & Diagnostics" width="450"/></a> |
+| **Services systemd & Minuteurs** | **Journaux système journald & Historique de démarrage** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Services systemd & Minuteurs" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Journaux système journald" width="450"/></a> |
+| **Configuration GRUB & Chargeur d'amorçage** | **Capteurs matériels, Alimentation & Ventilateurs** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="Configuration GRUB" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Capteurs matériels & Alimentation" width="450"/></a> |
 
 ---
 

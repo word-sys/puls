@@ -1,6 +1,6 @@
 **Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
-<p align="center">
+<p align="left">
   <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="PULS Simgesi"/>
 </p>
 
@@ -10,7 +10,21 @@
 
 PULS, yüksek duyarlılıklı kaynak izlemeyi yerel Linux sistem yönetimi yetenekleriyle birleştirir. Donanım telemetrisini izlemenize, systemd hizmetlerini yönetmenize, journal günlüklerini incelemenize, hiyerarşik işlem ağaçlarını analiz etmenize, POSIX sinyalleri göndermenize, önyükleme yapılandırmalarını güvenle düzenlemenize ve konteyner yaşam döngülerini doğrudan etkileşimli bir Terminal Kullanıcı Arayüzünden (TUI) takip etmenize olanak tanır.
 
-![PULS Ekran Görüntüsü](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
+## Ekran Görüntüleri
+
+| **Kontrol Paneli ve Sistem Genel Bakışı** | **Hiyerarşik İşlem Ağacı** |
+| :---: | :---: |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Kontrol Paneli ve Sistem Genel Bakışı" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Hiyerarşik İşlem Ağacı" width="450"/></a> |
+| **CPU ve NUMA Mimarisi** | **Bellek ve Takas Alanı Dağılımı** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="CPU ve NUMA Mimarisi" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Bellek ve Takas Alanı" width="450"/></a> |
+| **Depolama, Inode'lar ve Bağlama Seçenekleri** | **Ağ Arayüzleri ve Aktif Soketler** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Depolama ve Inode'lar" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Ağ Arayüzleri ve Soketler" width="450"/></a> |
+| **Çoklu GPU İzleme (NVIDIA ve Intel)** | **Sistem Bilgisi, Oturumlar ve Tanılama** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Çoklu GPU İzleme" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Sistem Bilgisi ve Tanılama" width="450"/></a> |
+| **Systemd Hizmetleri ve Zamanlayıcılar** | **Sistem Journal Günlükleri ve Önyükleme Geçmişi** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Systemd Hizmetleri" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Sistem Günlükleri" width="450"/></a> |
+| **GRUB ve Önyükleyici Yapılandırması** | **Donanım Sensörleri, Güç ve Fanlar** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="GRUB Yapılandırması" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Donanım Sensörleri ve Güç" width="450"/></a> |
 
 ---
 

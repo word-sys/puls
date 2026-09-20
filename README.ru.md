@@ -1,6 +1,6 @@
 **Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
-<p align="center">
+<p align="left">
   <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="Иконка PULS"/>
 </p>
 
@@ -10,7 +10,21 @@
 
 PULS объединяет детализированный мониторинг системных ресурсов со встроенными возможностями системного администрирования Linux. Он позволяет отслеживать телеметрию оборудования, управлять службами systemd, просматривать системные журналы, анализировать иерархические деревья процессов, отправлять сигналы POSIX, безопасно редактировать параметры загрузчика и контролировать жизненный цикл контейнеров непосредственно из современного интерактивного терминального интерфейса (TUI).
 
-![Скриншот PULS](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
+## Скриншоты
+
+| **Панель управления и общий обзор системы** | **Иерархическое дерево процессов** |
+| :---: | :---: |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Панель управления и обзор системы" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Иерархическое дерево процессов" width="450"/></a> |
+| **Архитектура CPU и NUMA** | **Распределение оперативной памяти и Swap** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="Архитектура CPU и NUMA" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Распределение памяти и Swap" width="450"/></a> |
+| **Накопители, Inode и параметры монтирования** | **Сетевые интерфейсы и активные сокеты** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Накопители и Inode" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Сетевые интерфейсы и сокеты" width="450"/></a> |
+| **Мониторинг нескольких GPU (NVIDIA и Intel)** | **Информация о системе, сеансы и диагностика** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Мониторинг GPU" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Информация о системе и диагностика" width="450"/></a> |
+| **Службы systemd и таймеры** | **Системные журналы journald и история загрузок** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Службы systemd и таймеры" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Системные журналы journald" width="450"/></a> |
+| **Конфигурация GRUB и загрузчика** | **Аппаратные датчики, питание и вентиляторы** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="Конфигурация GRUB" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Аппаратные датчики и питание" width="450"/></a> |
 
 ---
 

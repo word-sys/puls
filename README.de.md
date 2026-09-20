@@ -1,6 +1,6 @@
 **Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
-<p align="center">
+<p align="left">
   <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="PULS Icon"/>
 </p>
 
@@ -10,7 +10,21 @@
 
 PULS vereint präzise Ressourcenüberwachung mit nativen Linux-Systemadministrationsfunktionen. Es ermöglicht die Überwachung von Hardware-Telemetriedaten, die Verwaltung von systemd-Diensten, die Analyse von Systemprotokollen, die Inspektion hierarchischer Prozessbäume, das Senden von POSIX-Signalen, die sichere Bearbeitung von Boot-Konfigurationen und die Überwachung von Containern direkt über eine moderne, interaktive Terminal-Benutzeroberfläche (TUI).
 
-![PULS Screenshot](https://raw.githubusercontent.com/word-sys/puls/main/screenshots/screenshot.png)
+## Bildschirmfotos
+
+| **Dashboard & Systemübersicht** | **Hierarchischer Prozessbaum** |
+| :---: | :---: |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Dashboard & Systemübersicht" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Hierarchischer Prozessbaum" width="450"/></a> |
+| **CPU- & NUMA-Architektur** | **Speicher- & Swap-Aufteilung** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="CPU- & NUMA-Architektur" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Speicher- & Swap-Aufteilung" width="450"/></a> |
+| **Speicher, Inodes & Mount-Optionen** | **Netzwerkschnittstellen & Aktive Sockets** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Speicher, Inodes & Mount-Optionen" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Netzwerkschnittstellen & Sockets" width="450"/></a> |
+| **Multi-GPU-Überwachung (NVIDIA & Intel)** | **Systeminfo, Sitzungen & Diagnose** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Multi-GPU-Überwachung" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Systeminfo & Diagnose" width="450"/></a> |
+| **Systemd-Dienste & Timer** | **System-Journal-Logs & Boot-Verlauf** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Systemd-Dienste & Timer" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="System-Journal-Logs" width="450"/></a> |
+| **GRUB- & Bootloader-Konfiguration** | **Hardwaresensoren, Strom & Lüfter** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="GRUB-Konfiguration" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Hardwaresensoren & Strom" width="450"/></a> |
 
 ---
 
