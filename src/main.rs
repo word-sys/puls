@@ -183,6 +183,8 @@ async fn ui_loop(
     let frame_duration = Duration::from_millis(config.ui_refresh_rate_ms());
     let mut last_render = Instant::now();
     let mut needs_redraw = true;
+    let mut current_lang = { app_state.lock().unwrap().language };
+    let mut translator = crate::language::Translator::new(current_lang);
     
     loop {
         let timeout = frame_duration.saturating_sub(last_render.elapsed());
@@ -214,7 +216,10 @@ async fn ui_loop(
             {
                 let mut state = app_state.lock().unwrap();
                 check_and_load_lazy_data(&mut state);
-                let translator = crate::language::Translator::new(state.language);
+                if state.language != current_lang {
+                    current_lang = state.language;
+                    translator = crate::language::Translator::new(current_lang);
+                }
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
             }
             last_render = Instant::now();

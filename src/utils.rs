@@ -151,16 +151,6 @@ pub fn calculate_rate(current: u64, previous: u64, elapsed_secs: f64) -> u64 {
     (diff as f64 / elapsed_secs) as u64
 }
 
-pub fn matches_filter(text: &str, filter: &str) -> bool {
-    if filter.is_empty() {
-        return true;
-    }
-    
-    let text_lower = text.to_lowercase();
-    let filter_lower = filter.to_lowercase();
-    
-    text_lower.contains(&filter_lower)
-}
 
 pub fn count_process_states(processes: &[crate::types::ProcessInfo]) -> (usize, usize, usize, usize) {
     let mut running = 0;

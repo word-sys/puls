@@ -749,8 +749,8 @@ fn render_top_processes(f: &mut Frame, state: &AppState, area: Rect, translator:
     let rows = processes.iter().map(|p| {
         Row::new(vec![
             truncate_string(&p.name, 25),
-            p.cpu_display.clone(),
-            p.mem_display.clone(),
+            format!("{:.2}%", p.cpu),
+            crate::utils::format_size(p.mem),
         ]).style(Style::default().fg(theme.text))
     });
 
@@ -1089,10 +1089,10 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
             truncate_string(&display_name, 35),
             truncate_string(&p.user, 10),
             format!("{:>3}", p.nice),
-            p.cpu_display.clone(),
-            p.mem_display.clone(),
-            p.disk_read.clone(),
-            p.disk_write.clone(),
+            format!("{:.2}%", p.cpu),
+            crate::utils::format_size(p.mem),
+            crate::utils::format_rate(p.disk_read),
+            crate::utils::format_rate(p.disk_write),
         ]).style(Style::default().fg(theme.text))
     });
     

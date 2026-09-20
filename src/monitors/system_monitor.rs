@@ -6,6 +6,10 @@ use sysinfo::{DiskUsage, Networks, Pid, System, Components};
 use crate::types::*;
 use crate::utils::*;
 
+extern "C" {
+    fn getpriority(which: i32, who: u32) -> i32;
+}
+
 #[derive(Debug, Clone, Default)]
 struct DiskStatsData {
     read_bytes: u64,
@@ -273,8 +277,6 @@ impl SystemMonitor {
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         self.last_update = now;
         
-        self.refresh_core_metrics();
-        
         let process_refresh_kind = sysinfo::ProcessRefreshKind::nothing()
             .with_cpu()
             .with_memory()
@@ -292,6 +294,9 @@ impl SystemMonitor {
         
         let total_cpu_count = self.system.cpus().len() as f32;
         let mut current_disk_usage = HashMap::new();
+        let filter_lower = filter.trim().to_lowercase();
+        let has_filter = !filter_lower.is_empty();
+
         let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
             .filter(|(_pid, process)| {
@@ -301,13 +306,19 @@ impl SystemMonitor {
                 }
                 */
                 
-                if !show_system && is_system_process(&process.name().to_string_lossy()) {
+                let proc_name = process.name().to_string_lossy();
+                if !show_system && is_system_process(&proc_name) {
                     return false;
                 }
                 
-                if !filter.is_empty() {
-                    let search_text = format!("{} {}", process.name().to_string_lossy(), process.pid());
-                    if !matches_filter(&search_text, filter) {
+                if has_filter {
+                    let matches_name = proc_name.to_lowercase().contains(&filter_lower);
+                    let matches_pid = if !matches_name {
+                        process.pid().to_string().contains(&filter_lower)
+                    } else {
+                        false
+                    };
+                    if !matches_name && !matches_pid {
                         return false;
                     }
                 }
@@ -353,11 +364,9 @@ impl SystemMonitor {
                     pid: pid.to_string(),
                     name: process.name().to_string_lossy().to_string(),
                     cpu: normalized_cpu,
-                    cpu_display: format!("{:.2}%", normalized_cpu),
                     mem: process.memory(),
-                    mem_display: format_size(process.memory()),
-                    disk_read: format_rate(read_rate),
-                    disk_write: format_rate(write_rate),
+                    disk_read: read_rate,
+                    disk_write: write_rate,
                     user,
                     status,
                     parent_pid: process.parent().map(|p| p.to_string()),
@@ -988,18 +997,7 @@ impl SystemMonitor {
     }
 
     pub fn get_process_nice(pid: Pid) -> i32 {
-        if let Ok(content) = fs::read_to_string(format!("/proc/{}/stat", pid)) {
-            if let Some(after_comm) = content.rfind(')') {
-                let rest = &content[after_comm + 2..];
-                let fields: Vec<&str> = rest.split_whitespace().collect();
-                if let Some(nice_str) = fields.get(16) {
-                    if let Ok(val) = nice_str.parse::<i32>() {
-                        return val;
-                    }
-                }
-            }
-        }
-        0
+        unsafe { getpriority(0, pid.as_u32()) }
     }
 
     pub fn get_process_fds(pid: Pid) -> (Option<u32>, Option<u32>, Option<u32>, Vec<ProcessFdInfo>) {
@@ -1347,11 +1345,9 @@ mod tests {
                 pid: "1".to_string(),
                 name: "init".to_string(),
                 cpu: 1.0,
-                cpu_display: "1.0%".to_string(),
                 mem: 1024,
-                mem_display: "1.0 KiB".to_string(),
-                disk_read: "0 B/s".to_string(),
-                disk_write: "0 B/s".to_string(),
+                disk_read: 0,
+                disk_write: 0,
                 user: "root".to_string(),
                 status: "Running".to_string(),
                 parent_pid: None,
@@ -1362,11 +1358,9 @@ mod tests {
                 pid: "2".to_string(),
                 name: "kthreadd".to_string(),
                 cpu: 5.0,
-                cpu_display: "5.0%".to_string(),
                 mem: 2048,
-                mem_display: "2.0 KiB".to_string(),
-                disk_read: "0 B/s".to_string(),
-                disk_write: "0 B/s".to_string(),
+                disk_read: 0,
+                disk_write: 0,
                 user: "root".to_string(),
                 status: "Running".to_string(),
                 parent_pid: None,
@@ -1389,11 +1383,9 @@ mod tests {
                 pid: "1".to_string(),
                 name: "systemd".to_string(),
                 cpu: 0.1,
-                cpu_display: "0.1%".to_string(),
                 mem: 1024,
-                mem_display: "1.0 KiB".to_string(),
-                disk_read: "0 B/s".to_string(),
-                disk_write: "0 B/s".to_string(),
+                disk_read: 0,
+                disk_write: 0,
                 user: "root".to_string(),
                 status: "Running".to_string(),
                 parent_pid: None,
@@ -1404,11 +1396,9 @@ mod tests {
                 pid: "100".to_string(),
                 name: "child_proc".to_string(),
                 cpu: 0.2,
-                cpu_display: "0.2%".to_string(),
                 mem: 2048,
-                mem_display: "2.0 KiB".to_string(),
-                disk_read: "0 B/s".to_string(),
-                disk_write: "0 B/s".to_string(),
+                disk_read: 0,
+                disk_write: 0,
                 user: "root".to_string(),
                 status: "Running".to_string(),
                 parent_pid: Some("1".to_string()),
