@@ -104,9 +104,9 @@ jobs:
 
       - name: Extract Release Notes from CHANGELOG.md
         run: |
-          awk -v ver="## \\[${GITHUB_REF_NAME}\\]" '
-            $0 ~ ver { found=1; next }
-            found && /^## \\[v/ { exit }
+          awk -v tag="${GITHUB_REF_NAME}" '
+            index($0, "## [" tag "]") == 1 || index($0, "## [v" tag "]") == 1 { found=1; next }
+            found && index($0, "## [") == 1 { exit }
             found { print }
           ' CHANGELOG.md > release_notes.md
           if [ ! -s release_notes.md ]; then
