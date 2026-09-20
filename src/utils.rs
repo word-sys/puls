@@ -96,6 +96,22 @@ pub fn format_percentage(value: f32) -> String {
     format!("{:.1}%", value)
 }
 
+pub fn format_temp(celsius: f32, fahrenheit: bool) -> String {
+    if fahrenheit {
+        format!("{:.1}°F", (celsius * 9.0 / 5.0) + 32.0)
+    } else {
+        format!("{:.1}°C", celsius)
+    }
+}
+
+pub fn format_temp_int(celsius: f32, fahrenheit: bool) -> String {
+    if fahrenheit {
+        format!("{:.0}°F", (celsius * 9.0 / 5.0) + 32.0)
+    } else {
+        format!("{:.0}°C", celsius)
+    }
+}
+
 pub fn format_count(n: u64) -> String {
     if n >= 1_000_000_000 {
         format!("{:.1}B", n as f64 / 1_000_000_000.0)
@@ -493,5 +509,15 @@ mod tests {
         assert!(is_system_process("systemd-logind"));
         assert!(!is_system_process("firefox"));
         assert!(!is_system_process("puls"));
+    }
+
+    #[test]
+    fn test_format_temp() {
+        assert_eq!(format_temp(0.0, false), "0.0°C");
+        assert_eq!(format_temp(100.0, false), "100.0°C");
+        assert_eq!(format_temp(0.0, true), "32.0°F");
+        assert_eq!(format_temp(100.0, true), "212.0°F");
+        assert_eq!(format_temp_int(25.4, false), "25°C");
+        assert_eq!(format_temp_int(25.4, true), "78°F");
     }
 }

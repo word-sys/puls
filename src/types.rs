@@ -409,6 +409,11 @@ pub struct AppState {
     pub user_sessions: Vec<UserSessionInfo>,
     pub user_sessions_loaded: bool,
     pub cpu_cores_scroll: usize,
+    pub show_settings_modal: bool,
+    pub settings_selected_idx: usize,
+    pub temp_unit_fahrenheit: bool,
+    pub default_tab: usize,
+    pub refresh_rate_ms: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -565,4 +570,7 @@ pub struct AppConfig {
     pub language: crate::language::Language,
     pub theme: usize,
     pub telemetry: bool,
+    pub temp_unit_fahrenheit: bool,
+    pub default_tab: usize,
+    pub process_tree_view: bool,
 }

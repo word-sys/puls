@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use std::sync::Mutex;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -66,9 +66,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        original_hook(panic_info);
+    }));
     
     let app_state = Arc::new(Mutex::new(AppState::default()));
     
@@ -77,6 +84,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.language = config.language;
         state.current_theme = config.theme;
         state.system_info = system_info;
+        state.active_tab = config.default_tab.min(12);
+        state.process_tree_mode = config.process_tree_view;
+        state.temp_unit_fahrenheit = config.temp_unit_fahrenheit;
+        state.default_tab = config.default_tab;
+        state.refresh_rate_ms = config.refresh_rate_ms;
         
         if config.safe_mode {
             state.system_info.push(("Mode".to_string(), "Safe Mode".to_string()));
@@ -100,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }).await;
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 
     if let Err(ref e) = result {
@@ -162,20 +174,30 @@ async fn ui_loop(
     data_collector: Arc<Mutex<DataCollector>>,
     config: &AppConfig,
 ) -> io::Result<()> {
-    let ui_refresh_interval = Duration::from_millis(config.ui_refresh_rate_ms());
     let mut last_render = Instant::now();
     
     loop {
         let now = Instant::now();
         
         while event::poll(Duration::from_millis(0))? {
-            if let Event::Key(key) = event::read()? {
-                let should_quit = handle_key_event(key, &app_state, &data_collector, config)?;
-                if should_quit {
-                    return Ok(());
+            match event::read()? {
+                Event::Key(key) => {
+                    let should_quit = handle_key_event(key, &app_state, &data_collector, config)?;
+                    if should_quit {
+                        return Ok(());
+                    }
                 }
+                Event::Mouse(mouse) => {
+                    handle_mouse_event(mouse, &app_state, config)?;
+                }
+                _ => {}
             }
         }
+        
+        let ui_refresh_interval = {
+            let state = app_state.lock().unwrap();
+            Duration::from_millis(state.refresh_rate_ms.max(100))
+        };
         
         if now.duration_since(last_render) >= ui_refresh_interval {
             {
@@ -187,7 +209,7 @@ async fn ui_loop(
             last_render = now;
         }
         
-        sleep(Duration::from_millis(1)).await;
+        sleep(Duration::from_millis(2)).await;
     }
 }
 
@@ -195,9 +217,36 @@ fn handle_key_event(
     key: crossterm::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
     data_collector: &Arc<Mutex<DataCollector>>,
-    config: &AppConfig,
+    _config: &AppConfig,
 ) -> io::Result<bool> {
     let mut state = app_state.lock().unwrap();
+    
+    if state.show_settings_modal {
+        match key.code {
+            KeyCode::Esc | KeyCode::F(2) | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                state.show_settings_modal = false;
+                persist_settings(&state);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.settings_selected_idx = state.settings_selected_idx.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if state.settings_selected_idx < 5 {
+                    state.settings_selected_idx += 1;
+                }
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                modify_setting(&mut state, -1);
+                persist_settings(&state);
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter | KeyCode::Char(' ') => {
+                modify_setting(&mut state, 1);
+                persist_settings(&state);
+            }
+            _ => {}
+        }
+        return Ok(false);
+    }
     
     let is_editing = state.editing_config.is_some() || state.editing_service.is_some() || state.editing_filter;
     if is_editing {
@@ -341,6 +390,11 @@ fn handle_key_event(
         }
         
         KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            if state.show_settings_modal {
+                state.show_settings_modal = false;
+                persist_settings(&state);
+                return Ok(false);
+            }
             if state.signal_modal.is_some() {
                 state.signal_modal = None;
                 return Ok(false);
@@ -666,6 +720,15 @@ fn handle_key_event(
         KeyCode::Char('=') if state.editing_config.is_none() && state.editing_service.is_none() => { state.active_tab = 11; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
         KeyCode::Char('+') if state.editing_config.is_none() && state.editing_service.is_none() && state.active_tab != 8 => { state.active_tab = 12; state.selected_pid = None; state.network_socket_scroll = 0; state.cpu_cores_scroll = 0; state.pending_container_action = None; state.viewing_container_logs = None; },
         
+        KeyCode::F(2) | KeyCode::Char('S') => {
+            state.show_settings_modal = true;
+            return Ok(false);
+        }
+        KeyCode::Char('s') if state.active_tab != 8 && state.active_tab != 11 => {
+            state.show_settings_modal = true;
+            return Ok(false);
+        }
+
         KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::F(5) if state.active_tab == 1 && state.selected_pid.is_none() => {
             state.process_tree_mode = !state.process_tree_mode;
             let sort_by = state.sort_by.clone();
@@ -685,24 +748,25 @@ fn handle_key_event(
                     1,
                 );
             }
+            persist_settings(&state);
         }
         KeyCode::Char('t') | KeyCode::Char('T') => {
-            state.current_theme = (state.current_theme + 1) % 3;
-            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
+            state.current_theme = (state.current_theme + 1) % crate::ui::colors::THEME_COUNT;
+            persist_settings(&state);
         }
         KeyCode::Char('L') => {
             state.language = match state.language {
                 crate::language::Language::English => crate::language::Language::Turkish,
                 crate::language::Language::Turkish => crate::language::Language::English,
             };
-            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
+            persist_settings(&state);
         }
         KeyCode::Char('l') if state.active_tab != 8 && state.active_tab != 11 => {
             state.language = match state.language {
                 crate::language::Language::English => crate::language::Language::Turkish,
                 crate::language::Language::Turkish => crate::language::Language::English,
             };
-            let _ = crate::config::save_user_settings(state.language, state.current_theme, config.refresh_rate_ms);
+            persist_settings(&state);
         }
         
         KeyCode::Down if state.active_tab == 1 && state.selected_pid.is_none() => {
@@ -1179,29 +1243,287 @@ fn handle_process_navigation(state: &mut AppState, down: bool) {
     state.process_table_state.select(Some(new_index));
 }
 
+fn persist_settings(state: &AppState) {
+    let _ = crate::config::save_user_settings(
+        state.language,
+        state.current_theme,
+        state.refresh_rate_ms,
+        state.temp_unit_fahrenheit,
+        state.default_tab,
+        state.process_tree_mode,
+    );
+}
+
+fn modify_setting(state: &mut AppState, direction: i32) {
+    match state.settings_selected_idx {
+        0 => {
+            let rates = [500u64, 1000, 2000, 5000];
+            let cur_idx = rates.iter().position(|&r| r == state.refresh_rate_ms).unwrap_or(1);
+            let next_idx = if direction >= 0 {
+                (cur_idx + 1) % rates.len()
+            } else {
+                (cur_idx + rates.len() - 1) % rates.len()
+            };
+            state.refresh_rate_ms = rates[next_idx];
+        }
+        1 => {
+            state.temp_unit_fahrenheit = !state.temp_unit_fahrenheit;
+        }
+        2 => {
+            let count = crate::ui::colors::THEME_COUNT;
+            state.current_theme = if direction >= 0 {
+                (state.current_theme + 1) % count
+            } else {
+                (state.current_theme + count - 1) % count
+            };
+        }
+        3 => {
+            let count = 13;
+            state.default_tab = if direction >= 0 {
+                (state.default_tab + 1) % count
+            } else {
+                (state.default_tab + count - 1) % count
+            };
+        }
+        4 => {
+            state.process_tree_mode = !state.process_tree_mode;
+            if state.active_tab == 1 {
+                let sort_by = state.sort_by.clone();
+                let sort_asc = state.sort_ascending;
+                if state.process_tree_mode {
+                    crate::monitors::system_monitor::build_process_tree(
+                        &mut state.dynamic_data.processes,
+                        &sort_by,
+                        sort_asc,
+                        1,
+                    );
+                } else {
+                    crate::monitors::system_monitor::sort_processes(
+                        &mut state.dynamic_data.processes,
+                        &sort_by,
+                        sort_asc,
+                        1,
+                    );
+                }
+            }
+        }
+        5 => {
+            state.language = match state.language {
+                crate::language::Language::English => crate::language::Language::Turkish,
+                crate::language::Language::Turkish => crate::language::Language::English,
+            };
+        }
+        _ => {}
+    }
+}
+
+fn handle_mouse_event(
+    mouse: MouseEvent,
+    app_state: &Arc<Mutex<AppState>>,
+    _config: &AppConfig,
+) -> io::Result<()> {
+    let mut state = app_state.lock().unwrap();
+
+    // 1. Settings modal active
+    if state.show_settings_modal {
+        match mouse.kind {
+            MouseEventKind::ScrollDown => {
+                if state.settings_selected_idx < 5 {
+                    state.settings_selected_idx += 1;
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                state.settings_selected_idx = state.settings_selected_idx.saturating_sub(1);
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let (term_width, term_height) = crossterm::terminal::size().unwrap_or((80, 24));
+                let width = 68.min(term_width.saturating_sub(4));
+                let height = 20.min(term_height.saturating_sub(2));
+                let popup_x = (term_width.saturating_sub(width)) / 2;
+                let popup_y = (term_height.saturating_sub(height)) / 2;
+
+                if mouse.column < popup_x || mouse.column >= popup_x + width
+                    || mouse.row < popup_y || mouse.row >= popup_y + height
+                {
+                    state.show_settings_modal = false;
+                    persist_settings(&state);
+                } else {
+                    for idx in 0..6 {
+                        let item_row = popup_y + 3 + (idx as u16 * 2);
+                        if mouse.row == item_row {
+                            if state.settings_selected_idx == idx {
+                                modify_setting(&mut state, 1);
+                            } else {
+                                state.settings_selected_idx = idx;
+                            }
+                            persist_settings(&state);
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    // 2. Normal mode mouse handling
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            let (term_width, _) = crossterm::terminal::size().unwrap_or((80, 24));
+            
+            // Tab bar is rows 0, 1, 2
+            if mouse.row <= 2 {
+                let translator = crate::language::Translator::new(state.language);
+                if let Some(tab_idx) = crate::ui::get_tab_at_column(mouse.column, &translator) {
+                    state.active_tab = tab_idx;
+                    state.selected_pid = None;
+                    state.network_socket_scroll = 0;
+                    state.cpu_cores_scroll = 0;
+                    state.pending_container_action = None;
+                    state.viewing_container_logs = None;
+                } else if mouse.column >= term_width.saturating_sub(30) {
+                    state.show_settings_modal = true;
+                }
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            if let Some((_, _, ref mut sel_idx)) = state.signal_modal {
+                if *sel_idx < crate::types::POSIX_SIGNALS.len() - 1 {
+                    *sel_idx += 1;
+                } else {
+                    *sel_idx = 0;
+                }
+            } else if let Some((_, _, ref logs, ref mut scroll)) = state.viewing_container_logs {
+                let max_scroll = logs.len().saturating_sub(1);
+                *scroll = (*scroll + 3).min(max_scroll);
+            } else {
+                match state.active_tab {
+                    1 => {
+                        if state.selected_pid.is_some() {
+                            state.process_detail_scroll = state.process_detail_scroll.saturating_add(3);
+                        } else {
+                            handle_process_navigation(&mut state, true);
+                        }
+                    }
+                    2 => {
+                        state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_add(1);
+                    }
+                    5 => {
+                        let max_s = state.dynamic_data.sockets.len().saturating_sub(1);
+                        state.network_socket_scroll = (state.network_socket_scroll + 1).min(max_s);
+                    }
+                    8 => {
+                        if state.services_subtab == 0 {
+                            let cur = state.services_table_state.selected().unwrap_or(0);
+                            if cur + 1 < state.services.len() {
+                                state.services_table_state.select(Some(cur + 1));
+                            }
+                        } else {
+                            let cur = state.timers_table_state.selected().unwrap_or(0);
+                            if cur + 1 < state.timers.len() {
+                                state.timers_table_state.select(Some(cur + 1));
+                            }
+                        }
+                    }
+                    9 => {
+                        let cur = state.logs_table_state.selected().unwrap_or(0);
+                        if cur + 1 < state.logs.len() {
+                            state.logs_table_state.select(Some(cur + 1));
+                        }
+                    }
+                    10 => {
+                        let cur = state.config_table_state.selected().unwrap_or(0);
+                        if cur + 1 < state.config_items.len() {
+                            state.config_table_state.select(Some(cur + 1));
+                        }
+                    }
+                    11 => {
+                        let cur = state.container_table_state.selected().unwrap_or(0);
+                        if cur + 1 < state.dynamic_data.containers.len() {
+                            state.container_table_state.select(Some(cur + 1));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            if let Some((_, _, ref mut sel_idx)) = state.signal_modal {
+                if *sel_idx > 0 {
+                    *sel_idx -= 1;
+                } else {
+                    *sel_idx = crate::types::POSIX_SIGNALS.len() - 1;
+                }
+            } else if let Some((_, _, _, ref mut scroll)) = state.viewing_container_logs {
+                *scroll = scroll.saturating_sub(3);
+            } else {
+                match state.active_tab {
+                    1 => {
+                        if state.selected_pid.is_some() {
+                            state.process_detail_scroll = state.process_detail_scroll.saturating_sub(3);
+                        } else {
+                            handle_process_navigation(&mut state, false);
+                        }
+                    }
+                    2 => {
+                        state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_sub(1);
+                    }
+                    5 => {
+                        state.network_socket_scroll = state.network_socket_scroll.saturating_sub(1);
+                    }
+                    8 => {
+                        if state.services_subtab == 0 {
+                            let cur = state.services_table_state.selected().unwrap_or(0);
+                            state.services_table_state.select(Some(cur.saturating_sub(1)));
+                        } else {
+                            let cur = state.timers_table_state.selected().unwrap_or(0);
+                            state.timers_table_state.select(Some(cur.saturating_sub(1)));
+                        }
+                    }
+                    9 => {
+                        let cur = state.logs_table_state.selected().unwrap_or(0);
+                        state.logs_table_state.select(Some(cur.saturating_sub(1)));
+                    }
+                    10 => {
+                        let cur = state.config_table_state.selected().unwrap_or(0);
+                        state.config_table_state.select(Some(cur.saturating_sub(1)));
+                    }
+                    11 => {
+                        let cur = state.container_table_state.selected().unwrap_or(0);
+                        state.container_table_state.select(Some(cur.saturating_sub(1)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 async fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: Arc<Mutex<DataCollector>>,
-    config: AppConfig,
+    _config: AppConfig,
 ) {
-    let mut interval = tokio::time::interval(config.get_collection_sleep_duration());
     let mut prev_global_usage = types::GlobalUsage::default();
     
     loop {
-        interval.tick().await;
-        
         let is_paused = {
-                                    let state = app_state.lock().unwrap();
-                                    state.paused
-                                };
+            let state = app_state.lock().unwrap();
+            state.paused
+        };
         
         if is_paused {
+            sleep(Duration::from_millis(100)).await;
             continue;
         }
         
         let collection_start = Instant::now();
         
-        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab, tree_mode) = {
+        let (selected_pid, show_system_processes, filter_text, sort_by, sort_ascending, active_tab, tree_mode, current_refresh_ms) = {
             let state = app_state.lock().unwrap();
             (
                 state.selected_pid,
@@ -1211,6 +1533,7 @@ async fn data_collection_loop(
                 state.sort_ascending,
                 state.active_tab,
                 state.process_tree_mode,
+                state.refresh_rate_ms,
             )
         };
         
@@ -1245,13 +1568,15 @@ async fn data_collection_loop(
         let collection_end = Instant::now();
         let collection_duration = collection_end.duration_since(collection_start);
         
-        if collection_duration > Duration::from_millis(config.refresh_rate_ms / 2) {
+        if collection_duration > Duration::from_millis(current_refresh_ms / 2) {
             log::warn!("Slow data collection: {:?}", collection_duration);
         }
         
-        let remaining_time = config.get_collection_sleep_duration().saturating_sub(collection_duration);
+        let remaining_time = Duration::from_millis(current_refresh_ms.max(100)).saturating_sub(collection_duration);
         if remaining_time > Duration::from_millis(10) {
             sleep(remaining_time).await;
+        } else {
+            sleep(Duration::from_millis(10)).await;
         }
     }
 }
@@ -1355,5 +1680,66 @@ mod tests {
         
         let monitor_error = AppError::Monitor("test monitor error".to_string());
         assert!(format!("{}", monitor_error).contains("Monitoring Error"));
+    }
+
+    #[test]
+    fn test_modify_setting_cycles() {
+        let mut state = AppState::default();
+
+        // 0: Refresh rate (500 -> 1000 -> 2000 -> 5000)
+        state.settings_selected_idx = 0;
+        state.refresh_rate_ms = 1000;
+        modify_setting(&mut state, 1);
+        assert_eq!(state.refresh_rate_ms, 2000);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.refresh_rate_ms, 5000);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.refresh_rate_ms, 500);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.refresh_rate_ms, 5000);
+
+        // 1: Temperature Unit
+        state.settings_selected_idx = 1;
+        state.temp_unit_fahrenheit = false;
+        modify_setting(&mut state, 1);
+        assert!(state.temp_unit_fahrenheit);
+        modify_setting(&mut state, -1);
+        assert!(!state.temp_unit_fahrenheit);
+
+        // 2: Color Theme (0..5)
+        state.settings_selected_idx = 2;
+        state.current_theme = 0;
+        modify_setting(&mut state, 1);
+        assert_eq!(state.current_theme, 1);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.current_theme, 0);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.current_theme, crate::ui::colors::THEME_COUNT - 1);
+
+        // 3: Default Startup Tab (0..12)
+        state.settings_selected_idx = 3;
+        state.default_tab = 0;
+        modify_setting(&mut state, 1);
+        assert_eq!(state.default_tab, 1);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.default_tab, 0);
+        modify_setting(&mut state, -1);
+        assert_eq!(state.default_tab, 12);
+
+        // 4: Process Hierarchy
+        state.settings_selected_idx = 4;
+        state.process_tree_mode = false;
+        modify_setting(&mut state, 1);
+        assert!(state.process_tree_mode);
+        modify_setting(&mut state, 1);
+        assert!(!state.process_tree_mode);
+
+        // 5: Interface Language
+        state.settings_selected_idx = 5;
+        state.language = crate::language::Language::English;
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::Turkish);
+        modify_setting(&mut state, 1);
+        assert_eq!(state.language, crate::language::Language::English);
     }
 }

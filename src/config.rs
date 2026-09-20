@@ -152,6 +152,9 @@ pub struct UserSettings {
     pub language: Option<Language>,
     pub theme: Option<usize>,
     pub refresh_rate_ms: Option<u64>,
+    pub temp_unit_fahrenheit: Option<bool>,
+    pub default_tab: Option<usize>,
+    pub process_tree_view: Option<bool>,
 }
 
 pub fn load_user_settings() -> UserSettings {
@@ -176,13 +179,24 @@ pub fn parse_settings_from_path(path: &std::path::Path) -> UserSettings {
                     }
                     "theme" => {
                         if let Ok(t) = val.parse::<usize>() {
-                            settings.theme = Some(t % 3);
+                            settings.theme = Some(t % crate::ui::colors::THEME_COUNT);
                         }
                     }
                     "refresh_rate_ms" | "refresh" => {
                         if let Ok(r) = val.parse::<u64>() {
                             settings.refresh_rate_ms = Some(r.max(100).min(10000));
                         }
+                    }
+                    "temp_unit" | "temp_unit_fahrenheit" | "fahrenheit" => {
+                        settings.temp_unit_fahrenheit = Some(val == "true" || val == "1" || val == "f" || val == "fahrenheit");
+                    }
+                    "default_tab" | "start_tab" => {
+                        if let Ok(t) = val.parse::<usize>() {
+                            settings.default_tab = Some(t.min(12));
+                        }
+                    }
+                    "tree_view" | "process_tree_view" => {
+                        settings.process_tree_view = Some(val == "true" || val == "1");
                     }
                     _ => {}
                 }
@@ -192,7 +206,14 @@ pub fn parse_settings_from_path(path: &std::path::Path) -> UserSettings {
     settings
 }
 
-pub fn save_user_settings(language: Language, theme: usize, refresh_rate_ms: u64) -> Result<(), std::io::Error> {
+pub fn save_user_settings(
+    language: Language,
+    theme: usize,
+    refresh_rate_ms: u64,
+    temp_unit_fahrenheit: bool,
+    default_tab: usize,
+    process_tree_view: bool,
+) -> Result<(), std::io::Error> {
     let dir = get_config_dir();
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("config.ini");
@@ -201,8 +222,8 @@ pub fn save_user_settings(language: Language, theme: usize, refresh_rate_ms: u64
         Language::Turkish => "tr",
     };
     let content = format!(
-        "[puls]\nlanguage = {}\ntheme = {}\nrefresh_rate_ms = {}\n",
-        lang_str, theme, refresh_rate_ms
+        "[puls]\nlanguage = {}\ntheme = {}\nrefresh_rate_ms = {}\ntemp_unit_fahrenheit = {}\ndefault_tab = {}\nprocess_tree_view = {}\n",
+        lang_str, theme, refresh_rate_ms, temp_unit_fahrenheit, default_tab, process_tree_view
     );
     std::fs::write(&path, content)?;
     Ok(())
@@ -231,6 +252,9 @@ impl From<Cli> for AppConfig {
         };
 
         let theme = saved.theme.unwrap_or(0);
+        let temp_unit_fahrenheit = saved.temp_unit_fahrenheit.unwrap_or(false);
+        let default_tab = saved.default_tab.unwrap_or(0);
+        let process_tree_view = saved.process_tree_view.unwrap_or(false);
         
         Self {
             safe_mode: cli.safe,
@@ -242,6 +266,9 @@ impl From<Cli> for AppConfig {
             language,
             theme,
             telemetry: cli.telemetry,
+            temp_unit_fahrenheit,
+            default_tab,
+            process_tree_view,
         }
     }
 }
@@ -285,6 +312,9 @@ impl Default for AppConfig {
             language: Language::English,
             theme: 0,
             telemetry: false,
+            temp_unit_fahrenheit: false,
+            default_tab: 0,
+            process_tree_view: false,
         }
     }
 }
@@ -298,12 +328,15 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("puls_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_dir);
         let config_file = temp_dir.join("config.ini");
-        std::fs::write(&config_file, "[puls]\nlanguage = tr\ntheme = 2\nrefresh_rate_ms = 500\n").unwrap();
+        std::fs::write(&config_file, "[puls]\nlanguage = tr\ntheme = 2\nrefresh_rate_ms = 500\ntemp_unit_fahrenheit = true\ndefault_tab = 2\nprocess_tree_view = true\n").unwrap();
 
         let parsed = parse_settings_from_path(&config_file);
         assert_eq!(parsed.language, Some(Language::Turkish));
         assert_eq!(parsed.theme, Some(2));
         assert_eq!(parsed.refresh_rate_ms, Some(500));
+        assert_eq!(parsed.temp_unit_fahrenheit, Some(true));
+        assert_eq!(parsed.default_tab, Some(2));
+        assert_eq!(parsed.process_tree_view, Some(true));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

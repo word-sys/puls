@@ -80,6 +80,10 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
     if state.pending_grub_update_confirmation {
         render_grub_update_modal(f, state, translator, theme);
     }
+
+    if state.show_settings_modal {
+        render_settings_modal(f, state, theme);
+    }
 }
 
 fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, theme: &crate::ui::colors::ColorScheme) {
@@ -282,6 +286,141 @@ fn render_container_logs_modal(f: &mut Frame, name: &str, id: &str, logs: &[Stri
     f.render_widget(paragraph, popup_area);
 }
 
+pub fn get_tab_at_column(col: u16, translator: &Translator) -> Option<usize> {
+    let tab_keys = [
+        "tab.dashboard", "tab.process", "tab.cpu", "tab.memory", "tab.disks",
+        "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs",
+        "tab.config", "tab.containers", "tab.sensors"
+    ];
+    let mut current_x = 1u16;
+    for (i, &key) in tab_keys.iter().enumerate() {
+        let title = translator.t(key);
+        let title_len = title.chars().count() as u16;
+        let tab_end = current_x + title_len;
+        if col >= current_x && col < tab_end {
+            return Some(i);
+        }
+        current_x = tab_end + 3; // 3 for " | " divider
+    }
+    None
+}
+
+fn render_settings_modal(
+    f: &mut Frame,
+    state: &AppState,
+    theme: &crate::ui::colors::ColorScheme,
+) {
+    let area = f.size();
+    let width = 68.min(area.width.saturating_sub(4));
+    let height = 20.min(area.height.saturating_sub(2));
+    let popup_area = Rect {
+        x: (area.width.saturating_sub(width)) / 2,
+        y: (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup_area);
+
+    let items = [
+        "Refresh Rate",
+        "Temperature Unit",
+        "Color Theme",
+        "Default Startup Tab",
+        "Process Hierarchy",
+        "Interface Language",
+    ];
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Preferences are automatically saved to ~/.config/puls/config.ini", Style::default().fg(theme.text_secondary)),
+    ]));
+    lines.push(Line::raw(""));
+
+    let refresh_options = [500, 1000, 2000, 5000];
+    let tab_names = [
+        "1:Dashboard", "2:Processes", "3:CPU", "4:Memory", "5:Disks",
+        "6:Network", "7:GPU", "8:System", "9:Services", "0:Logs",
+        "-:Config", "=:Docker", "+:Sensors"
+    ];
+
+    for (idx, &item_name) in items.iter().enumerate() {
+        let is_selected = idx == state.settings_selected_idx;
+        let prefix = if is_selected { " >> " } else { "    " };
+
+        let val_str = match idx {
+            0 => {
+                let cur = state.refresh_rate_ms;
+                let formatted: Vec<String> = refresh_options.iter().map(|&r| {
+                    if r == cur { format!("<{}ms>", r) } else { format!(" {}ms ", r) }
+                }).collect();
+                formatted.join(" ")
+            }
+            1 => {
+                if state.temp_unit_fahrenheit {
+                    "[ Celsius (°C) ]   < Fahrenheit (°F) >".to_string()
+                } else {
+                    "< Celsius (°C) >   [ Fahrenheit (°F) ]".to_string()
+                }
+            }
+            2 => {
+                let name = crate::ui::colors::ThemeManager::theme_name(state.current_theme);
+                format!("< {} > ({}/{})", name, (state.current_theme % crate::ui::colors::THEME_COUNT) + 1, crate::ui::colors::THEME_COUNT)
+            }
+            3 => {
+                let tab_name = tab_names.get(state.default_tab).copied().unwrap_or("1:Dashboard");
+                format!("< {} >", tab_name)
+            }
+            4 => {
+                if state.process_tree_mode {
+                    "< Tree Hierarchy (t) >   [ Flat List ]".to_string()
+                } else {
+                    "[ Tree Hierarchy ]   < Flat List (t) >".to_string()
+                }
+            }
+            5 => {
+                if state.language == crate::language::Language::English {
+                    "< English >   [ Türkçe ]".to_string()
+                } else {
+                    "[ English ]   < Türkçe >".to_string()
+                }
+            }
+            _ => String::new(),
+        };
+
+        let label_style = if is_selected {
+            Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+
+        let val_style = if is_selected {
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(format!("{}{:<20}: ", prefix, item_name), label_style),
+            Span::styled(val_str, val_style),
+        ]));
+        lines.push(Line::raw(""));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("↑↓/Wheel: Select | ←→/Enter: Change | Esc/F2/S: Close", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+    ]));
+
+    let block = Block::default()
+        .title(" [*] Application Settings (F2) ")
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    f.render_widget(paragraph, popup_area);
+}
+
 fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let tab_keys = vec![
         "tab.dashboard", "tab.process", "tab.cpu", "tab.memory", "tab.disks", "tab.network", "tab.gpu", "tab.system", "tab.services", "tab.logs", "tab.config", "tab.containers", "tab.sensors"
@@ -302,11 +441,17 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     })
     .collect();
 
+    let right_title = format!(
+        " [F2: Settings] [L: {}] v{} ",
+        if state.language == crate::language::Language::English { "EN" } else { "TR" },
+        env!("CARGO_PKG_VERSION")
+    );
+
     let tabs = Tabs::new(tab_titles)
         .block(Block::default()
             .title(translator.t("title.puls"))
             .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
-            .title(ratatui::widgets::block::Title::from(format!(" [L: {}] v{} ", if state.language == crate::language::Language::English { "EN" } else { "TR" }, env!("CARGO_PKG_VERSION"))).alignment(Alignment::Right))
+            .title(ratatui::widgets::block::Title::from(right_title).alignment(Alignment::Right))
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
@@ -338,9 +483,9 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &
         })
         .map(|s| s.temp);
 
-    render_cpu_gauge(f, usage.cpu, usage.load_average, cpu_temp, layout[0], translator, theme);
+    render_cpu_gauge(f, usage.cpu, usage.load_average, cpu_temp, layout[0], translator, theme, state.temp_unit_fahrenheit);
     
-    render_memory_gauge(f, usage.mem_used, usage.mem_total, mem_temp, layout[1], translator, theme);
+    render_memory_gauge(f, usage.mem_used, usage.mem_total, mem_temp, layout[1], translator, theme, state.temp_unit_fahrenheit);
     
     render_gpu_gauge(f, usage.gpu_util, layout[2], translator, theme);
     
@@ -349,9 +494,9 @@ fn render_summary_bar(f: &mut Frame, state: &AppState, area: Rect, translator: &
     render_disk_summary(f, usage, layout[4], translator, theme);
 }
 
-fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme, fahrenheit: bool) {
     let color = get_usage_color(cpu_percent);
-    let temp_str = temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+    let temp_str = temp.map(|t| format!(" | {}", crate::utils::format_temp_int(t, fahrenheit))).unwrap_or_default();
     let label = format!("{:.1}%{} | Load: {:.1}", cpu_percent, temp_str, load_avg.0);
     let gauge = Gauge::default()
         .block(Block::default()
@@ -365,7 +510,7 @@ fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), 
     f.render_widget(gauge, area);
 }
 
-fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, temp: Option<f32>, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme, fahrenheit: bool) {
     let mem_percent = if mem_total > 0 {
         (mem_used as f64 / mem_total as f64) * 100.0
     } else {
@@ -381,7 +526,7 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, temp: Optio
         _ => "health.healthy",
     };
     
-    let temp_str = temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+    let temp_str = temp.map(|t| format!(" | {}", crate::utils::format_temp_int(t, fahrenheit))).unwrap_or_default();
     let label = format!("{} ({}: {}%){}", format_size(mem_used), translator.t(pressure), mem_percent as u16, temp_str);
     
     let gauge = Gauge::default()
@@ -756,14 +901,15 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
     let (mem_available, _availability_level) = estimate_memory_availability(usage.mem_used, usage.mem_total);
     
     let cpu_temp = state.dynamic_data.temperatures.cpu_temp;
-    let cpu_temp_str = cpu_temp.map(|t| format!(" | {:.0}°C", t)).unwrap_or_default();
+    let cpu_temp_str = cpu_temp.map(|t| format!(" | {}", crate::utils::format_temp_int(t, state.temp_unit_fahrenheit))).unwrap_or_default();
 
     let gpu_str = if let Ok(gpus) = &state.dynamic_data.gpus {
         if let Some(gpu) = gpus.first() {
+            let gpu_temp_str = crate::utils::format_temp_int(gpu.temperature as f32, state.temp_unit_fahrenheit);
             if gpu.is_throttling {
-                format!(" | GPU: {}% ({}°C [THROTTLED])", gpu.utilization, gpu.temperature)
+                format!(" | GPU: {}% ({} [THROTTLED])", gpu.utilization, gpu_temp_str)
             } else {
-                format!(" | GPU: {}% ({}°C)", gpu.utilization, gpu.temperature)
+                format!(" | GPU: {}% ({})", gpu.utilization, gpu_temp_str)
             }
         } else {
             String::new()
@@ -1637,18 +1783,18 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         Line::from(vec![
             Span::styled("Package: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(
-                package_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string()),
+                package_temp.map(|t| crate::utils::format_temp(t, state.temp_unit_fahrenheit)).unwrap_or_else(|| "N/A".to_string()),
                 Style::default().fg(package_temp.map(get_usage_color).unwrap_or(theme.text_secondary))
             ),
             Span::raw(" | "),
             Span::styled("Avg Core: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
             Span::styled(
-                avg_core_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string()),
+                avg_core_temp.map(|t| crate::utils::format_temp(t, state.temp_unit_fahrenheit)).unwrap_or_else(|| "N/A".to_string()),
                 Style::default().fg(avg_core_temp.map(get_usage_color).unwrap_or(theme.text_secondary))
             ),
             Span::raw(" | "),
             Span::styled("Max Core: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{:.1}°C", max_core_temp), Style::default().fg(get_usage_color(max_core_temp))),
+            Span::styled(crate::utils::format_temp(max_core_temp, state.temp_unit_fahrenheit), Style::default().fg(get_usage_color(max_core_temp))),
         ]),
         Line::from(vec![
              Span::styled("Load Average: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
@@ -1919,7 +2065,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                 let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
 
                 let temp_str = core.temp
-                    .map(|t| format!(" {:.0}°", t))
+                    .map(|t| format!(" {}", crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)))
                     .unwrap_or_default();
 
                 let spans = if core_area.width >= 24 {
@@ -1962,7 +2108,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                 f.render_widget(core_block, *core_area);
 
                 let temp_str = core.temp
-                    .map(|t| format!(" {:.0}°C", t))
+                    .map(|t| format!(" {}", crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)))
                     .unwrap_or_default();
 
                 if inner_core_area.height >= 2 {
@@ -2049,7 +2195,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, _translator: &T
             (Some(used), Some(total)) if total > 0 => format!("{:.1}%", used as f64 / total as f64 * 100.0),
             _ => "-".to_string(),
         };
-        let temp_display = disk.temp.map(|t| format!("{:.0}°C", t)).unwrap_or_else(|| "-".to_string());
+        let temp_display = disk.temp.map(|t| crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)).unwrap_or_else(|| "-".to_string());
         let health_display = disk.health_pct.map(|h| format!("{}%", h)).unwrap_or_else(|| "-".to_string());
         let cycles_display = disk.power_cycles.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
         let type_display = match disk.is_ssd {
@@ -2421,7 +2567,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
             f.render_widget(message, inner_area);
         }
         Ok(gpus) => {
-            render_gpu_details(f, gpus, inner_area, theme);
+            render_gpu_details(f, gpus, inner_area, theme, state.temp_unit_fahrenheit);
         }
         Err(e) => {
             let message = Paragraph::new(format!("GPU Error: {}", e))
@@ -2432,7 +2578,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     }
 }
 
-fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect, theme: &crate::ui::colors::ColorScheme) {
+fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect, theme: &crate::ui::colors::ColorScheme, fahrenheit: bool) {
     let num_gpus = gpus.len();
     if num_gpus == 0 {
         return;
@@ -2452,15 +2598,16 @@ fn render_gpu_details(f: &mut Frame, gpus: &[crate::types::GpuInfo], area: Rect,
             continue;
         }
         
-        render_single_gpu(f, gpu, gpu_layout[i], i, theme);
+        render_single_gpu(f, gpu, gpu_layout[i], i, theme, fahrenheit);
     }
 }
 
-fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize, theme: &crate::ui::colors::ColorScheme) {
+fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, index: usize, theme: &crate::ui::colors::ColorScheme, fahrenheit: bool) {
+    let temp_str = crate::utils::format_temp_int(gpu.temperature as f32, fahrenheit);
     let title = if gpu.is_throttling {
-        format!(" GPU {} - {}°C [THROTTLED: {}] ", index, gpu.temperature, gpu.throttle_reasons.as_deref().unwrap_or("Active"))
+        format!(" GPU {} - {} [THROTTLED: {}] ", index, temp_str, gpu.throttle_reasons.as_deref().unwrap_or("Active"))
     } else {
-        format!(" GPU {} - {}°C ", index, gpu.temperature)
+        format!(" GPU {} - {} ", index, temp_str)
     };
 
     let border_color = if gpu.is_throttling {
@@ -2662,14 +2809,14 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     if let Some(temp) = gpu.memory_temperature {
         table_rows.push(Row::new(vec![
             Cell::from(Span::styled("VRAM Temp:", Style::default().fg(theme.accent))),
-            Cell::from(format!("{}°C", temp)),
+            Cell::from(crate::utils::format_temp_int(temp as f32, fahrenheit)),
             Cell::from(Span::styled("Junction Temp:", Style::default().fg(theme.accent))),
-            Cell::from(gpu.vram_temp.map(|t| format!("{}°C", t)).unwrap_or_else(|| "N/A".to_string())),
+            Cell::from(gpu.vram_temp.map(|t| crate::utils::format_temp_int(t as f32, fahrenheit)).unwrap_or_else(|| "N/A".to_string())),
         ]));
     } else if let Some(junc) = gpu.vram_temp {
         table_rows.push(Row::new(vec![
             Cell::from(Span::styled("Junction Temp:", Style::default().fg(theme.accent))),
-            Cell::from(format!("{}°C", junc)),
+            Cell::from(crate::utils::format_temp_int(junc as f32, fahrenheit)),
             Cell::from(""),
             Cell::from(""),
         ]));
@@ -2866,7 +3013,8 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         Style::default().fg(Color::DarkGray)
     };
     
-    let footer = Paragraph::new(alert_text)
+    let footer_msg = format!("{} | F2: Settings", alert_text);
+    let footer = Paragraph::new(footer_msg)
         .style(footer_style)
         .alignment(Alignment::Center);
     
@@ -3465,10 +3613,10 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
             let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
             rows.push(Row::new(vec![
                 format!("  {}", s.label),
-                format!("{:.1}°C", s.value),
-                s.max.map(|v| format!("{:.1}°C", v)).unwrap_or_else(|| "—".into()),
-                s.limit.map(|v| format!("{:.1}°C", v))
-                    .or_else(|| s.critical.map(|v| format!("{:.1}°C (crit)", v)))
+                crate::utils::format_temp(s.value as f32, state.temp_unit_fahrenheit),
+                s.max.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit)).unwrap_or_else(|| "—".into()),
+                s.limit.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit))
+                    .or_else(|| s.critical.map(|v| format!("{} (crit)", crate::utils::format_temp(v, state.temp_unit_fahrenheit))))
                     .unwrap_or_else(|| "—".into()),
                 bar,
             ]).style(Style::default().fg(color)));
@@ -3821,4 +3969,21 @@ fn render_grub_update_modal(f: &mut Frame, state: &AppState, _translator: &Trans
         .wrap(ratatui::widgets::Wrap { trim: false });
         
     f.render_widget(paragraph, popup_area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_tab_at_column() {
+        let translator = crate::language::Translator::new(crate::language::Language::English);
+        // Col 0 is outside (starts at 1)
+        assert_eq!(get_tab_at_column(0, &translator), None);
+        // Col 1 is first char of "1:Dashboard"
+        assert_eq!(get_tab_at_column(1, &translator), Some(0));
+        assert_eq!(get_tab_at_column(5, &translator), Some(0));
+        // Large column beyond tab bar
+        assert_eq!(get_tab_at_column(500, &translator), None);
+    }
 }
