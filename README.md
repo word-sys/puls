@@ -18,7 +18,7 @@ PULS combines high-fidelity resource monitoring with native Linux system adminis
 
 PULS is written in Rust, leveraging `ratatui` and `crossterm` for UI rendering while communicating directly with the Linux kernel and native system tools:
 
-*   **Zero New Dependencies**: Eliminates unnecessary external crates by relying on standard library primitives, custom Unix FFI calls, and direct kernel virtual filesystems (`/proc`, `/sys`).
+*   **Less Dependencies**: Eliminates unnecessary external crates by relying on standard library primitives, custom Unix FFI calls, and direct kernel virtual filesystems (`/proc`, `/sys`).
 *   **Deep Hardware Telemetry**: Native parsing for CPU topology (L1/L2/L3 cache, NUMA node affinities, scaling governors), memory page breakdown, filesystem inode statistics (`statvfs`), and battery power telemetry (`/sys/class/power_supply/`).
 *   **Multi-Vendor GPU Support**: Native sysfs/DRM and hwmon driver parsers for AMD and Intel graphics, coupled with NVML/`nvidia-smi` queries for NVIDIA GPUs. Tracks VRAM utilization, PCIe link generation and width, fan RPM, power draw against power limits, and hardware thermal throttling flags.
 *   **Transactional Boot Editor**: Edit `/etc/default/grub` in memory. Review a colorized diff modal (`u`) before any change is committed to disk, backed up automatically with timestamped snapshots.
