@@ -256,6 +256,7 @@ fn parse_number(chars: &[char], pos: &mut usize) -> Result<JsonValue, String> {
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status_code: u16,
+    #[allow(dead_code)]
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
 }
@@ -282,6 +283,7 @@ impl UnixHttpClient {
         }
     }
 
+    #[allow(dead_code)]
     pub fn socket_path(&self) -> &Path {
         &self.socket_path
     }

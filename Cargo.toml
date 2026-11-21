@@ -14,9 +14,6 @@ path = "src/main.rs"
 [dependencies]
 sysinfo = "0.33"  
 
-bollard = { version = "0.19", optional = true }
-futures-util = { version = "0.3", optional = true }
-
 ratatui = "0.26"
 crossterm = "0.28"
 
@@ -24,7 +21,7 @@ tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "time", "sync", 
 
 [features]
 default = ["docker"]
-docker = ["dep:bollard", "dep:futures-util"]
+docker = []
 full = ["docker"]
 
 [profile.release]

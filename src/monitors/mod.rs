@@ -112,19 +112,15 @@ impl DataCollector {
 
         let (containers, docker_error) = if self.config.enable_docker && (active_tab == 11 || active_tab == 0) {
             if self.container_monitor.is_available() {
-                match tokio::time::timeout(
-                    self.config.get_operation_timeout(),
-                    self.container_monitor.get_containers(self.config.get_operation_timeout().as_millis() as u64)
-                ).await {
-                    Ok(Ok(containers)) => (containers, None),
-                    Ok(Err(e)) => (Vec::new(), Some(e)),
-                    Err(_) => (Vec::new(), Some("Container collection timeout".to_string())),
+                match self
+                    .container_monitor
+                    .get_containers(self.config.get_operation_timeout().as_millis() as u64)
+                {
+                    Ok(containers) => (containers, None),
+                    Err(e) => (Vec::new(), Some(e)),
                 }
             } else {
-                #[cfg(feature = "docker")]
-                { (Vec::new(), self.container_monitor.init_error.clone()) }
-                #[cfg(not(feature = "docker"))]
-                { (Vec::new(), None) }
+                (Vec::new(), self.container_monitor.init_error.clone())
             }
         } else {
             (Vec::new(), None)
@@ -274,27 +270,27 @@ impl DataCollector {
     }
 
     pub async fn start_container(&self, id: &str) -> Result<(), String> {
-        self.container_monitor.start_container(id).await
+        self.container_monitor.start_container(id)
     }
 
     pub async fn stop_container(&self, id: &str) -> Result<(), String> {
-        self.container_monitor.stop_container(id).await
+        self.container_monitor.stop_container(id)
     }
 
     pub async fn restart_container(&self, id: &str) -> Result<(), String> {
-        self.container_monitor.restart_container(id).await
+        self.container_monitor.restart_container(id)
     }
 
     pub async fn pause_container(&self, id: &str) -> Result<(), String> {
-        self.container_monitor.pause_container(id).await
+        self.container_monitor.pause_container(id)
     }
 
     pub async fn unpause_container(&self, id: &str) -> Result<(), String> {
-        self.container_monitor.unpause_container(id).await
+        self.container_monitor.unpause_container(id)
     }
 
     pub async fn get_container_logs(&self, id: &str) -> Result<Vec<String>, String> {
-        self.container_monitor.get_container_logs(id).await
+        self.container_monitor.get_container_logs(id)
     }
 }
 
