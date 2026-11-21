@@ -113,8 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.show_cursor()?;
 
     if let Err(ref e) = result {
-        log::error!("Application error: {}", e);
-        crate::error_logger::log_error(&e.to_string());
+        crate::error_logger::log_error(&format!("Application error: {}", e));
     }
 
     result.map_err(|e| e.into())
@@ -1575,7 +1574,7 @@ async fn data_collection_loop(
         let collection_duration = collection_end.duration_since(collection_start);
         
         if collection_duration > Duration::from_millis(current_refresh_ms / 2) {
-            log::warn!("Slow data collection: {:?}", collection_duration);
+            crate::puls_warn!("Slow data collection: {:?}", collection_duration);
         }
         
         let remaining_time = Duration::from_millis(current_refresh_ms.max(100)).saturating_sub(collection_duration);
@@ -1619,7 +1618,7 @@ fn check_system_requirements() -> Result<(), AppError> {
     if std::io::stdout().is_terminal() {
         if let Ok((width, height)) = crossterm::terminal::size() {
             if width < 80 || height < 24 {
-                log::warn!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
+                crate::puls_warn!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
             }
         }
         return Ok(());
@@ -1663,12 +1662,7 @@ fn check_system_requirements() -> Result<(), AppError> {
 }
 
 fn init_logging(verbose: bool) -> Result<(), AppError> {
-    if verbose {
-        env_logger::Builder::from_default_env()
-            .filter_level(log::LevelFilter::Debug)
-            .init();
-    }
-    
+    crate::error_logger::init(verbose);
     Ok(())
 }
 

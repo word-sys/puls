@@ -146,13 +146,13 @@ impl ContainerMonitor {
                     stats_map.insert(id, stats);
                 }
                 Ok(Some(Err(e))) => {
-                    log::error!("Failed to get stats for container {}: {}", id, e);
+                    crate::puls_error!("Failed to get stats for container {}: {}", id, e);
                 }
                 Ok(None) => {
-                    log::warn!("No stats available for container {}", id);
+                    crate::puls_warn!("No stats available for container {}", id);
                 }
                 Err(_) => {
-                    log::warn!("Timeout getting stats for container {}", id);
+                    crate::puls_warn!("Timeout getting stats for container {}", id);
                 }
             }
         }
