@@ -34,7 +34,6 @@ impl NumaMonitor {
 
                         nodes.push(NumaNodeInfo {
                             id,
-                            name: format!("Node {}", id),
                             cpus,
                             cpu_list_str,
                             mem_total_bytes,

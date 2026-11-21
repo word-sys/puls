@@ -59,13 +59,6 @@ impl JsonValue {
         self.as_u64().and_then(|n| u16::try_from(n).ok())
     }
 
-    pub fn as_bool(&self) -> Option<bool> {
-        match self {
-            JsonValue::Bool(b) => Some(*b),
-            _ => None,
-        }
-    }
-
     pub fn as_array(&self) -> Option<&[JsonValue]> {
         match self {
             JsonValue::Array(arr) => Some(arr.as_slice()),
@@ -256,8 +249,6 @@ fn parse_number(chars: &[char], pos: &mut usize) -> Result<JsonValue, String> {
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status_code: u16,
-    #[allow(dead_code)]
-    pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
 }
 
@@ -281,11 +272,6 @@ impl UnixHttpClient {
         Self {
             socket_path: socket_path.as_ref().to_path_buf(),
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn socket_path(&self) -> &Path {
-        &self.socket_path
     }
 
     pub fn get(&self, path: &str, timeout: Duration) -> Result<HttpResponse, String> {
@@ -438,7 +424,6 @@ pub fn parse_http_response(raw: &[u8]) -> Result<HttpResponse, String> {
 
     Ok(HttpResponse {
         status_code,
-        headers,
         body,
     })
 }
@@ -543,7 +528,7 @@ mod tests {
         assert_eq!(port.get("PublicPort").and_then(|v| v.as_u16()), Some(6379));
         let mem = val.get("Memory").unwrap();
         assert_eq!(mem.get("usage").and_then(|v| v.as_u64()), Some(1048576));
-        assert_eq!(mem.get("active").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(mem.get("active"), Some(&JsonValue::Bool(true)));
         assert_eq!(mem.get("extra"), Some(&JsonValue::Null));
         assert_eq!(
             val.get("Escaped").and_then(|v| v.as_str()),
@@ -557,7 +542,7 @@ mod tests {
         let resp = parse_http_response(raw_http).expect("parse chunked response failed");
         assert_eq!(resp.status_code, 200);
         let json = resp.json().expect("parse chunked json failed");
-        assert_eq!(json.get("ok").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(json.get("ok"), Some(&JsonValue::Bool(true)));
     }
 
     #[test]

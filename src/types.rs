@@ -65,7 +65,6 @@ pub struct ContainerInfo {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct GpuInfo {
     pub name: String,
     pub brand: String,
@@ -108,7 +107,6 @@ pub struct ProcessThreadInfo {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct DetailedProcessInfo {
     pub pid: String,
     pub name: String,
@@ -125,19 +123,15 @@ pub struct DetailedProcessInfo {
     pub file_descriptors: Option<u32>,
     pub sockets_count: Option<u32>,
     pub pipes_count: Option<u32>,
-    pub open_files: Vec<String>,
     pub fds: Vec<ProcessFdInfo>,
     pub thread_list: Vec<ProcessThreadInfo>,
     pub cwd: Option<String>,
     pub nice: i32,
     pub io_read_bytes: u64,
     pub io_write_bytes: u64,
-    pub io_read_chars: u64,
-    pub io_write_chars: u64,
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct CoreInfo {
     pub usage: f32,
     pub freq: u64,
@@ -145,7 +139,6 @@ pub struct CoreInfo {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct DetailedDiskInfo {
     pub name: String,
     pub device: String,
@@ -155,20 +148,16 @@ pub struct DetailedDiskInfo {
     pub used: u64,
     pub read_rate: u64,
     pub write_rate: u64,
-    pub read_ops: u64,
-    pub write_ops: u64,
     pub is_ssd: Option<bool>,
     pub temp: Option<f32>,
     pub health_pct: Option<u8>,
     pub power_cycles: Option<u64>,
     pub inodes_total: Option<u64>,
-    pub inodes_free: Option<u64>,
     pub inodes_used: Option<u64>,
     pub mount_options: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct DetailedNetInfo {
     pub name: String,
     pub down_rate: u64,
@@ -177,9 +166,6 @@ pub struct DetailedNetInfo {
     pub total_up: u64,
     pub packets_rx: u64,
     pub packets_tx: u64,
-    pub errors_rx: u64,
-    pub errors_tx: u64,
-    pub interface_type: String,
     pub is_up: bool,
 }
 
@@ -203,7 +189,6 @@ impl SocketProtocol {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct SocketInfo {
     pub protocol: SocketProtocol,
     pub local_addr: String,
@@ -217,15 +202,11 @@ pub struct SocketInfo {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct SystemTemperatures {
     pub cpu_temp: Option<f32>,
-    pub gpu_temps: Vec<f32>,
-    pub motherboard_temp: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct GlobalUsage {
     pub cpu: f32,
     pub mem_used: u64,
@@ -238,8 +219,6 @@ pub struct GlobalUsage {
     pub net_up: u64,
     pub disk_read: u64,
     pub disk_write: u64,
-    pub disk_read_ops: u64,
-    pub disk_write_ops: u64,
     pub cpu_history: VecDeque<f32>,
     pub mem_history: VecDeque<f32>,
     pub net_down_history: VecDeque<u64>,
@@ -249,7 +228,6 @@ pub struct GlobalUsage {
     pub gpu_history: VecDeque<u32>,
     pub load_average: (f64, f64, f64),
     pub uptime: u64,
-    pub boot_time: u64,
     pub mem_details: Option<(String, String, String, String)>,
 }
 
@@ -267,8 +245,6 @@ impl Default for GlobalUsage {
             net_up: 0,
             disk_read: 0,
             disk_write: 0,
-            disk_read_ops: 0,
-            disk_write_ops: 0,
             cpu_history: VecDeque::from(vec![0.0; 60]),
             mem_history: VecDeque::from(vec![0.0; 60]),
             net_down_history: VecDeque::from(vec![0; 60]),
@@ -278,17 +254,14 @@ impl Default for GlobalUsage {
             gpu_history: VecDeque::from(vec![0; 60]),
             load_average: (0.0, 0.0, 0.0),
             uptime: 0,
-            boot_time: 0,
             mem_details: None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct SensorInfo {
     pub label: String,
-    pub chip: String,
     pub sensor_type: String, 
     pub value: f64,
     pub unit: String,        
@@ -299,7 +272,6 @@ pub struct SensorInfo {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct DynamicData {
     pub processes: Vec<ProcessInfo>,
     pub detailed_process: Option<DetailedProcessInfo>,
@@ -315,7 +287,6 @@ pub struct DynamicData {
     pub battery: Option<BatteryInfo>,
     pub reboot_required: bool,
     pub numa_nodes: Vec<NumaNodeInfo>,
-    pub last_update: std::time::Instant,
     pub docker_error: Option<String>,
 }
 
@@ -333,14 +304,11 @@ impl Default for DynamicData {
             global_usage: GlobalUsage::default(),
             temperatures: SystemTemperatures {
                 cpu_temp: None,
-                gpu_temps: Vec::new(),
-                motherboard_temp: None,
             },
             sensors: Vec::new(),
             battery: None,
             reboot_required: false,
             numa_nodes: Vec::new(),
-            last_update: std::time::Instant::now(),
             docker_error: None,
         }
     }
@@ -353,7 +321,6 @@ pub struct BootInfo {
 }
 
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub struct AppState {
     pub active_tab: usize,
     pub process_table_state: TableState,
@@ -385,7 +352,6 @@ pub struct AppState {
     pub log_filter: String,
     pub service_status_modal: Option<(String, String)>,
     pub editing_filter: bool,
-    pub docker_error: Option<String>,
     pub current_theme: usize,
     pub pending_kill_pid: Option<sysinfo::Pid>,
     pub signal_modal: Option<(sysinfo::Pid, String, usize)>,
@@ -415,10 +381,8 @@ pub struct AppState {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct NumaNodeInfo {
     pub id: usize,
-    pub name: String,
     pub cpus: Vec<usize>,
     pub cpu_list_str: String,
     pub mem_total_bytes: u64,
@@ -430,22 +394,18 @@ pub struct NumaNodeInfo {
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct BatteryInfo {
     pub name: String,
     pub status: String,
     pub capacity: u32,
-    pub capacity_level: Option<String>,
     pub power_watts: Option<f64>,
     pub voltage_volts: Option<f64>,
-    pub energy_now_wh: Option<f64>,
     pub energy_full_wh: Option<f64>,
     pub energy_design_wh: Option<f64>,
     pub cycle_count: Option<u32>,
     pub health_percent: Option<f32>,
     pub technology: Option<String>,
     pub model_name: Option<String>,
-    pub manufacturer: Option<String>,
     pub ac_online: bool,
     pub cpu_governor: Option<String>,
     pub cpu_driver: Option<String>,
@@ -470,10 +430,8 @@ pub struct UserSessionInfo {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct ServiceInfo {
     pub name: String,
-    pub description: String,
     pub status: String,
     pub enabled: bool,
     pub can_start: bool,
@@ -484,7 +442,6 @@ impl Default for ServiceInfo {
     fn default() -> Self {
         Self {
             name: String::new(),
-            description: String::new(),
             status: "unknown".to_string(),
             enabled: false,
             can_start: false,

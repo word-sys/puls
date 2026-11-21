@@ -14,8 +14,6 @@ extern "C" {
 struct DiskStatsData {
     read_bytes: u64,
     write_bytes: u64,
-    read_ops: u64,
-    write_ops: u64,
 }
 
 pub struct SystemMonitor {
@@ -389,10 +387,9 @@ impl SystemMonitor {
                 .unwrap_or_else(|| "N/A".to_string());
             
             let (total_fds, sockets, pipes, fds) = Self::get_process_fds(pid);
-            let open_files = fds.iter().map(|f| f.target.clone()).collect();
             let thread_list = Self::get_process_threads(pid);
             let nice = Self::get_process_nice(pid);
-            let (io_read_bytes, io_write_bytes, io_read_chars, io_write_chars) = Self::get_process_io(pid);
+            let (io_read_bytes, io_write_bytes, _, _) = Self::get_process_io(pid);
 
             let mut environ: Vec<String> = process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect();
             if environ.is_empty() {
@@ -421,15 +418,12 @@ impl SystemMonitor {
                 file_descriptors: total_fds,
                 sockets_count: sockets,
                 pipes_count: pipes,
-                open_files,
                 fds,
                 thread_list,
                 cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
                 nice,
                 io_read_bytes,
                 io_write_bytes,
-                io_read_chars,
-                io_write_chars,
             }
         })
     }
@@ -519,7 +513,7 @@ impl SystemMonitor {
             let dev_path = disk.name().to_string_lossy();
             let block_dev = dev_path.split('/').next_back().unwrap_or(&dev_path);
             let mount_point = disk.mount_point().to_string_lossy();
-            let (inodes_total, inodes_free, inodes_used) = Self::get_mount_inodes(&mount_point);
+            let (inodes_total, _inodes_free, inodes_used) = Self::get_mount_inodes(&mount_point);
             let mount_options = mount_options_map.get(mount_point.as_ref()).cloned();
             
             let base_dev = if block_dev.starts_with("nvme") {
@@ -565,15 +559,11 @@ impl SystemMonitor {
 
             let mut read_rate = 0;
             let mut write_rate = 0;
-            let mut read_ops = 0;
-            let mut write_ops = 0;
 
             if let Some(curr) = current_disk_stats.get(block_dev) {
                 if let Some(prev) = self.prev_disk_stats.get(block_dev) {
                     read_rate = ((curr.read_bytes.saturating_sub(prev.read_bytes)) as f64 / elapsed) as u64;
                     write_rate = ((curr.write_bytes.saturating_sub(prev.write_bytes)) as f64 / elapsed) as u64;
-                    read_ops = ((curr.read_ops.saturating_sub(prev.read_ops)) as f64 / elapsed) as u64;
-                    write_ops = ((curr.write_ops.saturating_sub(prev.write_ops)) as f64 / elapsed) as u64;
                 }
             }
             
@@ -586,14 +576,11 @@ impl SystemMonitor {
                 used,
                 read_rate,
                 write_rate,
-                read_ops,
-                write_ops,
                 is_ssd,
                 temp,
                 health_pct,
                 power_cycles,
                 inodes_total,
-                inodes_free,
                 inodes_used,
                 mount_options,
             }
@@ -637,9 +624,6 @@ impl SystemMonitor {
                     total_up: data.total_transmitted(),
                     packets_rx: data.total_packets_received(),
                     packets_tx: data.total_packets_transmitted(),
-                    errors_rx: data.total_errors_on_received(),
-                    errors_tx: data.total_errors_on_transmitted(),
-                    interface_type: "Unknown".to_string(),
                     is_up: true, 
                 }
             })
@@ -676,11 +660,8 @@ impl SystemMonitor {
             net_up: total_net_up,
             disk_read: total_disk_read,
             disk_write: total_disk_write,
-            disk_read_ops: 0,
-            disk_write_ops: 0,
             load_average: (load.one, load.five, load.fifteen),
             uptime,
-            boot_time,
             mem_details: self.memory_details_cache.clone(),
             ..Default::default()
         }
@@ -702,19 +683,9 @@ impl SystemMonitor {
             .or_else(|| {
                 Self::read_cpu_temp_from_hwmon()
             });
-            
-        let gpu_temps: Vec<f32> = components.iter()
-             .filter(|c| {
-                 let label = c.label().to_lowercase();
-                 label.contains("gpu") || label.contains("radeon") || label.contains("amdgpu") || label.contains("edge") || label.contains("junction")
-             })
-             .filter_map(|c| c.temperature())
-             .collect();
              
         SystemTemperatures {
             cpu_temp,
-            gpu_temps,
-            motherboard_temp: None,
         }
     }
 
@@ -745,16 +716,12 @@ impl SystemMonitor {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 14 {
                     let dev_name = parts[2].to_string();
-                    let reads_completed = parts[3].parse::<u64>().unwrap_or(0);
                     let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
-                    let writes_completed = parts[7].parse::<u64>().unwrap_or(0);
                     let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
                     
                     stats.insert(dev_name, DiskStatsData {
                         read_bytes: sectors_read * 512,
                         write_bytes: sectors_written * 512,
-                        read_ops: reads_completed,
-                        write_ops: writes_completed,
                     });
                 }
             }
@@ -827,7 +794,6 @@ impl SystemMonitor {
 
                             sensors.push(SensorInfo {
                                 label,
-                                chip: chip_name.clone(),
                                 sensor_type: "temp".to_string(),
                                 value: current as f64,
                                 unit: "°C".to_string(),
@@ -849,7 +815,6 @@ impl SystemMonitor {
                                 if let Ok(rpm) = val.trim().parse::<f64>() {
                                     sensors.push(SensorInfo {
                                         label,
-                                        chip: chip_name.clone(),
                                         sensor_type: "fan".to_string(),
                                         value: rpm,
                                         unit: "RPM".to_string(),
@@ -876,7 +841,6 @@ impl SystemMonitor {
                                     let volts = mv / 1000.0;
                                     sensors.push(SensorInfo {
                                         label,
-                                        chip: chip_name.clone(),
                                         sensor_type: "in".to_string(),
                                         value: volts,
                                         unit: "V".to_string(),
@@ -907,7 +871,6 @@ impl SystemMonitor {
                                     let watts = uw / 1_000_000.0;
                                     sensors.push(SensorInfo {
                                         label,
-                                        chip: chip_name.clone(),
                                         sensor_type: "power".to_string(),
                                         value: watts,
                                         unit: "W".to_string(),
@@ -932,7 +895,6 @@ impl SystemMonitor {
                                     let amps = ma / 1000.0;
                                     sensors.push(SensorInfo {
                                         label,
-                                        chip: chip_name.clone(),
                                         sensor_type: "curr".to_string(),
                                         value: amps,
                                         unit: "A".to_string(),

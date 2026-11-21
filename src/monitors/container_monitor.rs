@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::sys::unix_http::{decode_docker_log_payload, JsonValue, UnixHttpClient};
@@ -37,7 +37,8 @@ impl ContainerMonitor {
         }
     }
 
-    pub fn with_socket<P: AsRef<Path>>(socket_path: P) -> Self {
+    #[cfg(test)]
+    pub fn with_socket<P: AsRef<std::path::Path>>(socket_path: P) -> Self {
         Self {
             client: Some(UnixHttpClient::new(socket_path)),
             init_error: None,

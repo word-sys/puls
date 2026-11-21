@@ -51,7 +51,7 @@ fn write_to_error_file(formatted_line: &str) {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn get_recent_logs() -> Vec<String> {
     ring_buffer()
         .lock()

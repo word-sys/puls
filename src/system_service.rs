@@ -65,7 +65,7 @@ impl SystemManager {
                     visited_services.insert(name.to_string());
                     let state = parts[1];
                     let is_enabled = state == "enabled";
-                    let (status_str, description) = if let Some((active, desc)) = loaded_states.get(name) {
+                    let status_str = if let Some((active, _desc)) = loaded_states.get(name) {
                         let s = match active.as_str() {
                             "active" => "Running",
                             "activating" => "Starting",
@@ -74,16 +74,15 @@ impl SystemManager {
                             "reloading" => "Reloading",
                             _ => "Stopped",
                         };
-                        (s.to_string(), desc.clone())
+                        s.to_string()
                     } else {
-                        ("Stopped".to_string(), format!("{} Service", name.replace(".service", "")))
+                        "Stopped".to_string()
                     };
 
                     let is_running = status_str == "Running" || status_str == "Starting" || status_str == "Reloading";
 
                     services.push(ServiceInfo {
                         name: name.replace(".service", ""),
-                        description,
                         status: status_str,
                         enabled: is_enabled,
                         can_start: !is_running && self.has_sudo,
@@ -93,7 +92,7 @@ impl SystemManager {
             }
         }
         
-        for (name, (active, description)) in &loaded_states {
+        for (name, (active, _description)) in &loaded_states {
             if !visited_services.contains(name) {
                  if !name.ends_with(".service") {
                      continue;
@@ -104,7 +103,6 @@ impl SystemManager {
                  
                  services.push(ServiceInfo {
                      name: name.replace(".service", ""),
-                     description: description.clone(),
                      status: status_str.to_string(),
                      enabled: false,
                      can_start: !is_running && self.has_sudo,

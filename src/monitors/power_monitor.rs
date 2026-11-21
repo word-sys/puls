@@ -59,19 +59,11 @@ impl PowerMonitor {
                 .and_then(|s| s.trim().parse::<u32>().ok())
                 .unwrap_or(0);
 
-            let capacity_level = fs::read_to_string(bat_path.join("capacity_level"))
-                .ok()
-                .map(|s| s.trim().to_string());
-
             let technology = fs::read_to_string(bat_path.join("technology"))
                 .ok()
                 .map(|s| s.trim().to_string());
 
             let model_name = fs::read_to_string(bat_path.join("model_name"))
-                .ok()
-                .map(|s| s.trim().to_string());
-
-            let manufacturer = fs::read_to_string(bat_path.join("manufacturer"))
                 .ok()
                 .map(|s| s.trim().to_string());
 
@@ -96,8 +88,7 @@ impl PowerMonitor {
             };
 
             // Energy calculations (Wh)
-            let (energy_now_wh, energy_full_wh, energy_design_wh) = if let Ok(e_now) = fs::read_to_string(bat_path.join("energy_now")) {
-                let now = e_now.trim().parse::<f64>().ok().map(|e| e / 1_000_000.0);
+            let (energy_full_wh, energy_design_wh) = if fs::read_to_string(bat_path.join("energy_now")).is_ok() {
                 let full = fs::read_to_string(bat_path.join("energy_full"))
                     .ok()
                     .and_then(|s| s.trim().parse::<f64>().ok())
@@ -106,9 +97,8 @@ impl PowerMonitor {
                     .ok()
                     .and_then(|s| s.trim().parse::<f64>().ok())
                     .map(|e| e / 1_000_000.0);
-                (now, full, design)
-            } else if let (Some(v), Ok(c_now)) = (voltage_now_uv, fs::read_to_string(bat_path.join("charge_now"))) {
-                let now = c_now.trim().parse::<f64>().ok().map(|c| (c * v as f64) / 1_000_000_000_000.0);
+                (full, design)
+            } else if let (Some(v), Ok(_)) = (voltage_now_uv, fs::read_to_string(bat_path.join("charge_now"))) {
                 let full = fs::read_to_string(bat_path.join("charge_full"))
                     .ok()
                     .and_then(|s| s.trim().parse::<f64>().ok())
@@ -117,9 +107,9 @@ impl PowerMonitor {
                     .ok()
                     .and_then(|s| s.trim().parse::<f64>().ok())
                     .map(|c| (c * v as f64) / 1_000_000_000_000.0);
-                (now, full, design)
+                (full, design)
             } else {
-                (None, None, None)
+                (None, None)
             };
 
             let health_percent = match (energy_full_wh, energy_design_wh) {
@@ -141,17 +131,14 @@ impl PowerMonitor {
                 name,
                 status,
                 capacity,
-                capacity_level,
                 power_watts,
                 voltage_volts,
-                energy_now_wh,
                 energy_full_wh,
                 energy_design_wh,
                 cycle_count,
                 health_percent,
                 technology,
                 model_name,
-                manufacturer,
                 ac_online,
                 cpu_governor,
                 cpu_driver,

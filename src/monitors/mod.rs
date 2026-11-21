@@ -206,7 +206,6 @@ impl DataCollector {
             battery,
             reboot_required,
             numa_nodes,
-            last_update: std::time::Instant::now(),
             docker_error,
         }
     }
