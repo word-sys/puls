@@ -1,6 +1,33 @@
 use std::collections::VecDeque;
-use sysinfo::Pid;
+use std::fmt;
 use ratatui::widgets::TableState;
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Pid(pub u32);
+
+impl Pid {
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for Pid {
+    fn from(v: u32) -> Self {
+        Self(v)
+    }
+}
+
+impl From<usize> for Pid {
+    fn from(v: usize) -> Self {
+        Self(v as u32)
+    }
+}
+
+impl fmt::Display for Pid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct NetworkStats {
@@ -353,8 +380,8 @@ pub struct AppState {
     pub service_status_modal: Option<(String, String)>,
     pub editing_filter: bool,
     pub current_theme: usize,
-    pub pending_kill_pid: Option<sysinfo::Pid>,
-    pub signal_modal: Option<(sysinfo::Pid, String, usize)>,
+    pub pending_kill_pid: Option<Pid>,
+    pub signal_modal: Option<(Pid, String, usize)>,
     pub viewing_log: Option<LogEntry>,
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,

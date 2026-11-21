@@ -111,7 +111,7 @@ fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, translat
     f.render_widget(paragraph, popup_area);
 }
 
-fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_kill_confirmation(f: &mut Frame, pid: crate::types::Pid, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let area = f.size();
     let popup_area = Rect {
         x: area.width / 4,
@@ -139,7 +139,7 @@ fn render_kill_confirmation(f: &mut Frame, pid: sysinfo::Pid, translator: &Trans
 
 fn render_signal_modal(
     f: &mut Frame,
-    pid: sysinfo::Pid,
+    pid: crate::types::Pid,
     name: &str,
     selected_idx: usize,
     translator: &Translator,

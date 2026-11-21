@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use std::fs;
-use sysinfo::{DiskUsage, Networks, Pid, System, Components};
+use sysinfo::{DiskUsage, Networks, System, Components};
 
+use crate::sys::procfs::{self, CpuInfo, CpuTicks, MemInfo};
 use crate::types::*;
 use crate::utils::*;
 
@@ -23,6 +24,12 @@ pub struct SystemMonitor {
     prev_disk_usage: HashMap<Pid, DiskUsage>,
     prev_net_usage: HashMap<String, NetworkStats>,
     prev_disk_stats: HashMap<String, DiskStatsData>,
+    prev_global_cpu: CpuTicks,
+    curr_global_cpu: CpuTicks,
+    prev_core_cpus: Vec<CpuTicks>,
+    curr_core_cpus: Vec<CpuTicks>,
+    mem_info: MemInfo,
+    cpu_info: CpuInfo,
     last_update: Instant,
     self_pid: u32,
     memory_details_cache: Option<(String, String, String, String)>,
@@ -91,6 +98,9 @@ impl SystemMonitor {
         system.refresh_all();
         
         let components = Components::new_with_refreshed_list();
+        let (global_cpu, core_cpus) = procfs::read_cpu_ticks();
+        let mem_info = procfs::read_meminfo();
+        let cpu_info = procfs::read_cpu_info();
         
         Self {
             system,
@@ -99,6 +109,12 @@ impl SystemMonitor {
             prev_disk_usage: HashMap::new(),
             prev_net_usage: HashMap::new(),
             prev_disk_stats: HashMap::new(),
+            prev_global_cpu: global_cpu,
+            curr_global_cpu: global_cpu,
+            prev_core_cpus: core_cpus.clone(),
+            curr_core_cpus: core_cpus,
+            mem_info,
+            cpu_info,
             last_update: Instant::now(),
             self_pid: std::process::id(),
             memory_details_cache: None,
@@ -106,60 +122,30 @@ impl SystemMonitor {
     }
     
     pub fn get_system_info(&self) -> Vec<(String, String)> {
+        let (uptime, boot_time) = procfs::read_uptime_and_boot_time();
+        let load = procfs::read_load_average();
+        let (l1, l2, l3) = get_cpu_caches();
+
         let mut info = vec![
-            ("OS".into(), System::long_os_version().unwrap_or_default()),
-            ("Kernel".into(), System::kernel_version().unwrap_or_default()),
-            ("Hostname".into(), System::host_name().unwrap_or_default()),
-            ("CPU".into(), self.system.cpus().first().map_or("N/A".into(), |c| c.brand().to_string())),
-            ("Cores".into(), format!("{} Physical / {} Logical", 
-                self.system.physical_core_count().unwrap_or(0), 
-                self.system.cpus().len())),
-            ("Total Memory".into(), format_size(self.system.total_memory())),
+            ("OS".into(), procfs::read_os_name()),
+            ("Kernel".into(), procfs::read_kernel_version()),
+            ("Hostname".into(), procfs::read_hostname()),
+            ("CPU".into(), self.cpu_info.brand.clone()),
+            ("Cores".into(), format!("{} Physical / {} Logical",
+                self.cpu_info.physical_cores,
+                self.cpu_info.logical_cores)),
+            ("Total Memory".into(), format_size(self.mem_info.total)),
+            ("Vendor".into(), self.cpu_info.vendor.clone()),
+            ("Family".into(), self.cpu_info.family.clone()),
+            ("L1 Cache".into(), l1),
+            ("L2 Cache".into(), l2),
+            ("L3 Cache".into(), if l3 != "N/A" { l3 } else { self.cpu_info.cache_size.clone() }),
+            ("BogoMIPS".into(), self.cpu_info.bogomips.clone()),
+            ("Virtualization".into(), self.cpu_info.virtualization.clone()),
         ];
-
-        if let Ok(content) = fs::read_to_string("/proc/cpuinfo") {
-            let mut cache_size = "N/A".to_string();
-            let mut bogomips = "N/A".to_string();
-            let mut vendor = "N/A".to_string();
-            let mut virtualization = "Disabled/None".to_string();
-            let mut family = "N/A".to_string();
-
-            for line in content.lines() {
-                if line.starts_with("cache size") {
-                    cache_size = line.split(':').next_back().unwrap_or("").trim().to_string();
-                } else if line.starts_with("bogomips") {
-                    bogomips = line.split(':').next_back().unwrap_or("").trim().to_string();
-                } else if line.starts_with("vendor_id") {
-                    vendor = line.split(':').next_back().unwrap_or("").trim().to_string();
-                } else if line.starts_with("cpu family") {
-                    family = line.split(':').next_back().unwrap_or("").trim().to_string();
-                } else if line.starts_with("flags") && virtualization == "Disabled/None" {
-                    let flags = line.split(':').next_back().unwrap_or("");
-                    if flags.contains("vmx") {
-                        virtualization = "Intel VT-x".to_string();
-                    } else if flags.contains("svm") {
-                        virtualization = "AMD-V".to_string();
-                    }
-                }
-            }
-            
-            let (l1, l2, l3) = get_cpu_caches();
-            info.push(("Vendor".into(), vendor));
-            info.push(("Family".into(), family));
-            info.push(("L1 Cache".into(), l1));
-            info.push(("L2 Cache".into(), l2));
-            if l3 != "N/A" {
-                info.push(("L3 Cache".into(), l3));
-            } else {
-                info.push(("L3 Cache".into(), cache_size));
-            }
-            info.push(("BogoMIPS".into(), bogomips));
-            info.push(("Virtualization".into(), virtualization));
-        }
 
         info.extend(vec![
             ("Boot Time".into(), {
-                let boot_time = System::boot_time();
                 if boot_time > 0 {
                     format_timestamp(boot_time as i64, "%Y-%m-%d %H:%M:%S")
                 } else {
@@ -167,23 +153,19 @@ impl SystemMonitor {
                 }
             }),
             ("Uptime".into(), {
-                let boot_time = System::boot_time(); if boot_time > 0 {
-                    let uptime = current_timestamp().saturating_sub(boot_time);
+                if uptime > 0 {
                     format_duration(uptime)
                 } else {
                     "Unknown".to_string()
                 }
             }),
-            ("Load Average".into(), {
-                let load = System::load_average();
-                format!("{:.2}, {:.2}, {:.2}", load.one, load.five, load.fifteen)
-            }),
+            ("Load Average".into(), format!("{:.2}, {:.2}, {:.2}", load.0, load.1, load.2)),
         ]);
         info
     }
 
     pub fn get_total_memory(&self) -> u64 {
-        self.system.total_memory()
+        self.mem_info.total
     }
     
     pub fn get_memory_details(&self) -> (String, String, String, String) {
@@ -265,8 +247,11 @@ impl SystemMonitor {
     }
     
     pub fn refresh_core_metrics(&mut self) {
-        self.system.refresh_cpu_all();
-        self.system.refresh_memory();
+        let (global_cpu, core_cpus) = procfs::read_cpu_ticks();
+        self.prev_global_cpu = self.curr_global_cpu;
+        self.curr_global_cpu = global_cpu;
+        self.prev_core_cpus = std::mem::replace(&mut self.curr_core_cpus, core_cpus);
+        self.mem_info = procfs::read_meminfo();
         self.components.refresh(true);
     }
 
@@ -290,7 +275,7 @@ impl SystemMonitor {
             process_refresh_kind
         );
         
-        let total_cpu_count = self.system.cpus().len() as f32;
+        let total_cpu_count = self.curr_core_cpus.len().max(1) as f32;
         let mut current_disk_usage = HashMap::new();
         let filter_lower = filter.trim().to_lowercase();
         let has_filter = !filter_lower.is_empty();
@@ -298,12 +283,6 @@ impl SystemMonitor {
         let processes: Vec<ProcessInfo> = self.system.processes()
             .iter()
             .filter(|(_pid, process)| {
-                /*
-                if pid.as_u32() == self.self_pid {
-                    return false;
-                }
-                */
-                
                 let proc_name = process.name().to_string_lossy();
                 if !show_system && is_system_process(&proc_name) {
                     return false;
@@ -323,9 +302,10 @@ impl SystemMonitor {
                 
                 true
             })
-            .map(|(pid, process)| {
+            .map(|(sys_pid, process)| {
+                let pid = Pid::from(sys_pid.as_u32());
                 let disk_usage = process.disk_usage();
-                let (read_rate, write_rate) = if let Some(prev) = self.prev_disk_usage.get(pid) {
+                let (read_rate, write_rate) = if let Some(prev) = self.prev_disk_usage.get(&pid) {
                     let read_bytes = calculate_rate(
                         disk_usage.total_read_bytes,
                         prev.total_read_bytes,
@@ -341,7 +321,7 @@ impl SystemMonitor {
                     (0, 0)
                 };
                 
-                current_disk_usage.insert(*pid, disk_usage);
+                current_disk_usage.insert(pid, disk_usage);
                 
                 let user = process.user_id()
                     .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
@@ -356,7 +336,7 @@ impl SystemMonitor {
                      status = "Running".to_string();
                 }
 
-                let nice = Self::get_process_nice(*pid);
+                let nice = Self::get_process_nice(pid);
 
                 ProcessInfo {
                     pid: pid.to_string(),
@@ -379,7 +359,8 @@ impl SystemMonitor {
     }
     
     pub fn get_detailed_process(&self, pid: Pid) -> Option<DetailedProcessInfo> {
-        self.system.process(pid).map(|process| {
+        let sys_pid = sysinfo::Pid::from_u32(pid.as_u32());
+        self.system.process(sys_pid).map(|process| {
             let start_time = format_timestamp(process.start_time() as i64, "%Y-%m-%d %H:%M:%S");
             
             let user = process.user_id()
@@ -459,13 +440,21 @@ impl SystemMonitor {
             })
             .or_else(Self::read_cpu_temp_from_hwmon);
 
-        self.system.cpus().iter().enumerate().map(|(i, cpu)| {
+        let core_count = self.curr_core_cpus.len().max(1);
+        self.curr_core_cpus.iter().enumerate().map(|(i, curr_ticks)| {
+            let usage = self.prev_core_cpus
+                .get(i)
+                .map(|prev| curr_ticks.usage_percent(prev))
+                .unwrap_or(0.0);
+            let fallback_mhz = self.cpu_info.core_mhz.get(i).copied().unwrap_or(0);
+            let freq = procfs::read_core_freq_mhz(i, fallback_mhz);
+
             let temp = core_sensors.iter()
                 .find(|(id, _)| *id == i as u32)
                 .map(|(_, t)| *t)
                 .or_else(|| {
                     if !core_sensors.is_empty() {
-                        let sensor_idx = (i * core_sensors.len() / self.system.cpus().len()).min(core_sensors.len() - 1);
+                        let sensor_idx = (i * core_sensors.len() / core_count).min(core_sensors.len() - 1);
                         Some(core_sensors[sensor_idx].1)
                     } else {
                         None
@@ -474,8 +463,8 @@ impl SystemMonitor {
                 .or(cpu_temp_global);
 
             CoreInfo {
-                usage: cpu.cpu_usage(),
-                freq: cpu.frequency(),
+                usage,
+                freq,
                 temp,
             }
         }).collect()
@@ -636,31 +625,26 @@ impl SystemMonitor {
     pub fn get_global_usage(&mut self, total_net_down: u64, total_net_up: u64, 
                            total_disk_read: u64, total_disk_write: u64,
                            gpu_util: Option<u32>) -> GlobalUsage {
-        let load = System::load_average();
-        let boot_time = System::boot_time();
-        let uptime = current_timestamp().saturating_sub(boot_time);
-        
-        let mem_available = self.system.available_memory();
-        let mem_free = self.system.free_memory();
-        let mem_cached = mem_available.saturating_sub(mem_free);
+        let load = procfs::read_load_average();
+        let (uptime, _) = procfs::read_uptime_and_boot_time();
 
         if self.memory_details_cache.is_none() {
             self.memory_details_cache = Some(self.get_memory_details());
         }
 
         GlobalUsage {
-            cpu: self.system.global_cpu_usage(),
-            mem_used: self.system.used_memory(),
-            mem_total: self.system.total_memory(),
-            mem_cached,
-            swap_used: self.system.used_swap(),
-            swap_total: self.system.total_swap(),
+            cpu: self.curr_global_cpu.usage_percent(&self.prev_global_cpu),
+            mem_used: self.mem_info.used(),
+            mem_total: self.mem_info.total,
+            mem_cached: self.mem_info.cached_bytes(),
+            swap_used: self.mem_info.swap_used(),
+            swap_total: self.mem_info.swap_total,
             gpu_util,
             net_down: total_net_down,
             net_up: total_net_up,
             disk_read: total_disk_read,
             disk_write: total_disk_write,
-            load_average: (load.one, load.five, load.fifteen),
+            load_average: load,
             uptime,
             mem_details: self.memory_details_cache.clone(),
             ..Default::default()
@@ -1379,7 +1363,7 @@ mod tests {
 
     #[test]
     fn test_process_fds_and_threads() {
-        let pid = sysinfo::Pid::from(std::process::id() as usize);
+        let pid = Pid::from(std::process::id());
         let (total_fds, sockets, pipes, fds) = SystemMonitor::get_process_fds(pid);
         assert!(total_fds.is_some());
         assert!(total_fds.unwrap() > 0);
@@ -1406,7 +1390,7 @@ mod tests {
         let mount_opts = SystemMonitor::get_mount_options();
         assert!(!mount_opts.is_empty(), "mount options map should not be empty");
 
-        let pid = sysinfo::Pid::from(std::process::id() as usize);
+        let pid = Pid::from(std::process::id());
         let (read_bytes, _write_bytes, rchar, _wchar) = SystemMonitor::get_process_io(pid);
         assert!(rchar >= read_bytes);
     }

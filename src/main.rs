@@ -811,8 +811,8 @@ fn handle_key_event(
             if let Some(idx) = state.process_table_state.selected() {
                 if idx < state.dynamic_data.processes.len() {
                     let proc_info = &state.dynamic_data.processes[idx];
-                    if let Ok(pid_num) = proc_info.pid.parse::<usize>() {
-                         let pid = sysinfo::Pid::from(pid_num);
+                    if let Ok(pid_num) = proc_info.pid.parse::<u32>() {
+                         let pid = crate::types::Pid::from(pid_num);
                          state.signal_modal = Some((pid, proc_info.name.clone(), 0));
                     }
                 }
@@ -1201,8 +1201,8 @@ fn handle_key_event(
         KeyCode::Enter if state.active_tab == 1 && state.selected_pid.is_none() => {
             if let Some(selected_index) = state.process_table_state.selected() {
                 if let Some(process) = state.dynamic_data.processes.get(selected_index) {
-                    if let Ok(pid_val) = process.pid.parse::<usize>() {
-                        state.selected_pid = Some(sysinfo::Pid::from(pid_val));
+                    if let Ok(pid_val) = process.pid.parse::<u32>() {
+                        state.selected_pid = Some(crate::types::Pid::from(pid_val));
                         state.process_detail_subtab = 0;
                         state.process_detail_scroll = 0;
                     }

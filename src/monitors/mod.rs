@@ -40,7 +40,7 @@ impl DataCollector {
     #[allow(clippy::too_many_arguments)]
     pub fn collect_data(
         &mut self,
-        selected_pid: Option<sysinfo::Pid>,
+        selected_pid: Option<crate::types::Pid>,
         show_system_processes: bool,
         filter: &str,
         sort_by: &crate::types::ProcessSortBy,

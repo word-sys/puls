@@ -311,11 +311,7 @@ pub fn format_timestamp(timestamp: i64, format_str: &str) -> String {
 }
 
 pub fn current_formatted_time(format_str: &str) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format_timestamp(now as i64, format_str)
+    format_timestamp(current_timestamp() as i64, format_str)
 }
 
 pub fn get_current_uid() -> u32 {
