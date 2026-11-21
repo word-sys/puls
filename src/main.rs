@@ -11,25 +11,22 @@ mod error_logger;
 use crate::types::{AppState, ProcessSortBy};
 use crate::monitors::{DataCollector, SharedDataCollector};
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
-
-use std::sync::Mutex;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::*, Terminal};
-use tokio::time::sleep;
 
 use crate::config::{Cli};
 use crate::types::AppConfig;
 use crate::ui::render_ui;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     init_logging(cli.verbose)?;
     check_system_requirements()?;
@@ -42,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let startup_start = Instant::now();
     
     let coll_start = Instant::now();
-    let data_collector: SharedDataCollector = Arc::new(tokio::sync::Mutex::new(DataCollector::new(config.clone())));
+    let data_collector: SharedDataCollector = Arc::new(Mutex::new(DataCollector::new(config.clone())));
     let coll_duration = coll_start.elapsed();
     if telemetry {
         println!("[TELEMETRY] Collector creation took {:?}", coll_duration);
@@ -50,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let sys_info_start = Instant::now();
     let system_info = {
-        let collector = data_collector.lock().await;
+        let collector = data_collector.lock().unwrap();
         collector.get_system_info()
     };
     let sys_info_duration = sys_info_start.elapsed();
@@ -62,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if telemetry {
         println!("[TELEMETRY] Total startup took {:?}", total_startup_duration);
         println!("[TELEMETRY] Entering UI mode in 2 seconds...");
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        thread::sleep(Duration::from_secs(2));
     }
     
     enable_raw_mode()?;
@@ -99,15 +96,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.has_sudo = sys_mgr.has_sudo_privileges();
     }
     
+    let stop_signal = Arc::new((Mutex::new(false), Condvar::new()));
     let app_state_clone = app_state.clone();
     let data_collector_clone = data_collector.clone();
     let config_clone = config.clone();
-    let collector_handle = tokio::spawn(async move {
-        data_collection_loop(app_state_clone, data_collector_clone, config_clone).await;
-    });
+    let stop_signal_clone = stop_signal.clone();
+    let collector_handle = thread::Builder::new()
+        .name("puls-collector".to_string())
+        .spawn(move || {
+            data_collection_loop(app_state_clone, data_collector_clone, config_clone, stop_signal_clone);
+        })?;
 
-    let result = ui_loop(&mut terminal, app_state, data_collector, &config).await;
-    collector_handle.abort();
+    let result = ui_loop(&mut terminal, app_state, data_collector, &config);
+
+    {
+        let (lock, cvar) = &*stop_signal;
+        if let Ok(mut stopped) = lock.lock() {
+            *stopped = true;
+            cvar.notify_all();
+        }
+    }
+    let _ = collector_handle.join();
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
@@ -174,7 +183,7 @@ fn check_and_load_lazy_data(state: &mut AppState) {
     }
 }
 
-async fn ui_loop(
+fn ui_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
@@ -225,8 +234,6 @@ async fn ui_loop(
             last_render = Instant::now();
             needs_redraw = false;
         }
-        
-        tokio::task::yield_now().await;
     }
 }
 
@@ -508,10 +515,10 @@ fn handle_key_event(
                          0,
                      ));
                      
-                     tokio::task::spawn_local(async move {
+                     thread::spawn(move || {
                          let logs_res = {
-                             let dc = data_collector_clone.lock().await;
-                             dc.get_container_logs(&container_id).await
+                             let dc = data_collector_clone.lock().unwrap();
+                             dc.get_container_logs(&container_id)
                          };
                          let mut st = app_state_clone.lock().unwrap();
                          if let Some((_, ref id, ref mut logs, _)) = st.viewing_container_logs {
@@ -892,15 +899,15 @@ fn handle_key_event(
             if let Some((action, name, id)) = state.pending_container_action.take() {
                 let app_state_clone = app_state.clone();
                 let data_collector_clone = data_collector.clone();
-                tokio::task::spawn_local(async move {
+                thread::spawn(move || {
                     let result = {
-                        let dc = data_collector_clone.lock().await;
+                        let dc = data_collector_clone.lock().unwrap();
                         match action.as_str() {
-                            "start" => dc.start_container(&id).await,
-                            "stop" => dc.stop_container(&id).await,
-                            "restart" => dc.restart_container(&id).await,
-                            "pause" => dc.pause_container(&id).await,
-                            "unpause" => dc.unpause_container(&id).await,
+                            "start" => dc.start_container(&id),
+                            "stop" => dc.stop_container(&id),
+                            "restart" => dc.restart_container(&id),
+                            "pause" => dc.pause_container(&id),
+                            "unpause" => dc.unpause_container(&id),
                             _ => Ok(()),
                         }
                     };
@@ -1509,21 +1516,38 @@ fn handle_mouse_event(
     Ok(())
 }
 
-async fn data_collection_loop(
+fn wait_or_stop(stop_signal: &(Mutex<bool>, Condvar), duration: Duration) -> bool {
+    let (lock, cvar) = stop_signal;
+    let guard = lock.lock().unwrap();
+    if *guard {
+        return true;
+    }
+    let (guard, _) = cvar.wait_timeout(guard, duration).unwrap();
+    *guard
+}
+
+fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
     _config: AppConfig,
+    stop_signal: Arc<(Mutex<bool>, Condvar)>,
 ) {
     let mut prev_global_usage = types::GlobalUsage::default();
     
     loop {
+        if *stop_signal.0.lock().unwrap() {
+            break;
+        }
+
         let is_paused = {
             let state = app_state.lock().unwrap();
             state.paused
         };
         
         if is_paused {
-            sleep(Duration::from_millis(100)).await;
+            if wait_or_stop(&stop_signal, Duration::from_millis(100)) {
+                break;
+            }
             continue;
         }
         
@@ -1544,7 +1568,7 @@ async fn data_collection_loop(
         };
         
         let new_data = {
-            let mut collector = data_collector.lock().await;
+            let mut collector = data_collector.lock().unwrap();
             collector.collect_data(
                 selected_pid,
                 show_system_processes,
@@ -1554,7 +1578,7 @@ async fn data_collection_loop(
                 tree_mode,
                 prev_global_usage.clone(),
                 active_tab,
-            ).await
+            )
         };
         
         prev_global_usage = new_data.global_usage.clone();
@@ -1579,10 +1603,9 @@ async fn data_collection_loop(
         }
         
         let remaining_time = Duration::from_millis(current_refresh_ms.max(100)).saturating_sub(collection_duration);
-        if remaining_time > Duration::from_millis(10) {
-            sleep(remaining_time).await;
-        } else {
-            sleep(Duration::from_millis(10)).await;
+        let sleep_dur = remaining_time.max(Duration::from_millis(10));
+        if wait_or_stop(&stop_signal, sleep_dur) {
+            break;
         }
     }
 }
@@ -1754,5 +1777,27 @@ mod tests {
         assert_eq!(state.language, crate::language::Language::English);
         modify_setting(&mut state, -1);
         assert_eq!(state.language, crate::language::Language::Russian);
+    }
+
+    #[test]
+    fn test_wait_or_stop_immediate_wakeup() {
+        let signal = Arc::new((Mutex::new(false), Condvar::new()));
+        let sig_clone = signal.clone();
+        let start = Instant::now();
+
+        let handle = thread::spawn(move || {
+            wait_or_stop(&sig_clone, Duration::from_secs(5))
+        });
+
+        thread::sleep(Duration::from_millis(20));
+        {
+            let (lock, cvar) = &*signal;
+            let mut stopped = lock.lock().unwrap();
+            *stopped = true;
+            cvar.notify_all();
+        }
+
+        assert!(handle.join().unwrap());
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 }

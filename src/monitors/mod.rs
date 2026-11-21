@@ -11,8 +11,7 @@ pub use container_monitor::ContainerMonitor;
 pub use power_monitor::PowerMonitor;
 pub use numa_monitor::NumaMonitor;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::types::{DynamicData, AppConfig, GlobalUsage};
 use crate::utils::update_history;
@@ -39,7 +38,7 @@ impl DataCollector {
     }
     
     #[allow(clippy::too_many_arguments)]
-    pub async fn collect_data(
+    pub fn collect_data(
         &mut self,
         selected_pid: Option<sysinfo::Pid>,
         show_system_processes: bool,
@@ -268,27 +267,27 @@ impl DataCollector {
         info
     }
 
-    pub async fn start_container(&self, id: &str) -> Result<(), String> {
+    pub fn start_container(&self, id: &str) -> Result<(), String> {
         self.container_monitor.start_container(id)
     }
 
-    pub async fn stop_container(&self, id: &str) -> Result<(), String> {
+    pub fn stop_container(&self, id: &str) -> Result<(), String> {
         self.container_monitor.stop_container(id)
     }
 
-    pub async fn restart_container(&self, id: &str) -> Result<(), String> {
+    pub fn restart_container(&self, id: &str) -> Result<(), String> {
         self.container_monitor.restart_container(id)
     }
 
-    pub async fn pause_container(&self, id: &str) -> Result<(), String> {
+    pub fn pause_container(&self, id: &str) -> Result<(), String> {
         self.container_monitor.pause_container(id)
     }
 
-    pub async fn unpause_container(&self, id: &str) -> Result<(), String> {
+    pub fn unpause_container(&self, id: &str) -> Result<(), String> {
         self.container_monitor.unpause_container(id)
     }
 
-    pub async fn get_container_logs(&self, id: &str) -> Result<Vec<String>, String> {
+    pub fn get_container_logs(&self, id: &str) -> Result<Vec<String>, String> {
         self.container_monitor.get_container_logs(id)
     }
 }
