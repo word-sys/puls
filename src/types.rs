@@ -299,6 +299,23 @@ pub struct SensorInfo {
     pub critical: Option<f32>, 
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PsiMetric {
+    pub some_avg10: f32,
+    pub some_avg60: f32,
+    pub some_avg300: f32,
+    pub full_avg10: f32,
+    pub full_avg60: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PressureStallInfo {
+    pub available: bool,
+    pub cpu: PsiMetric,
+    pub memory: PsiMetric,
+    pub io: PsiMetric,
+}
+
 #[derive(Clone, Debug)]
 pub struct DynamicData {
     pub processes: Vec<ProcessInfo>,
@@ -315,6 +332,7 @@ pub struct DynamicData {
     pub battery: Option<BatteryInfo>,
     pub reboot_required: bool,
     pub numa_nodes: Vec<NumaNodeInfo>,
+    pub pressure: PressureStallInfo,
     pub docker_error: Option<String>,
 }
 
@@ -337,6 +355,7 @@ impl Default for DynamicData {
             battery: None,
             reboot_required: false,
             numa_nodes: Vec::new(),
+            pressure: PressureStallInfo::default(),
             docker_error: None,
         }
     }

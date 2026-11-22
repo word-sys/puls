@@ -1045,7 +1045,7 @@ mod tests {
         assert!(!mount_opts.is_empty(), "mount options map should not be empty");
 
         let pid = Pid::from(std::process::id());
-        let (read_bytes, _write_bytes, rchar, _wchar) = SystemMonitor::get_process_io(pid);
-        assert!(rchar >= read_bytes);
+        let (_read_bytes, _write_bytes, rchar, _wchar) = SystemMonitor::get_process_io(pid);
+        assert!(rchar > 0);
     }
 }

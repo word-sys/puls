@@ -879,10 +879,37 @@ fn render_dashboard_diagnostics(f: &mut Frame, state: &AppState, area: Rect, tra
     if mem_percent > 90.0 {
         alerts.push(format!("{}: {:.0}%", translator.t("msg.high_mem_pressure"), mem_percent));
     }
+
+    let psi = &state.dynamic_data.pressure;
+    if psi.available {
+        if psi.cpu.some_avg10 >= 25.0 {
+            alerts.push(format!("CPU Stall (PSI): {:.1}%", psi.cpu.some_avg10));
+        }
+        if psi.memory.full_avg10 >= 5.0 || psi.memory.some_avg10 >= 20.0 {
+            alerts.push(format!(
+                "Mem Stall (PSI): {:.1}%/{:.1}%",
+                psi.memory.some_avg10, psi.memory.full_avg10
+            ));
+        }
+        if psi.io.full_avg10 >= 10.0 || psi.io.some_avg10 >= 25.0 {
+            alerts.push(format!(
+                "I/O Stall (PSI): {:.1}%/{:.1}%",
+                psi.io.some_avg10, psi.io.full_avg10
+            ));
+        }
+    }
     
     let (widget_text, block_style, text_color) = if alerts.is_empty() {
+        let psi_inline = if psi.available {
+            format!(
+                "  |  PSI(10s) CPU: {:.1}%  MEM: {:.1}%  IO: {:.1}%",
+                psi.cpu.some_avg10, psi.memory.some_avg10, psi.io.some_avg10
+            )
+        } else {
+            String::new()
+        };
         (
-            format!(" * {}: {}", translator.t("title.diagnostics"), translator.t("msg.diagnostics_nominal")),
+            format!(" * {}: {}{}", translator.t("title.diagnostics"), translator.t("msg.diagnostics_nominal"), psi_inline),
             Style::default().fg(theme.success),
             theme.success,
         )
@@ -1869,6 +1896,17 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         ]),
     ];
 
+    if state.dynamic_data.pressure.available {
+        let c = &state.dynamic_data.pressure.cpu;
+        info_text.push(Line::from(vec![
+            Span::styled("PSI CPU (10s/60s/300s): ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{:.1}% / {:.1}% / {:.1}%", c.some_avg10, c.some_avg60, c.some_avg300),
+                Style::default().fg(get_usage_color(c.some_avg10)),
+            ),
+        ]));
+    }
+
     if !numa_nodes.is_empty() && !show_numa_panel {
         let numa_summary = if numa_nodes.len() == 1 {
             let n = &numa_nodes[0];
@@ -2309,6 +2347,21 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         ))
     });
     
+    let disks_title = if state.dynamic_data.pressure.available {
+        let io = &state.dynamic_data.pressure.io;
+        format!(
+            " {} | I/O PSI (10s/60s/300s): some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% ",
+            translator.t("disks.title"),
+            io.some_avg10,
+            io.some_avg60,
+            io.some_avg300,
+            io.full_avg10,
+            io.full_avg60
+        )
+    } else {
+        format!(" {} ", translator.t("disks.title"))
+    };
+
     let table = Table::new(
         rows,
         [
@@ -2336,7 +2389,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
     )
     .block(
         Block::default()
-            .title(format!(" {} ", translator.t("disks.title")))
+            .title(disks_title)
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
@@ -3621,7 +3674,7 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let (mem_type, mem_gen, mem_speed, mem_temp) = state.dynamic_data.global_usage.mem_details.clone()
         .unwrap_or_else(|| (unknown_str.clone(), unknown_str, "N/A".into(), "N/A".into()));
 
-    let rows = vec![
+    let mut rows = vec![
         Row::new(vec![translator.t("memory.total_mem"), total_mem_str]), 
         Row::new(vec![translator.t("memory.used_mem"), used_mem_str]),
         Row::new(vec![translator.t("memory.cached_buffers"), cached_mem_str]),
@@ -3631,6 +3684,17 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
         Row::new(vec![translator.t("memory.speed"), mem_speed]),
         Row::new(vec![translator.t("memory.temperature"), mem_temp]),
     ];
+
+    if state.dynamic_data.pressure.available {
+        let m = &state.dynamic_data.pressure.memory;
+        rows.push(Row::new(vec![
+            "PSI Memory Stall".to_string(),
+            format!(
+                "some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% (10s/60s/300s)",
+                m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60
+            ),
+        ]));
+    }
     
     let table = Table::new(
         rows,

@@ -3,7 +3,7 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::sync::OnceLock;
 
-use crate::types::Pid;
+use crate::types::{Pid, PressureStallInfo, PsiMetric};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CpuTicks {
@@ -767,6 +767,56 @@ pub fn read_process_single(pid: Pid) -> Option<(u32, ProcPidStat, String, Option
     Some((uid, stat, command, cwd, environ))
 }
 
+pub fn parse_psi_file(content: &str) -> PsiMetric {
+    let mut m = PsiMetric::default();
+    for line in content.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(kind) = parts.next() else {
+            continue;
+        };
+        let mut avg10 = 0.0f32;
+        let mut avg60 = 0.0f32;
+        let mut avg300 = 0.0f32;
+        for token in parts {
+            if let Some((k, v)) = token.split_once('=') {
+                match k {
+                    "avg10" => avg10 = v.parse().unwrap_or(0.0),
+                    "avg60" => avg60 = v.parse().unwrap_or(0.0),
+                    "avg300" => avg300 = v.parse().unwrap_or(0.0),
+                    _ => {}
+                }
+            }
+        }
+        match kind {
+            "some" => {
+                m.some_avg10 = avg10;
+                m.some_avg60 = avg60;
+                m.some_avg300 = avg300;
+            }
+            "full" => {
+                m.full_avg10 = avg10;
+                m.full_avg60 = avg60;
+            }
+            _ => {}
+        }
+    }
+    m
+}
+
+pub fn read_pressure_stall_info() -> PressureStallInfo {
+    let cpu_str = fs::read_to_string("/proc/pressure/cpu").ok();
+    let mem_str = fs::read_to_string("/proc/pressure/memory").ok();
+    let io_str = fs::read_to_string("/proc/pressure/io").ok();
+
+    let available = cpu_str.is_some() || mem_str.is_some() || io_str.is_some();
+    PressureStallInfo {
+        available,
+        cpu: cpu_str.as_deref().map(parse_psi_file).unwrap_or_default(),
+        memory: mem_str.as_deref().map(parse_psi_file).unwrap_or_default(),
+        io: io_str.as_deref().map(parse_psi_file).unwrap_or_default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -943,5 +993,24 @@ Inter-|   Receive                                                |  Transmit
         let detail = read_process_single(self_pid).expect("read self process failed");
         assert!(!detail.1.comm.is_empty());
         assert!(detail.1.rss_bytes > 0);
+    }
+
+    #[test]
+    fn test_parse_psi_file() {
+        let mem_psi = "\
+some avg10=12.34 avg60=5.67 avg300=1.23 total=987654
+full avg10=3.45 avg60=1.12 avg300=0.45 total=123456
+";
+        let m = parse_psi_file(mem_psi);
+        assert!((m.some_avg10 - 12.34).abs() < 0.01);
+        assert!((m.some_avg60 - 5.67).abs() < 0.01);
+        assert!((m.some_avg300 - 1.23).abs() < 0.01);
+        assert!((m.full_avg10 - 3.45).abs() < 0.01);
+        assert!((m.full_avg60 - 1.12).abs() < 0.01);
+
+        let cpu_psi = "some avg10=0.80 avg60=0.40 avg300=0.10 total=42000\n";
+        let c = parse_psi_file(cpu_psi);
+        assert!((c.some_avg10 - 0.80).abs() < 0.01);
+        assert_eq!(c.full_avg10, 0.0);
     }
 }
