@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::sync::OnceLock;
@@ -919,6 +919,83 @@ pub fn read_pressure_stall_info() -> PressureStallInfo {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiskStatsData {
+    pub read_ios: u64,
+    pub read_bytes: u64,
+    pub read_time_ms: u64,
+    pub write_ios: u64,
+    pub write_bytes: u64,
+    pub write_time_ms: u64,
+    pub io_time_ms: u64,
+}
+
+pub fn parse_diskstats(content: &str) -> HashMap<String, DiskStatsData> {
+    let mut stats = HashMap::new();
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 14 {
+            let dev_name = parts[2].to_string();
+            let read_ios = parts[3].parse::<u64>().unwrap_or(0);
+            let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
+            let read_time_ms = parts[6].parse::<u64>().unwrap_or(0);
+            let write_ios = parts[7].parse::<u64>().unwrap_or(0);
+            let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
+            let write_time_ms = parts[10].parse::<u64>().unwrap_or(0);
+            let io_time_ms = parts[12].parse::<u64>().unwrap_or(0);
+
+            stats.insert(
+                dev_name,
+                DiskStatsData {
+                    read_ios,
+                    read_bytes: sectors_read.saturating_mul(512),
+                    read_time_ms,
+                    write_ios,
+                    write_bytes: sectors_written.saturating_mul(512),
+                    write_time_ms,
+                    io_time_ms,
+                },
+            );
+        }
+    }
+    stats
+}
+
+pub fn read_diskstats() -> HashMap<String, DiskStatsData> {
+    fs::read_to_string("/proc/diskstats")
+        .map(|s| parse_diskstats(&s))
+        .unwrap_or_default()
+}
+
+pub fn compute_disk_io_metrics(
+    curr: &DiskStatsData,
+    prev: &DiskStatsData,
+    elapsed_secs: f64,
+) -> (u64, u64, f32, f32) {
+    let elapsed = elapsed_secs.max(0.05);
+    let read_rate = (curr.read_bytes.saturating_sub(prev.read_bytes) as f64 / elapsed) as u64;
+    let write_rate = (curr.write_bytes.saturating_sub(prev.write_bytes) as f64 / elapsed) as u64;
+
+    let ios_delta = curr
+        .read_ios
+        .saturating_sub(prev.read_ios)
+        .saturating_add(curr.write_ios.saturating_sub(prev.write_ios));
+    let time_delta_ms = curr
+        .read_time_ms
+        .saturating_sub(prev.read_time_ms)
+        .saturating_add(curr.write_time_ms.saturating_sub(prev.write_time_ms));
+    let await_ms = if ios_delta > 0 {
+        time_delta_ms as f32 / ios_delta as f32
+    } else {
+        0.0
+    };
+
+    let io_ms_delta = curr.io_time_ms.saturating_sub(prev.io_time_ms) as f64;
+    let busy_pct = ((io_ms_delta / (elapsed * 1000.0)) * 100.0).clamp(0.0, 100.0) as f32;
+
+    (read_rate, write_rate, await_ms, busy_pct)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1147,5 +1224,21 @@ Swap:               1024 kB
         assert_eq!(r.shared_bytes, 3500 * 1024);
         assert_eq!(r.private_dirty_bytes, 6500 * 1024);
         assert_eq!(r.swap_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_diskstats_await_and_busy_pct() {
+        let s1 = "259 0 nvme0n1 100 0 2000 500 200 0 4000 1000 0 1000 1500\n";
+        let s2 = "259 0 nvme0n1 150 0 4000 750 250 0 8000 1250 0 1400 2000\n";
+        let m1 = parse_diskstats(s1);
+        let m2 = parse_diskstats(s2);
+        let (r_rate, w_rate, await_ms, busy_pct) =
+            compute_disk_io_metrics(&m2["nvme0n1"], &m1["nvme0n1"], 1.0);
+        assert_eq!(r_rate, 2000 * 512);
+        assert_eq!(w_rate, 4000 * 512);
+        // 100 total IOs, 500ms total wait -> 5.0 ms await
+        assert!((await_ms - 5.0).abs() < 0.01);
+        // 400ms io_time in 1000ms -> 40.0% busy
+        assert!((busy_pct - 40.0).abs() < 0.01);
     }
 }

@@ -2459,6 +2459,9 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         Cell::from(translator.t("disks.ino_pct")),
         Cell::from(translator.t("disks.read_rate")),
         Cell::from(translator.t("disks.write_rate")),
+        Cell::from("Await"),
+        Cell::from("Busy%"),
+        Cell::from("Sched"),
         Cell::from(translator.t("disks.temp")),
         Cell::from(translator.t("disks.health")),
         Cell::from(translator.t("disks.cycles")),
@@ -2481,6 +2484,17 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             (Some(used), Some(total)) if total > 0 => format!("{:.1}%", used as f64 / total as f64 * 100.0),
             _ => "-".to_string(),
         };
+        let await_display = if disk.await_ms > 0.0 {
+            format!("{:.1}ms", disk.await_ms)
+        } else {
+            "-".to_string()
+        };
+        let busy_display = if disk.busy_pct > 0.0 {
+            format!("{:.0}%", disk.busy_pct)
+        } else {
+            "0%".to_string()
+        };
+        let sched_display = disk.io_scheduler.as_deref().unwrap_or("-");
         let temp_display = disk.temp.map(|t| crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)).unwrap_or_else(|| "-".to_string());
         let health_display = disk.health_pct.map(|h| format!("{}%", h)).unwrap_or_else(|| "-".to_string());
         let cycles_display = disk.power_cycles.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
@@ -2503,6 +2517,9 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             inodes_pct_display,
             format_rate(disk.read_rate),
             format_rate(disk.write_rate),
+            await_display,
+            busy_display,
+            sched_display.to_string(),
             temp_display,
             health_display,
             cycles_display,
@@ -2515,7 +2532,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         ))
     });
     
-    let disks_title = if state.dynamic_data.pressure.available {
+    let mut disks_title = if state.dynamic_data.pressure.available {
         let io = &state.dynamic_data.pressure.io;
         format!(
             " {} | I/O PSI (10s/60s/300s): some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% ",
@@ -2529,6 +2546,15 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
     } else {
         format!(" {} ", translator.t("disks.title"))
     };
+    if let Some(z) = state.dynamic_data.zram_devices.first() {
+        disks_title.push_str(&format!(
+            "| ZRAM({}): {} -> {} ({:.2}x) ",
+            z.algorithm,
+            format_size(z.orig_bytes),
+            format_size(z.compr_bytes),
+            z.ratio()
+        ));
+    }
 
     let table = Table::new(
         rows,
@@ -2540,15 +2566,18 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             Constraint::Length(9),   // Used
             Constraint::Length(9),   // Free
             Constraint::Length(7),   // Use%
-            Constraint::Length(14),  // Inodes (U/T)
+            Constraint::Length(12),  // Inodes (U/T)
             Constraint::Length(7),   // Ino%
             Constraint::Length(10),  // Read Rate
             Constraint::Length(10),  // Write Rate
+            Constraint::Length(7),   // Await
+            Constraint::Length(6),   // Busy%
+            Constraint::Length(11),  // Sched
             Constraint::Length(6),   // Temp
             Constraint::Length(7),   // Health
-            Constraint::Length(8),   // Cycles
+            Constraint::Length(7),   // Cycles
             Constraint::Length(5),   // Type
-            Constraint::Min(15),     // Mount Options
+            Constraint::Min(12),     // Mount Options
         ]
     )
     .header(
@@ -3860,6 +3889,19 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             format!(
                 "some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% (10s/60s/300s)",
                 m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60
+            ),
+        ]));
+    }
+
+    for z in &state.dynamic_data.zram_devices {
+        rows.push(Row::new(vec![
+            format!("ZRAM ({} / {})", z.device, z.algorithm),
+            format!(
+                "{} -> {} (RAM: {}, {:.2}x ratio)",
+                format_size(z.orig_bytes),
+                format_size(z.compr_bytes),
+                format_size(z.mem_used_bytes),
+                z.ratio()
             ),
         ]));
     }

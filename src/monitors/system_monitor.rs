@@ -2,16 +2,10 @@ use std::collections::HashMap;
 use std::time::Instant;
 use std::fs;
 
-use crate::sys::procfs::{self, CpuInfo, CpuTicks, MemInfo};
+use crate::sys::procfs::{self, CpuInfo, CpuTicks, DiskStatsData, MemInfo};
 use crate::sys::sysfs::{self, HwmonScanner};
 use crate::types::*;
 use crate::utils::*;
-
-#[derive(Debug, Clone, Default)]
-struct DiskStatsData {
-    read_bytes: u64,
-    write_bytes: u64,
-}
 
 pub struct SystemMonitor {
     hwmon_scanner: HwmonScanner,
@@ -461,7 +455,7 @@ impl SystemMonitor {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_disk_update).as_secs_f64().max(0.1);
         
-        let current_disk_stats = self.parse_disk_stats();
+        let current_disk_stats = procfs::read_diskstats();
         let mounts = procfs::read_mounts();
 
         let result: Vec<DetailedDiskInfo> = mounts.into_iter().filter_map(|mount| {
@@ -506,16 +500,17 @@ impl SystemMonitor {
                 .ok()
                 .and_then(|v| v.trim().parse::<u8>().ok())
                 .map(|v| v == 0);
+            let io_scheduler = sysfs::read_block_scheduler(base_dev);
 
-            let mut read_rate = 0;
-            let mut write_rate = 0;
-
-            if let Some(curr) = current_disk_stats.get(block_dev) {
-                if let Some(prev) = self.prev_disk_stats.get(block_dev) {
-                    read_rate = ((curr.read_bytes.saturating_sub(prev.read_bytes)) as f64 / elapsed) as u64;
-                    write_rate = ((curr.write_bytes.saturating_sub(prev.write_bytes)) as f64 / elapsed) as u64;
-                }
-            }
+            let (read_rate, write_rate, await_ms, busy_pct) =
+                if let (Some(curr), Some(prev)) = (
+                    current_disk_stats.get(block_dev),
+                    self.prev_disk_stats.get(block_dev),
+                ) {
+                    procfs::compute_disk_io_metrics(curr, prev, elapsed)
+                } else {
+                    (0, 0, 0.0, 0.0)
+                };
 
             Some(DetailedDiskInfo {
                 name: mount.mount_point,
@@ -526,12 +521,15 @@ impl SystemMonitor {
                 used,
                 read_rate,
                 write_rate,
+                await_ms,
+                busy_pct,
                 is_ssd,
                 temp,
                 health_pct,
                 power_cycles,
                 inodes_total: fs_usage.inodes_total,
                 inodes_used: fs_usage.inodes_used,
+                io_scheduler,
                 mount_options: Some(mount.options),
             })
         }).collect();
@@ -620,32 +618,12 @@ impl SystemMonitor {
         SystemTemperatures { cpu_temp }
     }
 
-    fn parse_disk_stats(&self) -> HashMap<String, DiskStatsData> {
-        let mut stats = HashMap::new();
-        if let Ok(content) = fs::read_to_string("/proc/diskstats") {
-            for line in content.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 14 {
-                    let dev_name = parts[2].to_string();
-                    let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
-                    let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
-                    
-                    stats.insert(dev_name, DiskStatsData {
-                        read_bytes: sectors_read * 512,
-                        write_bytes: sectors_written * 512,
-                    });
-                }
-            }
-        }
-        stats
-    }
-
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
         self.cached_sensors.clone()
     }
 
     pub fn get_global_disk_io(&mut self) -> (u64, u64) {
-        let current_stats = self.parse_disk_stats();
+        let current_stats = procfs::read_diskstats();
         let mut total_read_rate = 0;
         let mut total_write_rate = 0;
         

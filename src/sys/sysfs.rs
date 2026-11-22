@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::types::SensorInfo;
+use crate::types::{SensorInfo, ZramInfo};
 
 pub fn is_net_interface_up(iface: &str) -> bool {
     let base = Path::new("/sys/class/net").join(iface);
@@ -497,6 +497,63 @@ pub fn read_dmi_memory_info() -> Option<DmiMemoryInfo> {
     parse_smbios_memory_table(&bytes)
 }
 
+pub fn parse_bracketed_option(content: &str) -> Option<String> {
+    for token in content.split_whitespace() {
+        if token.starts_with('[') && token.ends_with(']') && token.len() > 2 {
+            return Some(token[1..token.len() - 1].to_string());
+        }
+    }
+    content.split_whitespace().next().map(|s| s.to_string())
+}
+
+pub fn read_block_scheduler(base_dev: &str) -> Option<String> {
+    let content = fs::read_to_string(format!("/sys/block/{}/queue/scheduler", base_dev)).ok()?;
+    parse_bracketed_option(&content)
+}
+
+pub fn parse_zram_mm_stat(device: &str, mm_stat: &str, comp_algo: &str) -> Option<ZramInfo> {
+    let cols: Vec<&str> = mm_stat.split_whitespace().collect();
+    if cols.len() < 3 {
+        return None;
+    }
+    let orig_bytes = cols[0].parse::<u64>().ok()?;
+    let compr_bytes = cols[1].parse::<u64>().ok()?;
+    let mem_used_bytes = cols[2].parse::<u64>().ok()?;
+    if orig_bytes == 0 && mem_used_bytes == 0 {
+        return None;
+    }
+    let algorithm = parse_bracketed_option(comp_algo).unwrap_or_else(|| "zram".to_string());
+    Some(ZramInfo {
+        device: device.to_string(),
+        orig_bytes,
+        compr_bytes,
+        mem_used_bytes,
+        algorithm,
+    })
+}
+
+pub fn read_zram_devices() -> Vec<ZramInfo> {
+    let mut devices = Vec::new();
+    let Ok(entries) = fs::read_dir("/sys/block") else {
+        return devices;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("zram") {
+            continue;
+        }
+        let path = entry.path();
+        if let Ok(mm_stat) = fs::read_to_string(path.join("mm_stat")) {
+            let algo = fs::read_to_string(path.join("comp_algorithm")).unwrap_or_default();
+            if let Some(info) = parse_zram_mm_stat(&name, &mm_stat, &algo) {
+                devices.push(info);
+            }
+        }
+    }
+    devices.sort_by(|a, b| a.device.cmp(&b.device));
+    devices
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -580,5 +637,20 @@ mod tests {
         assert_eq!(info.form_factor.as_deref(), Some("DIMM"));
         assert_eq!(info.mem_type.as_deref(), Some("DDR5"));
         assert_eq!(info.speed.as_deref(), Some("6000 MT/s"));
+    }
+
+    #[test]
+    fn test_parse_zram_mm_stat_and_scheduler() {
+        assert_eq!(
+            parse_bracketed_option("none [mq-deadline] kyber bfq").as_deref(),
+            Some("mq-deadline")
+        );
+
+        let mm = "4294967296 1073741824 1140850688 0 1140850688 0 0 0\n";
+        let algo = "lzo lzo-rle lz4 [zstd]\n";
+        let z = parse_zram_mm_stat("zram0", mm, algo).expect("zram parse failed");
+        assert_eq!(z.device, "zram0");
+        assert_eq!(z.algorithm, "zstd");
+        assert!((z.ratio() - 4.0).abs() < 0.01);
     }
 }

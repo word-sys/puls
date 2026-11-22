@@ -201,13 +201,35 @@ pub struct DetailedDiskInfo {
     pub used: u64,
     pub read_rate: u64,
     pub write_rate: u64,
+    pub await_ms: f32,
+    pub busy_pct: f32,
     pub is_ssd: Option<bool>,
     pub temp: Option<f32>,
     pub health_pct: Option<u8>,
     pub power_cycles: Option<u64>,
     pub inodes_total: Option<u64>,
     pub inodes_used: Option<u64>,
+    pub io_scheduler: Option<String>,
     pub mount_options: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ZramInfo {
+    pub device: String,
+    pub orig_bytes: u64,
+    pub compr_bytes: u64,
+    pub mem_used_bytes: u64,
+    pub algorithm: String,
+}
+
+impl ZramInfo {
+    pub fn ratio(&self) -> f32 {
+        if self.compr_bytes > 0 {
+            self.orig_bytes as f32 / self.compr_bytes as f32
+        } else {
+            0.0
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -358,6 +380,7 @@ pub struct DynamicData {
     pub reboot_required: bool,
     pub numa_nodes: Vec<NumaNodeInfo>,
     pub pressure: PressureStallInfo,
+    pub zram_devices: Vec<ZramInfo>,
     pub docker_error: Option<String>,
 }
 
@@ -381,6 +404,7 @@ impl Default for DynamicData {
             reboot_required: false,
             numa_nodes: Vec::new(),
             pressure: PressureStallInfo::default(),
+            zram_devices: Vec::new(),
             docker_error: None,
         }
     }

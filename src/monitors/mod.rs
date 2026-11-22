@@ -190,6 +190,7 @@ impl DataCollector {
             || std::path::Path::new("/run/reboot-required").exists();
         let numa_nodes = self.numa_monitor.get_numa_nodes();
         let pressure = crate::sys::procfs::read_pressure_stall_info();
+        let zram_devices = crate::sys::sysfs::read_zram_devices();
 
         DynamicData {
             processes,
@@ -207,6 +208,7 @@ impl DataCollector {
             reboot_required,
             numa_nodes,
             pressure,
+            zram_devices,
             docker_error,
         }
     }
