@@ -1,5 +1,9 @@
 use std::collections::HashSet;
 use std::fs;
+use std::os::unix::fs::MetadataExt;
+use std::sync::OnceLock;
+
+use crate::types::Pid;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CpuTicks {
@@ -564,6 +568,205 @@ pub fn read_net_dev() -> Vec<NetDevCounters> {
         .unwrap_or_default()
 }
 
+extern "C" {
+    fn sysconf(name: std::ffi::c_int) -> std::ffi::c_long;
+}
+
+pub fn clk_tck() -> u64 {
+    static TCK: OnceLock<u64> = OnceLock::new();
+    *TCK.get_or_init(|| {
+        // _SC_CLK_TCK = 2 on Linux
+        let v = unsafe { sysconf(2) };
+        if v > 0 { v as u64 } else { 100 }
+    })
+}
+
+pub fn page_size() -> u64 {
+    static PAGE: OnceLock<u64> = OnceLock::new();
+    *PAGE.get_or_init(|| {
+        // _SC_PAGESIZE = 30 on Linux
+        let v = unsafe { sysconf(30) };
+        if v > 0 { v as u64 } else { 4096 }
+    })
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcPidStat {
+    pub comm: String,
+    pub state: char,
+    pub ppid: u32,
+    pub total_ticks: u64,
+    pub nice: i32,
+    pub num_threads: u32,
+    pub starttime_ticks: u64,
+    pub vsize_bytes: u64,
+    pub rss_bytes: u64,
+}
+
+pub fn proc_state_name(state: char) -> &'static str {
+    match state {
+        'R' => "Running",
+        'S' => "Sleeping",
+        'D' => "Disk Sleep",
+        'Z' => "Zombie",
+        'T' => "Stopped",
+        't' => "Tracing Stop",
+        'X' | 'x' => "Dead",
+        'K' => "Wakekill",
+        'W' => "Waking",
+        'P' => "Parked",
+        'I' => "Idle",
+        _ => "Unknown",
+    }
+}
+
+pub fn parse_proc_pid_stat(content: &str, page_sz: u64) -> Option<ProcPidStat> {
+    let open = content.find('(')?;
+    let close = content.rfind(')')?;
+    if close <= open {
+        return None;
+    }
+
+    let comm = content[open + 1..close].to_string();
+    let rest = content.get(close + 1..)?.trim_start();
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    if fields.len() < 22 {
+        return None;
+    }
+
+    let state = fields[0].chars().next().unwrap_or('?');
+    let ppid = fields[1].parse::<u32>().unwrap_or(0);
+    let utime = fields[11].parse::<u64>().unwrap_or(0);
+    let stime = fields[12].parse::<u64>().unwrap_or(0);
+    let nice = fields[16].parse::<i32>().unwrap_or(0);
+    let num_threads = fields[17].parse::<u32>().unwrap_or(1);
+    let starttime_ticks = fields[19].parse::<u64>().unwrap_or(0);
+    let vsize_bytes = fields[20].parse::<u64>().unwrap_or(0);
+    let rss_pages = fields[21].parse::<u64>().unwrap_or(0);
+
+    Some(ProcPidStat {
+        comm,
+        state,
+        ppid,
+        total_ticks: utime.saturating_add(stime),
+        nice,
+        num_threads,
+        starttime_ticks,
+        vsize_bytes,
+        rss_bytes: rss_pages.saturating_mul(page_sz),
+    })
+}
+
+pub fn read_process_io(pid: Pid) -> (u64, u64, u64, u64) {
+    let path = format!("/proc/{}/io", pid);
+    if let Ok(content) = fs::read_to_string(path) {
+        let mut read_bytes = 0;
+        let mut write_bytes = 0;
+        let mut rchar = 0;
+        let mut wchar = 0;
+        for line in content.lines() {
+            if let Some((k, v)) = line.split_once(':') {
+                let v = v.trim().parse::<u64>().unwrap_or(0);
+                match k.trim() {
+                    "read_bytes" => read_bytes = v,
+                    "write_bytes" => write_bytes = v,
+                    "rchar" => rchar = v,
+                    "wchar" => wchar = v,
+                    _ => {}
+                }
+            }
+        }
+        (read_bytes, write_bytes, rchar, wchar)
+    } else {
+        (0, 0, 0, 0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScannedProcess {
+    pub pid: Pid,
+    pub uid: u32,
+    pub stat: ProcPidStat,
+    pub io_read_bytes: u64,
+    pub io_write_bytes: u64,
+}
+
+pub fn scan_processes() -> Vec<ScannedProcess> {
+    let mut result = Vec::new();
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return result;
+    };
+    let page_sz = page_size();
+
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(pid_num) = name.parse::<u32>() else {
+            continue;
+        };
+        let pid = Pid::from(pid_num);
+        let proc_dir = entry.path();
+
+        let Ok(stat_str) = fs::read_to_string(proc_dir.join("stat")) else {
+            continue;
+        };
+        let Some(stat) = parse_proc_pid_stat(&stat_str, page_sz) else {
+            continue;
+        };
+        let uid = fs::metadata(&proc_dir).map(|m| m.uid()).unwrap_or(0);
+        let (io_read_bytes, io_write_bytes, _, _) = read_process_io(pid);
+
+        result.push(ScannedProcess {
+            pid,
+            uid,
+            stat,
+            io_read_bytes,
+            io_write_bytes,
+        });
+    }
+
+    result
+}
+
+pub fn read_process_single(pid: Pid) -> Option<(u32, ProcPidStat, String, Option<String>, Vec<String>)> {
+    let proc_dir = format!("/proc/{}", pid);
+    let stat_str = fs::read_to_string(format!("{}/stat", proc_dir)).ok()?;
+    let stat = parse_proc_pid_stat(&stat_str, page_size())?;
+    let uid = fs::metadata(&proc_dir).map(|m| m.uid()).unwrap_or(0);
+
+    let command = fs::read(format!("{}/cmdline", proc_dir))
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|&b| b == 0)
+                .filter(|s| !s.is_empty())
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect::<Vec<String>>()
+                .join(" ")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| stat.comm.clone());
+
+    let cwd = fs::read_link(format!("{}/cwd", proc_dir))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned());
+
+    let mut environ: Vec<String> = fs::read(format!("{}/environ", proc_dir))
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|&b| b == 0)
+                .filter(|s| !s.is_empty())
+                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    environ.sort();
+
+    Some((uid, stat, command, cwd, environ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,5 +918,30 @@ Inter-|   Receive                                                |  Transmit
         let usage = stat_filesystem("/").expect("statvfs / should succeed");
         assert!(usage.total > 0);
         assert!(usage.free <= usage.total);
+    }
+
+    #[test]
+    fn test_parse_proc_pid_stat_with_parens_and_spaces() {
+        let line = "4242 (Web (Content) Worker) S 100 4242 100 0 -1 4194304 100 0 0 0 150 50 0 0 20 -5 8 0 98765 536870912 4096 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0";
+        let st = parse_proc_pid_stat(line, 4096).expect("parse stat failed");
+        assert_eq!(st.comm, "Web (Content) Worker");
+        assert_eq!(st.state, 'S');
+        assert_eq!(st.ppid, 100);
+        assert_eq!(st.total_ticks, 200);
+        assert_eq!(st.nice, -5);
+        assert_eq!(st.num_threads, 8);
+        assert_eq!(st.starttime_ticks, 98765);
+        assert_eq!(st.vsize_bytes, 536870912);
+        assert_eq!(st.rss_bytes, 4096 * 4096);
+    }
+
+    #[test]
+    fn test_scan_self_process() {
+        let self_pid = Pid::from(std::process::id());
+        let scanned = scan_processes();
+        assert!(scanned.iter().any(|p| p.pid == self_pid));
+        let detail = read_process_single(self_pid).expect("read self process failed");
+        assert!(!detail.1.comm.is_empty());
+        assert!(detail.1.rss_bytes > 0);
     }
 }

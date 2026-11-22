@@ -1,16 +1,11 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use std::fs;
-use sysinfo::{DiskUsage, System};
 
 use crate::sys::procfs::{self, CpuInfo, CpuTicks, MemInfo};
 use crate::sys::sysfs::{self, HwmonScanner};
 use crate::types::*;
 use crate::utils::*;
-
-extern "C" {
-    fn getpriority(which: i32, who: u32) -> i32;
-}
 
 #[derive(Debug, Clone, Default)]
 struct DiskStatsData {
@@ -19,11 +14,12 @@ struct DiskStatsData {
 }
 
 pub struct SystemMonitor {
-    system: System,
     hwmon_scanner: HwmonScanner,
     cached_sensors: Vec<SensorInfo>,
     users_cache: UsersCache,
-    prev_disk_usage: HashMap<Pid, DiskUsage>,
+    prev_proc_ticks: HashMap<Pid, u64>,
+    prev_proc_io: HashMap<Pid, (u64, u64)>,
+    last_proc_cpu: HashMap<Pid, f32>,
     prev_net_usage: HashMap<String, NetworkStats>,
     prev_disk_stats: HashMap<String, DiskStatsData>,
     prev_global_cpu: CpuTicks,
@@ -32,7 +28,10 @@ pub struct SystemMonitor {
     curr_core_cpus: Vec<CpuTicks>,
     mem_info: MemInfo,
     cpu_info: CpuInfo,
-    last_update: Instant,
+    boot_time: u64,
+    last_proc_update: Instant,
+    last_disk_update: Instant,
+    last_net_update: Instant,
     self_pid: u32,
     memory_details_cache: Option<(String, String, String, String)>,
 }
@@ -96,21 +95,21 @@ fn get_cpu_caches() -> (String, String, String) {
 
 impl SystemMonitor {
     pub fn new() -> Self {
-        let mut system = System::new_all();
-        system.refresh_all();
-        
         let mut hwmon_scanner = HwmonScanner::new();
         let cached_sensors = hwmon_scanner.scan();
         let (global_cpu, core_cpus) = procfs::read_cpu_ticks();
         let mem_info = procfs::read_meminfo();
         let cpu_info = procfs::read_cpu_info();
+        let (_, boot_time) = procfs::read_uptime_and_boot_time();
+        let now = Instant::now();
         
         Self {
-            system,
             hwmon_scanner,
             cached_sensors,
             users_cache: UsersCache::new(),
-            prev_disk_usage: HashMap::new(),
+            prev_proc_ticks: HashMap::new(),
+            prev_proc_io: HashMap::new(),
+            last_proc_cpu: HashMap::new(),
             prev_net_usage: HashMap::new(),
             prev_disk_stats: HashMap::new(),
             prev_global_cpu: global_cpu,
@@ -119,7 +118,10 @@ impl SystemMonitor {
             curr_core_cpus: core_cpus,
             mem_info,
             cpu_info,
-            last_update: Instant::now(),
+            boot_time,
+            last_proc_update: now,
+            last_disk_update: now,
+            last_net_update: now,
             self_pid: std::process::id(),
             memory_details_cache: None,
         }
@@ -258,155 +260,139 @@ impl SystemMonitor {
 
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
         let now = Instant::now();
-        let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
-        self.last_update = now;
-        
-        let process_refresh_kind = sysinfo::ProcessRefreshKind::nothing()
-            .with_cpu()
-            .with_memory()
-            .with_disk_usage()
-            .with_user(sysinfo::UpdateKind::OnlyIfNotSet)
-            .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
-            .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
-            .with_environ(sysinfo::UpdateKind::Never);
-        
-        self.system.refresh_processes_specifics(
-            sysinfo::ProcessesToUpdate::All, 
-            true, 
-            process_refresh_kind
-        );
-        
-        let total_cpu_count = self.curr_core_cpus.len().max(1) as f32;
-        let mut current_disk_usage = HashMap::new();
+        let elapsed_secs = now.duration_since(self.last_proc_update).as_secs_f64().max(0.1);
+        self.last_proc_update = now;
+
+        let scanned = procfs::scan_processes();
+        let total_cpu_count = self.curr_core_cpus.len().max(1) as f64;
+        let ticks_denom = elapsed_secs * procfs::clk_tck() as f64 * total_cpu_count;
+
+        let mut next_ticks = HashMap::with_capacity(scanned.len());
+        let mut next_io = HashMap::with_capacity(scanned.len());
+        let mut next_cpu = HashMap::with_capacity(scanned.len());
+
         let filter_lower = filter.trim().to_lowercase();
         let has_filter = !filter_lower.is_empty();
+        let mut processes = Vec::with_capacity(scanned.len());
 
-        let processes: Vec<ProcessInfo> = self.system.processes()
-            .iter()
-            .filter(|(_pid, process)| {
-                let proc_name = process.name().to_string_lossy();
-                if !show_system && is_system_process(&proc_name) {
-                    return false;
-                }
-                
-                if has_filter {
-                    let matches_name = proc_name.to_lowercase().contains(&filter_lower);
-                    let matches_pid = if !matches_name {
-                        process.pid().to_string().contains(&filter_lower)
-                    } else {
-                        false
-                    };
-                    if !matches_name && !matches_pid {
-                        return false;
-                    }
-                }
-                
-                true
-            })
-            .map(|(sys_pid, process)| {
-                let pid = Pid::from(sys_pid.as_u32());
-                let disk_usage = process.disk_usage();
-                let (read_rate, write_rate) = if let Some(prev) = self.prev_disk_usage.get(&pid) {
-                    let read_bytes = calculate_rate(
-                        disk_usage.total_read_bytes,
-                        prev.total_read_bytes,
-                        elapsed_secs
-                    );
-                    let written_bytes = calculate_rate(
-                        disk_usage.total_written_bytes,
-                        prev.total_written_bytes,
-                        elapsed_secs
-                    );
-                    (read_bytes, written_bytes)
-                } else {
-                    (0, 0)
-                };
-                
-                current_disk_usage.insert(pid, disk_usage);
-                
-                let user = process.user_id()
-                    .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
-                    .unwrap_or_else(|| "N/A".to_string());
-                
-                let raw_cpu = process.cpu_usage();
-                let normalized_cpu = (raw_cpu / total_cpu_count).clamp(0.0, 100.0);
-                
-                let mut status = process.status().to_string();
-                
-                if pid.as_u32() == self.self_pid || normalized_cpu > 0.0 {
-                     status = "Running".to_string();
-                }
+        for proc_item in scanned {
+            let pid = proc_item.pid;
+            let cpu = if let Some(&prev_t) = self.prev_proc_ticks.get(&pid) {
+                let delta = proc_item.stat.total_ticks.saturating_sub(prev_t) as f64;
+                ((delta / ticks_denom) * 100.0).clamp(0.0, 100.0) as f32
+            } else {
+                0.0
+            };
 
-                let nice = Self::get_process_nice(pid);
+            let (read_rate, write_rate) = if let Some(&(prev_r, prev_w)) = self.prev_proc_io.get(&pid) {
+                (
+                    calculate_rate(proc_item.io_read_bytes, prev_r, elapsed_secs),
+                    calculate_rate(proc_item.io_write_bytes, prev_w, elapsed_secs),
+                )
+            } else {
+                (0, 0)
+            };
 
-                ProcessInfo {
-                    pid: pid.to_string(),
-                    name: process.name().to_string_lossy().to_string(),
-                    cpu: normalized_cpu,
-                    mem: process.memory(),
-                    disk_read: read_rate,
-                    disk_write: write_rate,
-                    user,
-                    status,
-                    parent_pid: process.parent().map(|p| p.to_string()),
-                    tree_prefix: String::new(),
-                    nice,
+            next_ticks.insert(pid, proc_item.stat.total_ticks);
+            next_io.insert(pid, (proc_item.io_read_bytes, proc_item.io_write_bytes));
+            next_cpu.insert(pid, cpu);
+
+            if !show_system && is_system_process(&proc_item.stat.comm) {
+                continue;
+            }
+
+            if has_filter {
+                let matches_name = proc_item.stat.comm.to_lowercase().contains(&filter_lower);
+                let matches_pid = !matches_name && pid.to_string().contains(&filter_lower);
+                if !matches_name && !matches_pid {
+                    continue;
                 }
-            })
-            .collect();
-        
-        self.prev_disk_usage = current_disk_usage;
+            }
+
+            let user = self
+                .users_cache
+                .get_user_by_uid(proc_item.uid)
+                .unwrap_or_else(|| proc_item.uid.to_string());
+
+            let mut status = procfs::proc_state_name(proc_item.stat.state).to_string();
+            if pid.as_u32() == self.self_pid || cpu > 0.0 {
+                status = "Running".to_string();
+            }
+
+            let parent_pid = if proc_item.stat.ppid > 0 {
+                Some(proc_item.stat.ppid.to_string())
+            } else {
+                None
+            };
+
+            processes.push(ProcessInfo {
+                pid: pid.to_string(),
+                name: proc_item.stat.comm,
+                cpu,
+                mem: proc_item.stat.rss_bytes,
+                disk_read: read_rate,
+                disk_write: write_rate,
+                user,
+                status,
+                parent_pid,
+                tree_prefix: String::new(),
+                nice: proc_item.stat.nice,
+            });
+        }
+
+        self.prev_proc_ticks = next_ticks;
+        self.prev_proc_io = next_io;
+        self.last_proc_cpu = next_cpu;
         processes
     }
     
     pub fn get_detailed_process(&self, pid: Pid) -> Option<DetailedProcessInfo> {
-        let sys_pid = sysinfo::Pid::from_u32(pid.as_u32());
-        self.system.process(sys_pid).map(|process| {
-            let start_time = format_timestamp(process.start_time() as i64, "%Y-%m-%d %H:%M:%S");
-            
-            let user = process.user_id()
-                .and_then(|uid| self.users_cache.get_user_by_uid(**uid))
-                .unwrap_or_else(|| "N/A".to_string());
-            
-            let (total_fds, sockets, pipes, fds) = Self::get_process_fds(pid);
-            let thread_list = Self::get_process_threads(pid);
-            let nice = Self::get_process_nice(pid);
-            let (io_read_bytes, io_write_bytes, _, _) = Self::get_process_io(pid);
+        let (uid, stat, command, cwd, environ) = procfs::read_process_single(pid)?;
+        let start_epoch = self
+            .boot_time
+            .saturating_add(stat.starttime_ticks / procfs::clk_tck().max(1));
+        let start_time = if start_epoch > 0 {
+            format_timestamp(start_epoch as i64, "%Y-%m-%d %H:%M:%S")
+        } else {
+            "Unknown".to_string()
+        };
 
-            let mut environ: Vec<String> = process.environ().iter().map(|s| s.to_string_lossy().to_string()).collect();
-            if environ.is_empty() {
-                if let Ok(bytes) = fs::read(format!("/proc/{}/environ", pid)) {
-                    environ = bytes.split(|&b| b == 0)
-                        .filter(|slice| !slice.is_empty())
-                        .map(|slice| String::from_utf8_lossy(slice).to_string())
-                        .collect();
-                }
-            }
-            environ.sort();
+        let user = self
+            .users_cache
+            .get_user_by_uid(uid)
+            .unwrap_or_else(|| uid.to_string());
 
-            DetailedProcessInfo {
-                pid: process.pid().to_string(),
-                name: process.name().to_string_lossy().to_string(),
-                user,
-                status: process.status().to_string(),
-                cpu_usage: process.cpu_usage(),
-                memory_rss: process.memory(),
-                memory_vms: process.virtual_memory(),
-                command: process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<String>>().join(" "),
-                start_time,
-                parent: process.parent().map(|p| p.to_string()),
-                environ,
-                threads: if !thread_list.is_empty() { thread_list.len() as u32 } else { process.tasks().map(|t| t.len() as u32).unwrap_or(0) },
-                file_descriptors: total_fds,
-                sockets_count: sockets,
-                pipes_count: pipes,
-                fds,
-                thread_list,
-                cwd: process.cwd().map(|p| p.to_string_lossy().into_owned()),
-                nice,
-                io_read_bytes,
-                io_write_bytes,
-            }
+        let (total_fds, sockets, pipes, fds) = Self::get_process_fds(pid);
+        let thread_list = Self::get_process_threads(pid);
+        let (io_read_bytes, io_write_bytes, _, _) = procfs::read_process_io(pid);
+        let cpu_usage = self.last_proc_cpu.get(&pid).copied().unwrap_or(0.0);
+
+        Some(DetailedProcessInfo {
+            pid: pid.to_string(),
+            name: stat.comm,
+            user,
+            status: procfs::proc_state_name(stat.state).to_string(),
+            cpu_usage,
+            memory_rss: stat.rss_bytes,
+            memory_vms: stat.vsize_bytes,
+            command,
+            start_time,
+            parent: if stat.ppid > 0 { Some(stat.ppid.to_string()) } else { None },
+            environ,
+            threads: if !thread_list.is_empty() {
+                thread_list.len() as u32
+            } else {
+                stat.num_threads
+            },
+            file_descriptors: total_fds,
+            sockets_count: sockets,
+            pipes_count: pipes,
+            fds,
+            thread_list,
+            cwd,
+            nice: stat.nice,
+            io_read_bytes,
+            io_write_bytes,
         })
     }
     
@@ -445,7 +431,7 @@ impl SystemMonitor {
     
     pub fn get_disks(&mut self) -> Vec<DetailedDiskInfo> {
         let now = Instant::now();
-        let elapsed = now.duration_since(self.last_update).as_secs_f64().max(0.1);
+        let elapsed = now.duration_since(self.last_disk_update).as_secs_f64().max(0.1);
         
         let current_disk_stats = self.parse_disk_stats();
         let mounts = procfs::read_mounts();
@@ -523,13 +509,14 @@ impl SystemMonitor {
         }).collect();
 
         self.prev_disk_stats = current_disk_stats;
-        self.last_update = now;
+        self.last_disk_update = now;
         result
     }
     
     pub fn get_networks(&mut self) -> Vec<DetailedNetInfo> {
         let now = Instant::now();
-        let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
+        let elapsed_secs = now.duration_since(self.last_net_update).as_secs_f64().max(0.1);
+        self.last_net_update = now;
         
         let mut current_net_usage = HashMap::new();
         let net_devs = procfs::read_net_dev();
@@ -635,7 +622,7 @@ impl SystemMonitor {
         let mut total_write_rate = 0;
         
         let now = Instant::now();
-        let elapsed = now.duration_since(self.last_update).as_secs_f64().max(0.1);
+        let elapsed = now.duration_since(self.last_disk_update).as_secs_f64().max(0.1);
         
         for (dev, curr) in &current_stats {
             if let Some(prev) = self.prev_disk_stats.get(dev) {
@@ -647,7 +634,7 @@ impl SystemMonitor {
         }
         
         self.prev_disk_stats = current_stats;
-        self.last_update = now;
+        self.last_disk_update = now;
         
         (total_read_rate, total_write_rate)
     }
@@ -656,10 +643,6 @@ impl SystemMonitor {
         let total_down = networks.iter().map(|n| n.down_rate).sum();
         let total_up = networks.iter().map(|n| n.up_rate).sum();
         (total_down, total_up)
-    }
-
-    pub fn get_process_nice(pid: Pid) -> i32 {
-        unsafe { getpriority(0, pid.as_u32()) }
     }
 
     pub fn get_process_fds(pid: Pid) -> (Option<u32>, Option<u32>, Option<u32>, Vec<ProcessFdInfo>) {
@@ -758,29 +741,9 @@ impl SystemMonitor {
         thread_list
     }
 
+    #[cfg(test)]
     pub fn get_process_io(pid: Pid) -> (u64, u64, u64, u64) {
-        let path = format!("/proc/{}/io", pid);
-        if let Ok(content) = fs::read_to_string(path) {
-            let mut read_bytes = 0;
-            let mut write_bytes = 0;
-            let mut rchar = 0;
-            let mut wchar = 0;
-            for line in content.lines() {
-                if let Some((k, v)) = line.split_once(':') {
-                    let v = v.trim().parse::<u64>().unwrap_or(0);
-                    match k.trim() {
-                        "read_bytes" => read_bytes = v,
-                        "write_bytes" => write_bytes = v,
-                        "rchar" => rchar = v,
-                        "wchar" => wchar = v,
-                        _ => {}
-                    }
-                }
-            }
-            (read_bytes, write_bytes, rchar, wchar)
-        } else {
-            (0, 0, 0, 0)
-        }
+        procfs::read_process_io(pid)
     }
 
     #[cfg(test)]
@@ -960,7 +923,8 @@ mod tests {
     #[test]
     fn test_system_monitor_creation() {
         let monitor = SystemMonitor::new();
-        assert!(monitor.system.cpus().len() > 0);
+        assert!(!monitor.curr_core_cpus.is_empty());
+        assert!(monitor.get_total_memory() > 0);
     }
     
     #[test]
