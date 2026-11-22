@@ -1,3 +1,4 @@
+use crate::sys::nvml::{self, NvmlClient};
 use crate::types::GpuInfo;
 use std::collections::VecDeque;
 use std::process::Command;
@@ -7,6 +8,7 @@ use std::fs;
 pub struct GpuMonitor {
     gpu_history: VecDeque<Vec<u32>>,
     gpu_memory_history: VecDeque<Vec<u32>>,
+    nvml: Option<NvmlClient>,
     nvidia_cache: Vec<GpuInfo>,
     last_nvidia_update: Option<std::time::Instant>,
 }
@@ -16,6 +18,7 @@ impl GpuMonitor {
         Self {
             gpu_history: VecDeque::new(),
             gpu_memory_history: VecDeque::new(),
+            nvml: NvmlClient::open(),
             nvidia_cache: Vec::new(),
             last_nvidia_update: None,
         }
@@ -58,6 +61,14 @@ impl GpuMonitor {
     }
     
     fn get_nvidia_gpus(&mut self) -> Result<Vec<GpuInfo>, String> {
+        if let Some(ref client) = self.nvml {
+            if let Ok(gpus) = client.query_gpus() {
+                if !gpus.is_empty() {
+                    return Ok(gpus);
+                }
+            }
+        }
+
         let cache_timeout = std::time::Duration::from_millis(1500);
         if let Some(last) = self.last_nvidia_update {
             if last.elapsed() < cache_timeout && !self.nvidia_cache.is_empty() {
@@ -237,6 +248,7 @@ impl GpuMonitor {
             driver_version: driver_ver,
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
+            gpu_processes: nvml::scan_drm_gpu_processes("amdgpu"),
         })
     }
     
@@ -438,6 +450,11 @@ impl GpuMonitor {
             driver_version: "i915/xe".to_string(),
             utilization_history: Vec::new(),
             memory_history: Vec::new(),
+            gpu_processes: {
+                let mut procs = nvml::scan_drm_gpu_processes("i915");
+                procs.extend(nvml::scan_drm_gpu_processes("xe"));
+                procs
+            },
         })
     }
 
@@ -856,6 +873,7 @@ pub fn parse_nvidia_smi_line(line: &str) -> Option<GpuInfo> {
         driver_version,
         utilization_history: Vec::new(),
         memory_history: Vec::new(),
+        gpu_processes: Vec::new(),
     })
 }
 

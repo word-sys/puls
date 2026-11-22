@@ -117,6 +117,7 @@ pub struct GpuInfo {
     pub throttle_reasons: Option<String>,
     pub is_throttling: bool,
     pub driver_version: String,
+    pub gpu_processes: Vec<(u32, u64)>,
 }
 
 #[derive(Clone, Debug, Default)]

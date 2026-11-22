@@ -2935,6 +2935,27 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
         ]));
     }
 
+    if !gpu.gpu_processes.is_empty() {
+        let top_procs: Vec<String> = gpu
+            .gpu_processes
+            .iter()
+            .take(3)
+            .map(|(pid, vram)| {
+                if *vram > 0 {
+                    format!("PID {} ({})", pid, format_size(*vram))
+                } else {
+                    format!("PID {}", pid)
+                }
+            })
+            .collect();
+        table_rows.push(Row::new(vec![
+            Cell::from(Span::styled("GPU Procs", Style::default().fg(theme.accent))),
+            Cell::from(format!("{} active", gpu.gpu_processes.len())),
+            Cell::from(Span::styled("Top VRAM", Style::default().fg(theme.accent))),
+            Cell::from(top_procs.join(", ")),
+        ]));
+    }
+
     let table = Table::new(
         table_rows,
         [
