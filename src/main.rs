@@ -351,19 +351,8 @@ fn handle_key_event(
                 let sig_num = crate::types::POSIX_SIGNALS[*sel_idx].num;
                 state.signal_modal = None;
 
-                let output = std::process::Command::new("kill")
-                    .args([&format!("-{}", sig_num), &pid.to_string()])
-                    .output();
-
-                match output {
-                    Ok(out) if !out.status.success() => {
-                        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                        state.service_status_modal = Some(("Signal Failed".to_string(), err));
-                    }
-                    Err(e) => {
-                        state.service_status_modal = Some(("Signal Failed".to_string(), e.to_string()));
-                    }
-                    _ => {}
+                if let Err(err) = crate::sys::ffi::send_signal(pid, sig_num) {
+                    state.service_status_modal = Some(("Signal Failed".to_string(), err));
                 }
                 return Ok(false);
             }
@@ -822,27 +811,20 @@ fn handle_key_event(
         KeyCode::Char('[') | KeyCode::Char(']') if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {
             if let Some(idx) = state.process_table_state.selected() {
                 if let Some(proc_info) = state.dynamic_data.processes.get(idx) {
-                    let pid_str = proc_info.pid.clone();
-                    let current_nice = proc_info.nice;
-                    let delta = if key.code == KeyCode::Char('[') { -1 } else { 1 };
-                    let new_nice = (current_nice + delta).clamp(-20, 19);
+                    if let Ok(pid_num) = proc_info.pid.parse::<u32>() {
+                        let current_nice = proc_info.nice;
+                        let delta = if key.code == KeyCode::Char('[') { -1 } else { 1 };
+                        let new_nice = (current_nice + delta).clamp(-20, 19);
 
-                    let output = std::process::Command::new("renice")
-                        .args([&new_nice.to_string(), "-p", &pid_str])
-                        .output();
-
-                    match output {
-                        Ok(out) if out.status.success() => {
-                            if let Some(proc_mut) = state.dynamic_data.processes.get_mut(idx) {
-                                proc_mut.nice = new_nice;
+                        match crate::sys::ffi::set_process_nice(crate::types::Pid::from(pid_num), new_nice) {
+                            Ok(()) => {
+                                if let Some(proc_mut) = state.dynamic_data.processes.get_mut(idx) {
+                                    proc_mut.nice = new_nice;
+                                }
                             }
-                        }
-                        Ok(out) => {
-                            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                            state.service_status_modal = Some(("Renice Failed".to_string(), err));
-                        }
-                        Err(e) => {
-                            state.service_status_modal = Some(("Renice Failed".to_string(), e.to_string()));
+                            Err(err) => {
+                                state.service_status_modal = Some(("Renice Failed".to_string(), err));
+                            }
                         }
                     }
                 }
@@ -851,22 +833,9 @@ fn handle_key_event(
         
         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_kill_pid.is_some() => {
             if let Some(pid) = state.pending_kill_pid.take() {
-                use std::process::Command;
-                let output = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .output();
-                
-                match output {
-                    Ok(out) if !out.status.success() => {
-                        let err = String::from_utf8_lossy(&out.stderr).to_string();
-                        state.service_status_modal = Some(("Kill Failed".to_string(), err));
-                    }
-                    Err(e) => {
-                        state.service_status_modal = Some(("Kill Failed".to_string(), e.to_string()));
-                    }
-                    _ => {}
+                if let Err(err) = crate::sys::ffi::send_signal(pid, 9) {
+                    state.service_status_modal = Some(("Kill Failed".to_string(), err));
                 }
-                
                 state.selected_pid = None;
             }
         }

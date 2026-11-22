@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::path::Path;
-use std::io::Write;
 use std::collections::{HashMap, HashSet};
+use crate::sys::ffi;
 use crate::types::{ServiceInfo, LogEntry, ConfigItem, SystemTimerInfo, UserSessionInfo};
 
 pub struct SystemManager {
@@ -383,21 +383,21 @@ impl SystemManager {
             });
         }
 
-        if let Ok(tz_output) = Command::new("timedatectl")
-            .arg("show")
-            .arg("--value")
-            .arg("--property=Timezone")
-            .output()
-        {
-            let tz = String::from_utf8_lossy(&tz_output.stdout).trim().to_string();
-            if !tz.is_empty() {
-                configs.push(ConfigItem {
-                    key: "timezone".to_string(),
-                    value: tz.clone(),
-                    original_value: tz,
-                    description: "System timezone".to_string(),
-                });
-            }
+        let tz = ffi::read_timezone_native().or_else(|| {
+            Command::new("timedatectl")
+                .args(["show", "--value", "--property=Timezone"])
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+        });
+        if let Some(tz) = tz {
+            configs.push(ConfigItem {
+                key: "timezone".to_string(),
+                value: tz.clone(),
+                original_value: tz,
+                description: "System timezone".to_string(),
+            });
         }
 
         configs
@@ -430,9 +430,7 @@ impl SystemManager {
             let timestamp = crate::utils::current_formatted_time("%Y%m%d_%H%M%S");
             let backup_file = format!("{}.bak.{}", grub_file, timestamp);
 
-            Command::new("cp")
-                .args([grub_file, &backup_file])
-                .output()
+            std::fs::copy(grub_file, &backup_file)
                 .map_err(|e| format!("Failed to create backup of {}: {}", grub_file, e))?;
 
             output_log.push_str(&format!("[+] Created GRUB backup at {}.\n", backup_file));
@@ -458,18 +456,8 @@ impl SystemManager {
 
             let new_content = lines.join("\n") + "\n";
 
-            let mut child = Command::new("tee")
-                .arg(grub_file)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| format!("Failed to spawn tee to write GRUB config: {}", e))?;
-
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(new_content.as_bytes())
-                    .map_err(|e| format!("Failed to write to GRUB config: {}", e))?;
-            }
-            child.wait().map_err(|e| format!("Failed waiting for tee: {}", e))?;
+            ffi::atomic_write_file(Path::new(grub_file), new_content.as_bytes())
+                .map_err(|e| format!("Failed to atomically write GRUB config: {}", e))?;
 
             output_log.push_str("[+] Successfully wrote changes to /etc/default/grub.\n");
 
@@ -506,12 +494,19 @@ impl SystemManager {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        Command::new("hostnamectl")
+        if ffi::set_hostname_native(new_hostname).is_ok() {
+            return Ok(());
+        }
+
+        let output = Command::new("hostnamectl")
             .args(["set-hostname", new_hostname])
             .output()
             .map_err(|e| e.to_string())?;
-
-        Ok(())
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
     }
 
     pub fn set_timezone(&self, timezone: &str) -> Result<(), String> {
@@ -519,12 +514,19 @@ impl SystemManager {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        Command::new("timedatectl")
+        if ffi::set_timezone_native(timezone).is_ok() {
+            return Ok(());
+        }
+
+        let output = Command::new("timedatectl")
             .args(["set-timezone", timezone])
             .output()
             .map_err(|e| e.to_string())?;
-
-        Ok(())
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
     }
 
     pub fn get_systemd_timers(&self) -> Vec<SystemTimerInfo> {
@@ -544,6 +546,11 @@ impl SystemManager {
     }
 
     pub fn get_logged_in_users(&self) -> Vec<UserSessionInfo> {
+        let native_sessions = ffi::read_user_sessions_native();
+        if !native_sessions.is_empty() {
+            return native_sessions;
+        }
+
         let mut sessions = Vec::new();
         if let Ok(output) = Command::new("who").output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
