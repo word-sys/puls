@@ -56,7 +56,25 @@ pub struct ProcessInfo {
     pub parent_pid: Option<String>,
     pub tree_prefix: String,
     pub nice: i32,
+    pub cgroup_unit: Option<String>,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IoPriorityPreset {
+    pub class: u8,
+    pub level: u8,
+    pub label: &'static str,
+    pub desc: &'static str,
+}
+
+pub const IO_PRIORITY_PRESETS: &[IoPriorityPreset] = &[
+    IoPriorityPreset { class: 1, level: 0, label: "RT:0  Real-Time (Highest)", desc: "Immediate disk access (requires root)" },
+    IoPriorityPreset { class: 1, level: 4, label: "RT:4  Real-Time (Normal)",  desc: "High priority disk access (requires root)" },
+    IoPriorityPreset { class: 2, level: 0, label: "BE:0  Best-Effort (High)",  desc: "Highest standard I/O priority" },
+    IoPriorityPreset { class: 2, level: 4, label: "BE:4  Best-Effort (Default)", desc: "Standard Linux default I/O priority" },
+    IoPriorityPreset { class: 2, level: 7, label: "BE:7  Best-Effort (Low)",   desc: "Lowest standard I/O priority" },
+    IoPriorityPreset { class: 3, level: 0, label: "IDLE  Idle Class",          desc: "Only perform disk I/O when system is idle" },
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessSignal {
@@ -157,6 +175,13 @@ pub struct DetailedProcessInfo {
     pub nice: i32,
     pub io_read_bytes: u64,
     pub io_write_bytes: u64,
+    pub cgroup_unit: Option<String>,
+    pub memory_pss: Option<u64>,
+    pub memory_shared: Option<u64>,
+    pub memory_private_dirty: Option<u64>,
+    pub memory_swap: Option<u64>,
+    pub cpu_affinity: Option<String>,
+    pub io_priority: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -402,6 +427,8 @@ pub struct AppState {
     pub current_theme: usize,
     pub pending_kill_pid: Option<Pid>,
     pub signal_modal: Option<(Pid, String, usize)>,
+    pub affinity_modal: Option<(Pid, String, Vec<bool>, usize)>,
+    pub ioprio_modal: Option<(Pid, String, usize)>,
     pub viewing_log: Option<LogEntry>,
     pub pending_config_confirmation: Option<(usize, String)>,
     pub pending_service_action: Option<(String, String)>,

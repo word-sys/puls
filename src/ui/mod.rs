@@ -81,9 +81,145 @@ pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, transl
         render_grub_update_modal(f, state, translator, theme);
     }
 
+    if let Some((pid, name, mask, cursor)) = &state.affinity_modal {
+        render_affinity_modal(f, *pid, name, mask, *cursor, theme);
+    }
+
+    if let Some((pid, name, selected_idx)) = &state.ioprio_modal {
+        render_ioprio_modal(f, *pid, name, *selected_idx, theme);
+    }
+
     if state.show_settings_modal {
         render_settings_modal(f, state, translator, theme);
     }
+}
+
+fn render_affinity_modal(
+    f: &mut Frame,
+    pid: crate::types::Pid,
+    name: &str,
+    mask: &[bool],
+    cursor: usize,
+    theme: &crate::ui::colors::ColorScheme,
+) {
+    let area = f.size();
+    let cols = 8usize;
+    let rows_needed = mask.len().div_ceil(cols);
+    let modal_h = (rows_needed as u16 + 6).min(area.height.saturating_sub(2)).max(8);
+    let modal_w = 68u16.min(area.width.saturating_sub(2));
+    let popup = Rect {
+        x: area.width.saturating_sub(modal_w) / 2,
+        y: area.height.saturating_sub(modal_h) / 2,
+        width: modal_w,
+        height: modal_h,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(" Target: {} (PID {})", name, pid),
+            Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    for r in 0..rows_needed {
+        let mut spans = Vec::new();
+        spans.push(Span::raw(" "));
+        for c in 0..cols {
+            let idx = r * cols + c;
+            if idx >= mask.len() {
+                break;
+            }
+            let mark = if mask[idx] { "x" } else { " " };
+            let label = format!("[{}]C{:<2} ", mark, idx);
+            let style = if idx == cursor {
+                Style::default()
+                    .fg(theme.highlight)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else if mask[idx] {
+                Style::default().fg(theme.success)
+            } else {
+                Style::default().fg(theme.text_secondary)
+            };
+            spans.push(Span::styled(label, style));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " [Arrows] Move  [Space] Toggle  [a] All/None  [Enter] Apply  [Esc] Cancel",
+        Style::default().fg(theme.text_secondary),
+    )));
+
+    let p = Paragraph::new(lines).block(
+        Block::default()
+            .title(" CPU Affinity Mask ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.highlight)),
+    );
+    f.render_widget(p, popup);
+}
+
+fn render_ioprio_modal(
+    f: &mut Frame,
+    pid: crate::types::Pid,
+    name: &str,
+    selected_idx: usize,
+    theme: &crate::ui::colors::ColorScheme,
+) {
+    let area = f.size();
+    let presets = crate::types::IO_PRIORITY_PRESETS;
+    let modal_h = (presets.len() as u16 + 6).min(area.height.saturating_sub(2));
+    let modal_w = 68u16.min(area.width.saturating_sub(2));
+    let popup = Rect {
+        x: area.width.saturating_sub(modal_w) / 2,
+        y: area.height.saturating_sub(modal_h) / 2,
+        width: modal_w,
+        height: modal_h,
+    };
+
+    f.render_widget(ratatui::widgets::Clear, popup);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!(" Target: {} (PID {})", name, pid),
+            Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, preset) in presets.iter().enumerate() {
+        let style = if i == selected_idx {
+            Style::default()
+                .fg(theme.highlight)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        lines.push(Line::from(Span::styled(
+            format!(" {:<28} - {}", preset.label, preset.desc),
+            style,
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " [Up/Down] Select  [Enter] Apply  [Esc] Cancel",
+        Style::default().fg(theme.text_secondary),
+    )));
+
+    let p = Paragraph::new(lines).block(
+        Block::default()
+            .title(" I/O Scheduling Priority ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.highlight)),
+    );
+    f.render_widget(p, popup);
 }
 
 fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -1113,7 +1249,8 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         };
         Row::new(vec![
             p.pid.clone(),
-            truncate_string(&display_name, 35),
+            truncate_string(&display_name, 30),
+            truncate_string(p.cgroup_unit.as_deref().unwrap_or("-"), 20),
             truncate_string(&p.user, 10),
             format!("{:>3}", p.nice),
             format!("{:.2}%", p.cpu),
@@ -1127,7 +1264,8 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         rows,
         [
             Constraint::Length(8),   // PID
-            Constraint::Min(20),     // Name
+            Constraint::Min(18),     // Name
+            Constraint::Length(20),  // Unit / Container
             Constraint::Length(10),  // User
             Constraint::Length(5),   // NI
             Constraint::Length(8),   // CPU
@@ -1137,7 +1275,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         ]
     )
     .header(
-        Row::new(vec![header_pid, header_name, header_user, header_nice, header_cpu, header_memory, header_disk_read, header_disk_write])
+        Row::new(vec![header_pid, header_name, "Unit / Cgroup".to_string(), header_user, header_nice, header_cpu, header_memory, header_disk_read, header_disk_write])
             .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
             .bottom_margin(1)
     )
@@ -1388,6 +1526,36 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                 info_lines.push(Line::from(vec![
                     Span::styled(format!("{} ", translator.t("proc_detail.cwd")), Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
                     Span::styled(truncate_string(cwd, 30), Style::default().fg(theme.text)),
+                ]));
+            }
+            if let Some(ref cg) = process.cgroup_unit {
+                info_lines.push(Line::from(vec![
+                    Span::styled("Cgroup: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(truncate_string(cg, 30), Style::default().fg(theme.text)),
+                ]));
+            }
+            if let Some(pss) = process.memory_pss {
+                let priv_dirty = process.memory_private_dirty.unwrap_or(0);
+                let shared = process.memory_shared.unwrap_or(0);
+                let swap = process.memory_swap.unwrap_or(0);
+                info_lines.push(Line::from(vec![
+                    Span::styled("PSS/Priv/Shr/Swp: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        format!("{}/{}/{}/{}", format_size(pss), format_size(priv_dirty), format_size(shared), format_size(swap)),
+                        Style::default().fg(theme.text),
+                    ),
+                ]));
+            }
+            if let Some(ref aff) = process.cpu_affinity {
+                info_lines.push(Line::from(vec![
+                    Span::styled("CPU Affinity: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(aff, Style::default().fg(theme.text)),
+                ]));
+            }
+            if let Some(ref iop) = process.io_priority {
+                info_lines.push(Line::from(vec![
+                    Span::styled("I/O Priority: ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(iop, Style::default().fg(theme.text)),
                 ]));
             }
 

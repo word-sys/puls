@@ -362,6 +362,87 @@ fn handle_key_event(
         }
     }
 
+    if let Some((pid, _name, ref mut mask, ref mut cursor)) = state.affinity_modal.as_mut() {
+        let pid = *pid;
+        let len = mask.len().max(1);
+        match key.code {
+            KeyCode::Left | KeyCode::Char('h') => {
+                *cursor = if *cursor == 0 { len - 1 } else { *cursor - 1 };
+                return Ok(false);
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                *cursor = (*cursor + 1) % len;
+                return Ok(false);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                *cursor = cursor.saturating_sub(8);
+                return Ok(false);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                *cursor = (*cursor + 8).min(len - 1);
+                return Ok(false);
+            }
+            KeyCode::Char(' ') => {
+                if let Some(slot) = mask.get_mut(*cursor) {
+                    *slot = !*slot;
+                }
+                return Ok(false);
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                let all_on = mask.iter().all(|&b| b);
+                for slot in mask.iter_mut() {
+                    *slot = !all_on;
+                }
+                return Ok(false);
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                state.affinity_modal = None;
+                return Ok(false);
+            }
+            KeyCode::Enter => {
+                let selected_cpus: Vec<usize> = mask
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &on)| if on { Some(i) } else { None })
+                    .collect();
+                state.affinity_modal = None;
+                if let Err(err) = crate::sys::ffi::set_cpu_affinity(pid, &selected_cpus) {
+                    state.service_status_modal = Some(("CPU Affinity Failed".to_string(), err));
+                }
+                return Ok(false);
+            }
+            _ => return Ok(false),
+        }
+    }
+
+    if let Some((pid, _name, ref mut sel_idx)) = state.ioprio_modal.as_mut() {
+        let pid = *pid;
+        let count = crate::types::IO_PRIORITY_PRESETS.len();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                *sel_idx = if *sel_idx == 0 { count - 1 } else { *sel_idx - 1 };
+                return Ok(false);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                *sel_idx = (*sel_idx + 1) % count;
+                return Ok(false);
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                state.ioprio_modal = None;
+                return Ok(false);
+            }
+            KeyCode::Enter => {
+                let preset = &crate::types::IO_PRIORITY_PRESETS[*sel_idx];
+                state.ioprio_modal = None;
+                if let Err(err) = crate::sys::ffi::set_io_priority(pid, preset.class, preset.level) {
+                    state.service_status_modal = Some(("I/O Priority Failed".to_string(), err));
+                }
+                return Ok(false);
+            }
+            _ => return Ok(false),
+        }
+    }
+
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') if state.pending_grub_update_confirmation => {
             let sys_mgr = system_service::SystemManager::new();
@@ -803,6 +884,39 @@ fn handle_key_event(
                     if let Ok(pid_num) = proc_info.pid.parse::<u32>() {
                          let pid = crate::types::Pid::from(pid_num);
                          state.signal_modal = Some((pid, proc_info.name.clone(), 0));
+                    }
+                }
+            }
+        }
+
+        KeyCode::Char('a') if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {
+            if let Some(idx) = state.process_table_state.selected() {
+                if let Some(proc_info) = state.dynamic_data.processes.get(idx) {
+                    if let Ok(pid_num) = proc_info.pid.parse::<u32>() {
+                        let pid = crate::types::Pid::from(pid_num);
+                        let core_count = state.dynamic_data.cores.len().max(1);
+                        let mut mask = vec![false; core_count];
+                        if let Ok(cpus) = crate::sys::ffi::get_cpu_affinity(pid) {
+                            for c in cpus {
+                                if c < mask.len() {
+                                    mask[c] = true;
+                                }
+                            }
+                        } else {
+                            mask.fill(true);
+                        }
+                        state.affinity_modal = Some((pid, proc_info.name.clone(), mask, 0));
+                    }
+                }
+            }
+        }
+
+        KeyCode::Char('i') if state.active_tab == 1 && state.selected_pid.is_none() && state.signal_modal.is_none() => {
+            if let Some(idx) = state.process_table_state.selected() {
+                if let Some(proc_info) = state.dynamic_data.processes.get(idx) {
+                    if let Ok(pid_num) = proc_info.pid.parse::<u32>() {
+                        let pid = crate::types::Pid::from(pid_num);
+                        state.ioprio_modal = Some((pid, proc_info.name.clone(), 3));
                     }
                 }
             }

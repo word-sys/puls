@@ -350,6 +350,7 @@ impl SystemMonitor {
                 parent_pid,
                 tree_prefix: String::new(),
                 nice: proc_item.stat.nice,
+                cgroup_unit: proc_item.cgroup_unit,
             });
         }
 
@@ -379,6 +380,13 @@ impl SystemMonitor {
         let thread_list = Self::get_process_threads(pid);
         let (io_read_bytes, io_write_bytes, _, _) = procfs::read_process_io(pid);
         let cpu_usage = self.last_proc_cpu.get(&pid).copied().unwrap_or(0.0);
+        let cgroup_unit = procfs::read_process_cgroup_unit(pid);
+        let smaps = procfs::read_process_smaps_rollup(pid);
+        let cpu_affinity = crate::sys::ffi::get_cpu_affinity(pid)
+            .ok()
+            .map(|cpus| crate::sys::ffi::format_cpu_list(&cpus));
+        let io_priority = crate::sys::ffi::get_io_priority(pid)
+            .map(|(cls, lvl)| crate::sys::ffi::format_io_priority(cls, lvl));
 
         Some(DetailedProcessInfo {
             pid: pid.to_string(),
@@ -406,6 +414,13 @@ impl SystemMonitor {
             nice: stat.nice,
             io_read_bytes,
             io_write_bytes,
+            cgroup_unit,
+            memory_pss: smaps.map(|s| s.pss_bytes),
+            memory_shared: smaps.map(|s| s.shared_bytes),
+            memory_private_dirty: smaps.map(|s| s.private_dirty_bytes),
+            memory_swap: smaps.map(|s| s.swap_bytes),
+            cpu_affinity,
+            io_priority,
         })
     }
     
@@ -955,6 +970,7 @@ mod tests {
                 parent_pid: None,
                 tree_prefix: String::new(),
                 nice: 0,
+                cgroup_unit: None,
             },
             ProcessInfo {
                 pid: "2".to_string(),
@@ -968,6 +984,7 @@ mod tests {
                 parent_pid: None,
                 tree_prefix: String::new(),
                 nice: 0,
+                cgroup_unit: None,
             },
         ];
         
@@ -993,6 +1010,7 @@ mod tests {
                 parent_pid: None,
                 tree_prefix: String::new(),
                 nice: 0,
+                cgroup_unit: None,
             },
             ProcessInfo {
                 pid: "100".to_string(),
@@ -1006,6 +1024,7 @@ mod tests {
                 parent_pid: Some("1".to_string()),
                 tree_prefix: String::new(),
                 nice: 0,
+                cgroup_unit: None,
             },
         ];
 

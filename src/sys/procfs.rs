@@ -682,6 +682,103 @@ pub fn read_process_io(pid: Pid) -> (u64, u64, u64, u64) {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProcessSmapsRollup {
+    pub pss_bytes: u64,
+    pub shared_bytes: u64,
+    pub private_dirty_bytes: u64,
+    pub swap_bytes: u64,
+}
+
+pub fn parse_smaps_rollup(content: &str) -> ProcessSmapsRollup {
+    let mut out = ProcessSmapsRollup::default();
+    let mut shared_clean = 0u64;
+    let mut shared_dirty = 0u64;
+
+    for line in content.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        let kb = v
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse::<u64>().ok())
+            .unwrap_or(0);
+        let bytes = kb.saturating_mul(1024);
+        match k.trim() {
+            "Pss" => out.pss_bytes = bytes,
+            "Shared_Clean" => shared_clean = bytes,
+            "Shared_Dirty" => shared_dirty = bytes,
+            "Private_Dirty" => out.private_dirty_bytes = bytes,
+            "Swap" => out.swap_bytes = bytes,
+            _ => {}
+        }
+    }
+    out.shared_bytes = shared_clean.saturating_add(shared_dirty);
+    out
+}
+
+pub fn read_process_smaps_rollup(pid: Pid) -> Option<ProcessSmapsRollup> {
+    let content = fs::read_to_string(format!("/proc/{}/smaps_rollup", pid)).ok()?;
+    Some(parse_smaps_rollup(&content))
+}
+
+pub fn parse_cgroup_unit(content: &str) -> Option<String> {
+    let mut candidate_path = None;
+    for line in content.lines() {
+        let parts: Vec<&str> = line.splitn(3, ':').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let path = parts[2].trim();
+        if parts[0] == "0" && parts[1].is_empty() {
+            candidate_path = Some(path);
+            break;
+        }
+        if candidate_path.is_none() && path != "/" && !path.is_empty() {
+            candidate_path = Some(path);
+        }
+    }
+
+    let path = candidate_path?;
+    if path == "/" || path.is_empty() {
+        return None;
+    }
+
+    let leaf = path.rsplit('/').find(|seg| !seg.is_empty())?;
+
+    if let Some(rest) = leaf.strip_prefix("docker-") {
+        let id = rest.trim_end_matches(".scope");
+        return Some(format!("docker:{}", id.get(..12).unwrap_or(id)));
+    }
+    if let Some(rest) = leaf.strip_prefix("libpod-") {
+        let id = rest.trim_end_matches(".scope");
+        return Some(format!("podman:{}", id.get(..12).unwrap_or(id)));
+    }
+    if path.contains("/docker/") {
+        return Some(format!("docker:{}", leaf.get(..12).unwrap_or(leaf)));
+    }
+
+    if leaf.ends_with(".service") {
+        return Some(leaf.to_string());
+    }
+    if leaf.ends_with(".scope") {
+        let trimmed = leaf.trim_end_matches(".scope");
+        if let Some(stripped) = trimmed.strip_prefix("app-") {
+            let short = stripped.split('@').next().unwrap_or(stripped);
+            return Some(short.to_string());
+        }
+        return Some(trimmed.to_string());
+    }
+
+    Some(leaf.to_string())
+}
+
+pub fn read_process_cgroup_unit(pid: Pid) -> Option<String> {
+    let content = fs::read_to_string(format!("/proc/{}/cgroup", pid)).ok()?;
+    parse_cgroup_unit(&content)
+}
+
 #[derive(Clone, Debug)]
 pub struct ScannedProcess {
     pub pid: Pid,
@@ -689,6 +786,7 @@ pub struct ScannedProcess {
     pub stat: ProcPidStat,
     pub io_read_bytes: u64,
     pub io_write_bytes: u64,
+    pub cgroup_unit: Option<String>,
 }
 
 pub fn scan_processes() -> Vec<ScannedProcess> {
@@ -716,6 +814,9 @@ pub fn scan_processes() -> Vec<ScannedProcess> {
         };
         let uid = fs::metadata(&proc_dir).map(|m| m.uid()).unwrap_or(0);
         let (io_read_bytes, io_write_bytes, _, _) = read_process_io(pid);
+        let cgroup_unit = fs::read_to_string(proc_dir.join("cgroup"))
+            .ok()
+            .and_then(|s| parse_cgroup_unit(&s));
 
         result.push(ScannedProcess {
             pid,
@@ -723,6 +824,7 @@ pub fn scan_processes() -> Vec<ScannedProcess> {
             stat,
             io_read_bytes,
             io_write_bytes,
+            cgroup_unit,
         });
     }
 
@@ -1012,5 +1114,38 @@ full avg10=3.45 avg60=1.12 avg300=0.45 total=123456
         let c = parse_psi_file(cpu_psi);
         assert!((c.some_avg10 - 0.80).abs() < 0.01);
         assert_eq!(c.full_avg10, 0.0);
+    }
+
+    #[test]
+    fn test_parse_cgroup_unit_and_smaps_rollup() {
+        assert_eq!(
+            parse_cgroup_unit("0::/system.slice/nginx.service\n").as_deref(),
+            Some("nginx.service")
+        );
+        assert_eq!(
+            parse_cgroup_unit("0::/system.slice/docker-abcdef1234567890.scope\n").as_deref(),
+            Some("docker:abcdef123456")
+        );
+        assert_eq!(
+            parse_cgroup_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/libpod-1122334455667788.scope\n").as_deref(),
+            Some("podman:112233445566")
+        );
+        assert_eq!(parse_cgroup_unit("0::/\n"), None);
+
+        let smaps = "\
+555555554000-7ffffffff000 ---p 00000000 00:00 0 [rollup]
+Rss:               12000 kB
+Pss:                8500 kB
+Shared_Clean:       3000 kB
+Shared_Dirty:        500 kB
+Private_Clean:      2000 kB
+Private_Dirty:      6500 kB
+Swap:               1024 kB
+";
+        let r = parse_smaps_rollup(smaps);
+        assert_eq!(r.pss_bytes, 8500 * 1024);
+        assert_eq!(r.shared_bytes, 3500 * 1024);
+        assert_eq!(r.private_dirty_bytes, 6500 * 1024);
+        assert_eq!(r.swap_bytes, 1024 * 1024);
     }
 }
