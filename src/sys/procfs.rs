@@ -391,6 +391,179 @@ pub fn read_core_freq_mhz(core_id: usize, fallback_mhz: u64) -> u64 {
         .unwrap_or(fallback_mhz)
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MountEntry {
+    pub device: String,
+    pub mount_point: String,
+    pub fs_type: String,
+    pub options: String,
+}
+
+pub fn unescape_mount_path(s: &str) -> String {
+    s.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+}
+
+fn is_pseudo_fs(fs_type: &str, device: &str, mount_point: &str) -> bool {
+    const IGNORED_FS: &[&str] = &[
+        "proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup", "cgroup2",
+        "pstore", "bpf", "tracefs", "debugfs", "securityfs", "hugetlbfs",
+        "mqueue", "fusectl", "configfs", "autofs", "nsfs", "overlay",
+        "squashfs", "ramfs", "rpc_pipefs", "efivarfs", "binfmt_misc",
+        "fuse.portal", "fuse.gvfsd-fuse", "fuse.lxcfs", "selinuxfs",
+    ];
+    if IGNORED_FS.contains(&fs_type) {
+        return true;
+    }
+    if mount_point.starts_with("/snap/") || mount_point.starts_with("/var/lib/docker/") {
+        return true;
+    }
+    if device.starts_with("/dev/loop") {
+        return true;
+    }
+    false
+}
+
+pub fn parse_mounts(content: &str) -> Vec<MountEntry> {
+    let mut mounts = Vec::new();
+    let mut seen_mounts = HashSet::new();
+
+    for line in content.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        let device = unescape_mount_path(parts[0]);
+        let mount_point = unescape_mount_path(parts[1]);
+        let fs_type = parts[2].to_string();
+        let options = parts[3].to_string();
+
+        if is_pseudo_fs(&fs_type, &device, &mount_point) {
+            continue;
+        }
+        if !seen_mounts.insert(mount_point.clone()) {
+            continue;
+        }
+
+        mounts.push(MountEntry {
+            device,
+            mount_point,
+            fs_type,
+            options,
+        });
+    }
+
+    mounts
+}
+
+pub fn read_mounts() -> Vec<MountEntry> {
+    fs::read_to_string("/proc/mounts")
+        .map(|s| parse_mounts(&s))
+        .unwrap_or_default()
+}
+
+#[repr(C)]
+struct StatVfs {
+    f_bsize: std::ffi::c_ulong,
+    f_frsize: std::ffi::c_ulong,
+    f_blocks: u64,
+    f_bfree: u64,
+    f_bavail: u64,
+    f_files: u64,
+    f_ffree: u64,
+    f_favail: u64,
+    f_fsid: std::ffi::c_ulong,
+    f_flag: std::ffi::c_ulong,
+    f_namemax: std::ffi::c_ulong,
+    __f_spare: [std::ffi::c_int; 6],
+}
+
+extern "C" {
+    fn statvfs(path: *const std::ffi::c_char, buf: *mut StatVfs) -> std::ffi::c_int;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FsUsage {
+    pub total: u64,
+    pub free: u64,
+    pub inodes_total: Option<u64>,
+    pub inodes_used: Option<u64>,
+}
+
+pub fn stat_filesystem(mount_point: &str) -> Option<FsUsage> {
+    let c_path = std::ffi::CString::new(mount_point).ok()?;
+    let mut stat = std::mem::MaybeUninit::<StatVfs>::zeroed();
+    unsafe {
+        if statvfs(c_path.as_ptr(), stat.as_mut_ptr()) != 0 {
+            return None;
+        }
+        let s = stat.assume_init();
+        let block_size = if s.f_frsize > 0 {
+            s.f_frsize as u64
+        } else {
+            s.f_bsize as u64
+        };
+        let total = s.f_blocks.saturating_mul(block_size);
+        let free = s.f_bavail.saturating_mul(block_size);
+        let (inodes_total, inodes_used) = if s.f_files > 0 {
+            (
+                Some(s.f_files),
+                Some(s.f_files.saturating_sub(s.f_ffree)),
+            )
+        } else {
+            (None, None)
+        };
+        Some(FsUsage {
+            total,
+            free,
+            inodes_total,
+            inodes_used,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetDevCounters {
+    pub name: String,
+    pub rx_bytes: u64,
+    pub rx_packets: u64,
+    pub tx_bytes: u64,
+    pub tx_packets: u64,
+}
+
+pub fn parse_net_dev(content: &str) -> Vec<NetDevCounters> {
+    let mut devs = Vec::new();
+    for line in content.lines().skip(2) {
+        let Some((iface, rest)) = line.split_once(':') else {
+            continue;
+        };
+        let name = iface.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let cols: Vec<&str> = rest.split_whitespace().collect();
+        if cols.len() < 10 {
+            continue;
+        }
+        devs.push(NetDevCounters {
+            name,
+            rx_bytes: cols[0].parse().unwrap_or(0),
+            rx_packets: cols[1].parse().unwrap_or(0),
+            tx_bytes: cols[8].parse().unwrap_or(0),
+            tx_packets: cols[9].parse().unwrap_or(0),
+        });
+    }
+    devs
+}
+
+pub fn read_net_dev() -> Vec<NetDevCounters> {
+    fs::read_to_string("/proc/net/dev")
+        .map(|s| parse_net_dev(&s))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +676,44 @@ bogomips\t: 7600.00
         assert_eq!(info.logical_cores, 3);
         assert_eq!(info.physical_cores, 2);
         assert_eq!(info.core_mhz, vec![3800, 4100, 4200]);
+    }
+
+    #[test]
+    fn test_parse_mounts_and_net_dev() {
+        let mounts_txt = "\
+proc /proc proc rw,nosuid 0 0
+/dev/nvme0n1p2 / ext4 rw,relatime 0 0
+/dev/sda1 /mnt/My\\040Drive xfs rw 0 0
+/dev/loop0 /snap/core/1 squashfs ro 0 0
+tmpfs /run tmpfs rw 0 0
+";
+        let mounts = parse_mounts(mounts_txt);
+        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts[0].device, "/dev/nvme0n1p2");
+        assert_eq!(mounts[0].mount_point, "/");
+        assert_eq!(mounts[0].fs_type, "ext4");
+        assert_eq!(mounts[1].mount_point, "/mnt/My Drive");
+
+        let net_txt = "\
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:  102400     500    0    0    0     0          0         0   102400     500    0    0    0     0       0          0
+  eth0: 9876543   12345    0    0    0     0          0         0  5432100    6789    0    0    0     0       0          0
+";
+        let devs = parse_net_dev(net_txt);
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs[0].name, "lo");
+        assert_eq!(devs[1].name, "eth0");
+        assert_eq!(devs[1].rx_bytes, 9876543);
+        assert_eq!(devs[1].rx_packets, 12345);
+        assert_eq!(devs[1].tx_bytes, 5432100);
+        assert_eq!(devs[1].tx_packets, 6789);
+    }
+
+    #[test]
+    fn test_stat_filesystem_root() {
+        let usage = stat_filesystem("/").expect("statvfs / should succeed");
+        assert!(usage.total > 0);
+        assert!(usage.free <= usage.total);
     }
 }

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use std::fs;
-use sysinfo::{DiskUsage, Networks, System, Components};
+use sysinfo::{DiskUsage, System};
 
 use crate::sys::procfs::{self, CpuInfo, CpuTicks, MemInfo};
+use crate::sys::sysfs::{self, HwmonScanner};
 use crate::types::*;
 use crate::utils::*;
 
@@ -19,7 +20,8 @@ struct DiskStatsData {
 
 pub struct SystemMonitor {
     system: System,
-    components: Components,
+    hwmon_scanner: HwmonScanner,
+    cached_sensors: Vec<SensorInfo>,
     users_cache: UsersCache,
     prev_disk_usage: HashMap<Pid, DiskUsage>,
     prev_net_usage: HashMap<String, NetworkStats>,
@@ -97,14 +99,16 @@ impl SystemMonitor {
         let mut system = System::new_all();
         system.refresh_all();
         
-        let components = Components::new_with_refreshed_list();
+        let mut hwmon_scanner = HwmonScanner::new();
+        let cached_sensors = hwmon_scanner.scan();
         let (global_cpu, core_cpus) = procfs::read_cpu_ticks();
         let mem_info = procfs::read_meminfo();
         let cpu_info = procfs::read_cpu_info();
         
         Self {
             system,
-            components,
+            hwmon_scanner,
+            cached_sensors,
             users_cache: UsersCache::new(),
             prev_disk_usage: HashMap::new(),
             prev_net_usage: HashMap::new(),
@@ -236,10 +240,7 @@ impl SystemMonitor {
             }
         }
 
-        if let Some(t) = self.components.iter().find(|c| {
-            let label = c.label().to_lowercase();
-            label.contains("mem") || label.contains("dimm") || label.contains("dram")
-        }).and_then(|c| c.temperature()) {
+        if let Some(t) = sysfs::find_memory_temp(&self.cached_sensors) {
             mem_temp = format!("{:.1}°C", t);
         }
 
@@ -252,7 +253,7 @@ impl SystemMonitor {
         self.curr_global_cpu = global_cpu;
         self.prev_core_cpus = std::mem::replace(&mut self.curr_core_cpus, core_cpus);
         self.mem_info = procfs::read_meminfo();
-        self.components.refresh(true);
+        self.cached_sensors = self.hwmon_scanner.scan();
     }
 
     pub fn update_processes(&mut self, show_system: bool, filter: &str) -> Vec<ProcessInfo> {
@@ -410,35 +411,7 @@ impl SystemMonitor {
     }
     
     pub fn get_cores(&self) -> Vec<CoreInfo> {
-        let components = &self.components;
-        
-        let mut core_sensors: Vec<(u32, f32)> = components.iter()
-            .filter(|c| {
-                let label = c.label().to_lowercase();
-                label.contains("core") && !label.contains("package")
-            })
-            .filter_map(|c| {
-                let label = c.label().to_lowercase();
-                let id = label.split_whitespace()
-                    .filter_map(|s| s.parse::<u32>().ok())
-                    .next()?;
-                let temp = c.temperature()?;
-                Some((id, temp))
-            })
-            .collect();
-        
-        core_sensors.sort_by_key(|(id, _)| *id);
-
-        let cpu_temp_global = components.iter()
-            .find(|c| {
-                let label = c.label().to_lowercase();
-                label.contains("tctl") || label.contains("package") || label.contains("tdie")
-            })
-            .and_then(|c| c.temperature())
-            .or_else(|| {
-                core_sensors.first().map(|(_, t)| *t)
-            })
-            .or_else(Self::read_cpu_temp_from_hwmon);
+        let (core_sensors, cpu_temp_global) = sysfs::extract_cpu_core_temps(&self.cached_sensors);
 
         let core_count = self.curr_core_cpus.len().max(1);
         self.curr_core_cpus.iter().enumerate().map(|(i, curr_ticks)| {
@@ -475,39 +448,19 @@ impl SystemMonitor {
         let elapsed = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         
         let current_disk_stats = self.parse_disk_stats();
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        
-        let generic_nvme_temp = if let Ok(hwmon_entries) = fs::read_dir("/sys/class/hwmon") {
-            hwmon_entries.flatten().find_map(|entry| {
-                let path = entry.path();
-                if let Ok(name) = fs::read_to_string(path.join("name")) {
-                    if name.trim() == "nvme" {
-                        if let Ok(val) = fs::read_to_string(path.join("temp1_input")) {
-                            if let Ok(mdeg) = val.trim().parse::<f32>() {
-                                return Some(mdeg / 1000.0);
-                            }
-                        }
-                    }
-                }
-                None
-            })
-        } else {
-            None
-        };
+        let mounts = procfs::read_mounts();
 
-        let mount_options_map = Self::get_mount_options();
+        let result: Vec<DetailedDiskInfo> = mounts.into_iter().filter_map(|mount| {
+            let fs_usage = procfs::stat_filesystem(&mount.mount_point)?;
+            if fs_usage.total == 0 {
+                return None;
+            }
+            let used = fs_usage.total.saturating_sub(fs_usage.free);
+            let block_dev = mount.device.split('/').next_back().unwrap_or(&mount.device);
 
-        let result: Vec<DetailedDiskInfo> = disks.iter().map(|disk| {
-            let used = disk.total_space().saturating_sub(disk.available_space());
-            let dev_path = disk.name().to_string_lossy();
-            let block_dev = dev_path.split('/').next_back().unwrap_or(&dev_path);
-            let mount_point = disk.mount_point().to_string_lossy();
-            let (inodes_total, _inodes_free, inodes_used) = Self::get_mount_inodes(&mount_point);
-            let mount_options = mount_options_map.get(mount_point.as_ref()).cloned();
-            
             let base_dev = if block_dev.starts_with("nvme") {
                 if let Some(pos) = block_dev.find('p') {
-                    if block_dev[pos+1..].chars().all(|c| c.is_ascii_digit()) {
+                    if block_dev[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
                         &block_dev[..pos]
                     } else {
                         block_dev
@@ -519,17 +472,11 @@ impl SystemMonitor {
                 block_dev.trim_end_matches(|c: char| c.is_ascii_digit())
             };
 
-            let temp = self.components.iter()
-                .find(|c| {
-                    let label = c.label().to_lowercase();
-                    label.contains(block_dev) || block_dev.contains(&label)
-                })
-                .and_then(|c| c.temperature())
-                .or(generic_nvme_temp);
+            let temp = sysfs::find_disk_temp(&self.cached_sensors, block_dev);
 
             let mut health_pct: Option<u8> = None;
             let mut power_cycles: Option<u64> = None;
-            
+
             if base_dev.starts_with("nvme") {
                 if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
                     if let Ok(pct) = val.trim().parse::<u8>() {
@@ -555,13 +502,13 @@ impl SystemMonitor {
                     write_rate = ((curr.write_bytes.saturating_sub(prev.write_bytes)) as f64 / elapsed) as u64;
                 }
             }
-            
-            DetailedDiskInfo {
-                name: disk.mount_point().to_string_lossy().into_owned(),
-                device: dev_path.into_owned(),
-                fs: disk.file_system().to_string_lossy().to_string(),
-                total: disk.total_space(),
-                free: disk.available_space(),
+
+            Some(DetailedDiskInfo {
+                name: mount.mount_point,
+                device: mount.device,
+                fs: mount.fs_type,
+                total: fs_usage.total,
+                free: fs_usage.free,
                 used,
                 read_rate,
                 write_rate,
@@ -569,10 +516,10 @@ impl SystemMonitor {
                 temp,
                 health_pct,
                 power_cycles,
-                inodes_total,
-                inodes_used,
-                mount_options,
-            }
+                inodes_total: fs_usage.inodes_total,
+                inodes_used: fs_usage.inodes_used,
+                mount_options: Some(mount.options),
+            })
         }).collect();
 
         self.prev_disk_stats = current_disk_stats;
@@ -585,35 +532,37 @@ impl SystemMonitor {
         let elapsed_secs = now.duration_since(self.last_update).as_secs_f64().max(0.1);
         
         let mut current_net_usage = HashMap::new();
-        let networks = Networks::new_with_refreshed_list();
-        let networks: Vec<DetailedNetInfo> = networks
-            .iter()
-            .map(|(interface_name, data)| {
-                let (down_rate, up_rate) = if let Some(prev) = self.prev_net_usage.get(interface_name) {
-                    let rx_rate = calculate_rate(data.total_received(), prev.rx, elapsed_secs);
-                    let tx_rate = calculate_rate(data.total_transmitted(), prev.tx, elapsed_secs);
+        let net_devs = procfs::read_net_dev();
+        let networks: Vec<DetailedNetInfo> = net_devs
+            .into_iter()
+            .map(|dev| {
+                let (down_rate, up_rate) = if let Some(prev) = self.prev_net_usage.get(&dev.name) {
+                    let rx_rate = calculate_rate(dev.rx_bytes, prev.rx, elapsed_secs);
+                    let tx_rate = calculate_rate(dev.tx_bytes, prev.tx, elapsed_secs);
                     (rx_rate, tx_rate)
                 } else {
                     (0, 0)
                 };
                 
                 current_net_usage.insert(
-                    interface_name.clone(),
+                    dev.name.clone(),
                     NetworkStats {
-                        rx: data.total_received(),
-                        tx: data.total_transmitted(),
+                        rx: dev.rx_bytes,
+                        tx: dev.tx_bytes,
                     }
                 );
+
+                let is_up = sysfs::is_net_interface_up(&dev.name);
                 
                 DetailedNetInfo {
-                    name: interface_name.clone(),
+                    name: dev.name,
                     down_rate,
                     up_rate,
-                    total_down: data.total_received(),
-                    total_up: data.total_transmitted(),
-                    packets_rx: data.total_packets_received(),
-                    packets_tx: data.total_packets_transmitted(),
-                    is_up: true, 
+                    total_down: dev.rx_bytes,
+                    total_up: dev.tx_bytes,
+                    packets_rx: dev.rx_packets,
+                    packets_tx: dev.tx_packets,
+                    is_up,
                 }
             })
             .collect();
@@ -652,45 +601,8 @@ impl SystemMonitor {
     }
     
     pub fn get_temperatures(&self) -> SystemTemperatures {
-        let components = &self.components;
-        let cpu_temp = components.iter()
-            .find(|c| {
-                let label = c.label().to_lowercase();
-                label.contains("tctl") || label.contains("package") || label.contains("tdie")
-            })
-            .and_then(|c| c.temperature())
-            .or_else(|| {
-                components.iter()
-                    .find(|c| c.label().to_lowercase().contains("core 0"))
-                    .and_then(|c| c.temperature())
-            })
-            .or_else(|| {
-                Self::read_cpu_temp_from_hwmon()
-            });
-             
-        SystemTemperatures {
-            cpu_temp,
-        }
-    }
-
-    fn read_cpu_temp_from_hwmon() -> Option<f32> {
-        let hwmon_base = "/sys/class/hwmon";
-        let entries = std::fs::read_dir(hwmon_base).ok()?;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = std::fs::read_to_string(path.join("name")).unwrap_or_default();
-            let name = name.trim().to_lowercase();
-            // k10temp = AMD FX/Ryzen, coretemp = Intel, k8temp = older AMD, it87/nct* = some boards
-            if name == "k10temp" || name == "coretemp" || name == "k8temp" || name == "zenpower" {
-                let temp_file = path.join("temp1_input");
-                if let Ok(val) = std::fs::read_to_string(&temp_file) {
-                    if let Ok(millideg) = val.trim().parse::<f32>() {
-                        return Some(millideg / 1000.0);
-                    }
-                }
-            }
-        }
-        None
+        let (_, cpu_temp) = sysfs::extract_cpu_core_temps(&self.cached_sensors);
+        SystemTemperatures { cpu_temp }
     }
 
     fn parse_disk_stats(&self) -> HashMap<String, DiskStatsData> {
@@ -714,203 +626,7 @@ impl SystemMonitor {
     }
 
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
-        let mut sensors = Vec::new();
-
-        let mut sysinfo_max: std::collections::HashMap<String, (Option<f32>, Option<f32>)> =
-            std::collections::HashMap::new();
-        for c in self.components.iter() {
-            sysinfo_max.insert(c.label().to_string(), (c.max(), c.critical()));
-        }
-        
-        if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
-            for entry in entries.flatten() {
-                let hwmon_path = entry.path();
-                let chip_name = std::fs::read_to_string(hwmon_path.join("name"))
-                    .unwrap_or_default().trim().to_string();
-                if let Ok(files) = std::fs::read_dir(&hwmon_path) {
-                    let mut file_names: Vec<String> = files
-                        .flatten()
-                        .map(|f| f.file_name().to_string_lossy().to_string())
-                        .collect();
-                    file_names.sort();
-
-                    for fname in &file_names {
-                        if fname.starts_with("temp") && fname.ends_with("_input") {
-                            let idx = fname
-                                .trim_start_matches("temp")
-                                .trim_end_matches("_input");
-
-                            let current = std::fs::read_to_string(hwmon_path.join(fname))
-                                .ok()
-                                .and_then(|s| s.trim().parse::<f32>().ok())
-                                .map(|v| v / 1000.0)
-                                .unwrap_or(0.0);
-
-                            let label = std::fs::read_to_string(
-                                    hwmon_path.join(format!("temp{}_label", idx)))
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|_| format!("{} temp{}", chip_name, idx));
-
-                            let hw_limit = std::fs::read_to_string(
-                                    hwmon_path.join(format!("temp{}_max", idx)))
-                                .ok()
-                                .and_then(|s| s.trim().parse::<f32>().ok())
-                                .map(|v| v / 1000.0);
-
-                            let hw_crit = std::fs::read_to_string(
-                                    hwmon_path.join(format!("temp{}_crit", idx)))
-                                .ok()
-                                .and_then(|s| s.trim().parse::<f32>().ok())
-                                .map(|v| v / 1000.0);
-
-                            let (sysinfo_max_val, sysinfo_crit) = sysinfo_max
-                                .get(&label)
-                                .copied()
-                                .unwrap_or((None, None));
-
-                            let critical = hw_crit.or(sysinfo_crit);
-
-                            if sensors.iter().any(|s: &SensorInfo| {
-                                s.sensor_type == "temp" && s.label == label
-                            }) {
-                                continue;
-                            }
-
-                            sensors.push(SensorInfo {
-                                label,
-                                sensor_type: "temp".to_string(),
-                                value: current as f64,
-                                unit: "°C".to_string(),
-                                temp: current,
-                                max: sysinfo_max_val,
-                                limit: hw_limit,
-                                critical,
-                            });
-                            continue;
-                        }
-
-                        if fname.starts_with("fan") && fname.ends_with("_input") {
-                            let idx = fname.trim_start_matches("fan").trim_end_matches("_input");
-                            let label = std::fs::read_to_string(
-                                    hwmon_path.join(format!("fan{}_label", idx)))
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|_| format!("{} Fan {}", chip_name, idx));
-                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
-                                if let Ok(rpm) = val.trim().parse::<f64>() {
-                                    sensors.push(SensorInfo {
-                                        label,
-                                        sensor_type: "fan".to_string(),
-                                        value: rpm,
-                                        unit: "RPM".to_string(),
-                                        temp: rpm as f32,
-                                        max: None,
-                                        limit: None,
-                                        critical: None,
-                                    });
-                                }
-                            }
-                            continue;
-                        }
-
-                        if fname.starts_with("in") && fname.ends_with("_input")
-                            && fname[2..].starts_with(|c: char| c.is_ascii_digit())
-                        {
-                            let idx = fname.trim_start_matches("in").trim_end_matches("_input");
-                            let label = std::fs::read_to_string(
-                                    hwmon_path.join(format!("in{}_label", idx)))
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|_| format!("{} Voltage {}", chip_name, idx));
-                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
-                                if let Ok(mv) = val.trim().parse::<f64>() {
-                                    let volts = mv / 1000.0;
-                                    sensors.push(SensorInfo {
-                                        label,
-                                        sensor_type: "in".to_string(),
-                                        value: volts,
-                                        unit: "V".to_string(),
-                                        temp: volts as f32,
-                                        max: None,
-                                        limit: None,
-                                        critical: None,
-                                    });
-                                }
-                            }
-                            continue;
-                        }
-
-                        if fname.starts_with("power")
-                            && (fname.ends_with("_input") || fname.ends_with("_average"))
-                        {
-                            let idx_end = if fname.ends_with("_input") { "_input" } else { "_average" };
-                            let idx = fname.trim_start_matches("power").trim_end_matches(idx_end);
-                            let label = std::fs::read_to_string(
-                                    hwmon_path.join(format!("power{}_label", idx)))
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|_| format!("{} Power {}", chip_name, idx));
-                            if sensors.iter().any(|s| s.label == label && s.sensor_type == "power") {
-                                continue;
-                            }
-                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
-                                if let Ok(uw) = val.trim().parse::<f64>() {
-                                    let watts = uw / 1_000_000.0;
-                                    sensors.push(SensorInfo {
-                                        label,
-                                        sensor_type: "power".to_string(),
-                                        value: watts,
-                                        unit: "W".to_string(),
-                                        temp: watts as f32,
-                                        max: None,
-                                        limit: None,
-                                        critical: None,
-                                    });
-                                }
-                            }
-                            continue;
-                        }
-
-                        if fname.starts_with("curr") && fname.ends_with("_input") {
-                            let idx = fname.trim_start_matches("curr").trim_end_matches("_input");
-                            let label = std::fs::read_to_string(
-                                    hwmon_path.join(format!("curr{}_label", idx)))
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_else(|_| format!("{} Current {}", chip_name, idx));
-                            if let Ok(val) = std::fs::read_to_string(hwmon_path.join(fname)) {
-                                if let Ok(ma) = val.trim().parse::<f64>() {
-                                    let amps = ma / 1000.0;
-                                    sensors.push(SensorInfo {
-                                        label,
-                                        sensor_type: "curr".to_string(),
-                                        value: amps,
-                                        unit: "A".to_string(),
-                                        temp: amps as f32,
-                                        max: None,
-                                        limit: None,
-                                        critical: None,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        let type_order = |t: &str| -> u8 {
-            match t {
-                "temp" => 0,
-                "fan" => 1,
-                "in" => 2,
-                "power" => 3,
-                "curr" => 4,
-                _ => 5,
-            }
-        };
-        sensors.sort_by(|a, b| {
-            type_order(&a.sensor_type).cmp(&type_order(&b.sensor_type))
-                .then_with(|| a.label.cmp(&b.label))
-        });
-        
-        sensors
+        self.cached_sensors.clone()
     }
 
     pub fn get_global_disk_io(&mut self) -> (u64, u64) {
@@ -1067,59 +783,22 @@ impl SystemMonitor {
         }
     }
 
-    pub fn get_mount_inodes(mount_point: &str) -> (Option<u64>, Option<u64>, Option<u64>) {
-        use std::ffi::CString;
-        if let Ok(c_path) = CString::new(mount_point) {
-            let mut stat = std::mem::MaybeUninit::<StatVfs>::zeroed();
-            unsafe {
-                if statvfs(c_path.as_ptr(), stat.as_mut_ptr()) == 0 {
-                    let s = stat.assume_init();
-                    if s.f_files > 0 {
-                        let total = s.f_files;
-                        let free = s.f_ffree;
-                        let used = total.saturating_sub(free);
-                        return (Some(total), Some(free), Some(used));
-                    }
-                }
-            }
+    #[cfg(test)]
+    pub fn get_mount_inodes(mount_point: &str) -> (Option<u64>, Option<u64>) {
+        if let Some(usage) = procfs::stat_filesystem(mount_point) {
+            (usage.inodes_total, usage.inodes_used)
+        } else {
+            (None, None)
         }
-        (None, None, None)
     }
 
+    #[cfg(test)]
     pub fn get_mount_options() -> HashMap<String, String> {
-        let mut map = HashMap::new();
-        if let Ok(content) = fs::read_to_string("/proc/mounts") {
-            for line in content.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    let mount_point = parts[1].to_string();
-                    let options = parts[3].to_string();
-                    map.insert(mount_point, options);
-                }
-            }
-        }
-        map
+        procfs::read_mounts()
+            .into_iter()
+            .map(|m| (m.mount_point, m.options))
+            .collect()
     }
-}
-
-#[repr(C)]
-struct StatVfs {
-    f_bsize: std::ffi::c_ulong,
-    f_frsize: std::ffi::c_ulong,
-    f_blocks: u64,
-    f_bfree: u64,
-    f_bavail: u64,
-    f_files: u64,
-    f_ffree: u64,
-    f_favail: u64,
-    f_fsid: std::ffi::c_ulong,
-    f_flag: std::ffi::c_ulong,
-    f_namemax: std::ffi::c_ulong,
-    __f_spare: [std::ffi::c_int; 6],
-}
-
-extern "C" {
-    fn statvfs(path: *const std::ffi::c_char, buf: *mut StatVfs) -> std::ffi::c_int;
 }
 
 impl Default for SystemMonitor {
@@ -1378,14 +1057,12 @@ mod tests {
 
     #[test]
     fn test_mount_inodes_and_process_io() {
-        let (total, free, used) = SystemMonitor::get_mount_inodes("/");
+        let (total, used) = SystemMonitor::get_mount_inodes("/");
         assert!(total.is_some(), "statvfs on root / should succeed");
         let total = total.unwrap();
-        let free = free.unwrap();
         let used = used.unwrap();
         assert!(total > 0, "root filesystem should have total inodes > 0");
-        assert!(total >= free, "total inodes must be >= free inodes");
-        assert_eq!(used, total.saturating_sub(free));
+        assert!(total >= used, "total inodes must be >= used inodes");
 
         let mount_opts = SystemMonitor::get_mount_options();
         assert!(!mount_opts.is_empty(), "mount options map should not be empty");
