@@ -370,6 +370,133 @@ pub fn find_disk_temp(sensors: &[SensorInfo], block_dev: &str) -> Option<f32> {
         })
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DmiMemoryInfo {
+    pub form_factor: Option<String>,
+    pub mem_type: Option<String>,
+    pub speed: Option<String>,
+}
+
+fn smbios_form_factor(code: u8) -> Option<&'static str> {
+    match code {
+        0x09 => Some("DIMM"),
+        0x0B => Some("RIMM"),
+        0x0C => Some("SODIMM"),
+        0x0D => Some("SRIMM"),
+        0x0E => Some("FB-DIMM"),
+        0x0F => Some("Die"),
+        0x10 => Some("CAMM"),
+        _ => None,
+    }
+}
+
+fn smbios_memory_type(code: u8) -> Option<&'static str> {
+    match code {
+        0x12 => Some("DDR"),
+        0x13 => Some("DDR2"),
+        0x14 => Some("DDR2 FB-DIMM"),
+        0x18 => Some("DDR3"),
+        0x1A => Some("DDR4"),
+        0x1B => Some("LPDDR"),
+        0x1C => Some("LPDDR2"),
+        0x1D => Some("LPDDR3"),
+        0x1E => Some("LPDDR4"),
+        0x22 => Some("DDR5"),
+        0x23 => Some("LPDDR5"),
+        0x24 => Some("LPDDR5X"),
+        _ => None,
+    }
+}
+
+// SMBIOS DSP0134 Type 17 (Memory Device) binary table parser
+pub fn parse_smbios_memory_table(data: &[u8]) -> Option<DmiMemoryInfo> {
+    let mut offset = 0usize;
+    let mut info = DmiMemoryInfo::default();
+
+    while offset + 4 <= data.len() {
+        let struct_type = data[offset];
+        let struct_len = data[offset + 1] as usize;
+        if struct_len < 4 || offset + struct_len > data.len() {
+            break;
+        }
+
+        if struct_type == 127 {
+            break;
+        }
+
+        if struct_type == 17 && struct_len >= 0x17 {
+            let rec = &data[offset..offset + struct_len];
+            let size_field = u16::from_le_bytes([rec[0x0C], rec[0x0D]]);
+            if size_field != 0 {
+                if info.form_factor.is_none() {
+                    if let Some(ff) = smbios_form_factor(rec[0x0E]) {
+                        info.form_factor = Some(ff.to_string());
+                    }
+                }
+                if info.mem_type.is_none() {
+                    if let Some(mt) = smbios_memory_type(rec[0x12]) {
+                        info.mem_type = Some(mt.to_string());
+                    }
+                }
+                if info.speed.is_none() {
+                    let rated = u16::from_le_bytes([rec[0x15], rec[0x16]]) as u32;
+                    let configured = if struct_len >= 0x22 {
+                        u16::from_le_bytes([rec[0x20], rec[0x21]]) as u32
+                    } else {
+                        0
+                    };
+
+                    let mut speed_val = if configured > 0 && configured != 0xFFFF {
+                        configured
+                    } else if rated > 0 && rated != 0xFFFF {
+                        rated
+                    } else {
+                        0
+                    };
+
+                    if speed_val == 0 && struct_len >= 0x5C {
+                        let ext_cfg = u32::from_le_bytes([rec[0x58], rec[0x59], rec[0x5A], rec[0x5B]]);
+                        let ext_rated = u32::from_le_bytes([rec[0x54], rec[0x55], rec[0x56], rec[0x57]]);
+                        if ext_cfg > 0 {
+                            speed_val = ext_cfg;
+                        } else if ext_rated > 0 {
+                            speed_val = ext_rated;
+                        }
+                    }
+
+                    if speed_val > 0 {
+                        info.speed = Some(format!("{} MT/s", speed_val));
+                    }
+                }
+            }
+        }
+
+        let mut next = offset + struct_len;
+        while next + 1 < data.len() {
+            if data[next] == 0 && data[next + 1] == 0 {
+                next += 2;
+                break;
+            }
+            next += 1;
+        }
+        if next <= offset + struct_len {
+            break;
+        }
+        offset = next;
+    }
+
+    if info.form_factor.is_some() || info.mem_type.is_some() || info.speed.is_some() {
+        Some(info)
+    } else {
+        None
+    }
+}
+
+pub fn read_dmi_memory_info() -> Option<DmiMemoryInfo> {
+    let bytes = fs::read("/sys/firmware/dmi/tables/DMI").ok()?;
+    parse_smbios_memory_table(&bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,5 +546,39 @@ mod tests {
     #[test]
     fn test_is_net_interface_up_loopback() {
         assert!(is_net_interface_up("lo"));
+    }
+
+    #[test]
+    fn test_parse_smbios_type17_memory_table() {
+        let mut table = Vec::new();
+
+        // Empty Type 17 slot (size == 0) should be skipped
+        let mut empty_slot = vec![0u8; 0x22];
+        empty_slot[0] = 17;
+        empty_slot[1] = 0x22;
+        empty_slot[0x0E] = 0x09;
+        empty_slot[0x12] = 0x18; // DDR3 (must be ignored since slot is empty)
+        table.extend_from_slice(&empty_slot);
+        table.extend_from_slice(&[0, 0]);
+
+        // Populated DDR5 DIMM slot running at 6000 MT/s
+        let mut dimm = vec![0u8; 0x22];
+        dimm[0] = 17;
+        dimm[1] = 0x22;
+        dimm[0x0C..0x0E].copy_from_slice(&16384u16.to_le_bytes());
+        dimm[0x0E] = 0x09; // DIMM
+        dimm[0x12] = 0x22; // DDR5
+        dimm[0x15..0x17].copy_from_slice(&4800u16.to_le_bytes());
+        dimm[0x20..0x22].copy_from_slice(&6000u16.to_le_bytes());
+        table.extend_from_slice(&dimm);
+        table.extend_from_slice(b"DIMM_A1\0\0");
+
+        // End-of-table Type 127
+        table.extend_from_slice(&[127, 4, 0, 0, 0, 0]);
+
+        let info = parse_smbios_memory_table(&table).expect("SMBIOS parse failed");
+        assert_eq!(info.form_factor.as_deref(), Some("DIMM"));
+        assert_eq!(info.mem_type.as_deref(), Some("DDR5"));
+        assert_eq!(info.speed.as_deref(), Some("6000 MT/s"));
     }
 }

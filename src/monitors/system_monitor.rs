@@ -190,29 +190,42 @@ impl SystemMonitor {
             }
         }
 
-        if let Ok(output) = std::process::Command::new("dmidecode")
-            .args(["-t", "17"])
-            .output() 
-        {
-            if output.status.success() {
-                let content = String::from_utf8_lossy(&output.stdout);
-                
-                for line in content.lines() {
-                    let line = line.trim();
-                    if line.starts_with("Type:") {
-                        let t = line.split(':').next_back().unwrap_or("").trim();
-                        if !t.is_empty() && !["Unknown", "Other", "<OUT OF SPEC>"].contains(&t) {
-                            mem_gen = t.to_string();
-                        }
-                    } else if line.starts_with("Speed:") {
-                        let s = line.split(':').next_back().unwrap_or("").trim();
-                        if !s.is_empty() && !["Unknown", "Unknown Speed", "0 MT/s", "0 MHz"].contains(&s) {
-                            mem_speed = s.to_string();
-                        }
-                    } else if line.starts_with("Form Factor:") {
-                        let f = line.split(':').next_back().unwrap_or("").trim();
-                        if !f.is_empty() && f != "Unknown" {
-                            mem_type = f.to_string();
+        if let Some(dmi) = sysfs::read_dmi_memory_info() {
+            if let Some(ff) = dmi.form_factor {
+                mem_type = ff;
+            }
+            if let Some(mt) = dmi.mem_type {
+                mem_gen = mt;
+            }
+            if let Some(spd) = dmi.speed {
+                mem_speed = spd;
+            }
+        }
+
+        if mem_gen == "N/A" || mem_speed == "N/A" {
+            if let Ok(output) = std::process::Command::new("dmidecode")
+                .args(["-t", "17"])
+                .output()
+            {
+                if output.status.success() {
+                    let content = String::from_utf8_lossy(&output.stdout);
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.starts_with("Type:") && mem_gen == "N/A" {
+                            let t = line.split(':').next_back().unwrap_or("").trim();
+                            if !t.is_empty() && !["Unknown", "Other", "<OUT OF SPEC>"].contains(&t) {
+                                mem_gen = t.to_string();
+                            }
+                        } else if line.starts_with("Speed:") && mem_speed == "N/A" {
+                            let s = line.split(':').next_back().unwrap_or("").trim();
+                            if !s.is_empty() && !["Unknown", "Unknown Speed", "0 MT/s", "0 MHz"].contains(&s) {
+                                mem_speed = s.to_string();
+                            }
+                        } else if line.starts_with("Form Factor:") && mem_type == "N/A" {
+                            let f = line.split(':').next_back().unwrap_or("").trim();
+                            if !f.is_empty() && f != "Unknown" {
+                                mem_type = f.to_string();
+                            }
                         }
                     }
                 }
