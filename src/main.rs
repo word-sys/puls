@@ -178,6 +178,10 @@ fn check_and_load_lazy_data(state: &mut AppState) {
         if !state.config_items.is_empty() {
             state.config_table_state.select(Some(0));
         }
+        state.sysctl_items = sys_mgr.get_sysctl_config();
+        if !state.sysctl_items.is_empty() {
+            state.sysctl_table_state.select(Some(0));
+        }
         state.config_loaded = true;
     }
 }
@@ -307,7 +311,11 @@ fn handle_key_event(
                     }
                 } else if let Some(idx) = state.editing_config {
                     let new_val = state.edit_buffer.clone();
-                    if let Some(item) = state.config_items.get_mut(idx) {
+                    if state.config_subtab == 1 {
+                        if let Some(item) = state.sysctl_items.get_mut(idx) {
+                            item.value = new_val;
+                        }
+                    } else if let Some(item) = state.config_items.get_mut(idx) {
                         item.value = new_val;
                     }
                     state.editing_config = None;
@@ -450,21 +458,45 @@ fn handle_key_event(
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') if state.pending_grub_update_confirmation => {
             let sys_mgr = system_service::SystemManager::new();
-            let changes: Vec<(String, String)> = state.config_items.iter()
+            let boot_changes: Vec<(String, String)> = state.config_items.iter()
+                .filter(|item| item.value != item.original_value)
+                .map(|item| (item.key.clone(), item.value.clone()))
+                .collect();
+            let sysctl_changes: Vec<(String, String)> = state.sysctl_items.iter()
                 .filter(|item| item.value != item.original_value)
                 .map(|item| (item.key.clone(), item.value.clone()))
                 .collect();
 
-            match sys_mgr.apply_config_changes(&changes) {
-                Ok(msg) => {
-                    for item in &mut state.config_items {
-                        item.original_value = item.value.clone();
+            let mut combined_log = String::new();
+            let mut apply_err: Option<String> = None;
+
+            if !boot_changes.is_empty() {
+                match sys_mgr.apply_config_changes(&boot_changes) {
+                    Ok(msg) => {
+                        for item in &mut state.config_items {
+                            item.original_value = item.value.clone();
+                        }
+                        combined_log.push_str(&msg);
                     }
-                    state.service_status_modal = Some(("Success".to_string(), msg));
+                    Err(e) => apply_err = Some(e),
                 }
-                Err(e) => {
-                    state.service_status_modal = Some(("Error".to_string(), e));
+            }
+
+            if apply_err.is_none() && !sysctl_changes.is_empty() {
+                match sys_mgr.apply_sysctl_changes(&sysctl_changes) {
+                    Ok(msg) => {
+                        for item in &mut state.sysctl_items {
+                            item.original_value = item.value.clone();
+                        }
+                        combined_log.push_str(&msg);
+                    }
+                    Err(e) => apply_err = Some(e),
                 }
+            }
+
+            match apply_err {
+                Some(e) => state.service_status_modal = Some(("Error".to_string(), e)),
+                None => state.service_status_modal = Some(("Success".to_string(), combined_log)),
             }
             state.pending_grub_update_confirmation = false;
         }
@@ -1193,18 +1225,38 @@ fn handle_key_event(
             }
         }
         
+        KeyCode::Left | KeyCode::Right if state.active_tab == 10 && state.editing_config.is_none() => {
+            state.config_subtab = (state.config_subtab + 1) % 2;
+        }
+
         KeyCode::Down if state.active_tab == 10 => {
-            let len = state.config_items.len();
-            if len > 0 {
-                let current = state.config_table_state.selected().unwrap_or(0);
-                state.config_table_state.select(Some((current + 1) % len));
+            if state.config_subtab == 1 {
+                let len = state.sysctl_items.len();
+                if len > 0 {
+                    let current = state.sysctl_table_state.selected().unwrap_or(0);
+                    state.sysctl_table_state.select(Some((current + 1) % len));
+                }
+            } else {
+                let len = state.config_items.len();
+                if len > 0 {
+                    let current = state.config_table_state.selected().unwrap_or(0);
+                    state.config_table_state.select(Some((current + 1) % len));
+                }
             }
         }
         KeyCode::Up if state.active_tab == 10 => {
-            let len = state.config_items.len();
-            if len > 0 {
-                let current = state.config_table_state.selected().unwrap_or(0);
-                state.config_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            if state.config_subtab == 1 {
+                let len = state.sysctl_items.len();
+                if len > 0 {
+                    let current = state.sysctl_table_state.selected().unwrap_or(0);
+                    state.sysctl_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                }
+            } else {
+                let len = state.config_items.len();
+                if len > 0 {
+                    let current = state.config_table_state.selected().unwrap_or(0);
+                    state.config_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                }
             }
         }
 
@@ -1344,8 +1396,15 @@ fn handle_key_event(
         }
         
         KeyCode::Enter if state.active_tab == 10 && state.editing_config.is_none() => {
-            if let Some(idx) = state.config_table_state.selected() {
-                if state.has_sudo {
+            if state.has_sudo {
+                if state.config_subtab == 1 {
+                    if let Some(idx) = state.sysctl_table_state.selected() {
+                        state.editing_config = Some(idx);
+                        if let Some(item) = state.sysctl_items.get(idx) {
+                            state.edit_buffer = item.value.clone();
+                        }
+                    }
+                } else if let Some(idx) = state.config_table_state.selected() {
                     state.editing_config = Some(idx);
                     if let Some(item) = state.config_items.get(idx) {
                         state.edit_buffer = item.value.clone();
@@ -1355,7 +1414,8 @@ fn handle_key_event(
         }
         
         KeyCode::Char('u') | KeyCode::Char('U') if state.active_tab == 10 && state.editing_config.is_none() && !state.pending_grub_update_confirmation => {
-            let has_changes = state.config_items.iter().any(|item| item.value != item.original_value);
+            let has_changes = state.config_items.iter().any(|item| item.value != item.original_value)
+                || state.sysctl_items.iter().any(|item| item.value != item.original_value);
             if has_changes {
                 state.pending_grub_update_confirmation = true;
             }

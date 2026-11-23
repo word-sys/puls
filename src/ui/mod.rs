@@ -3883,18 +3883,61 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
 }
 
 fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    let configs = &state.config_items;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let boot_pending = state.config_items.iter().filter(|i| i.value != i.original_value).count();
+    let sysctl_pending = state.sysctl_items.iter().filter(|i| i.value != i.original_value).count();
+    let tab0 = if boot_pending > 0 {
+        format!(" Bootloader & System ({} | *{} staged) ", state.config_items.len(), boot_pending)
+    } else {
+        format!(" Bootloader & System ({}) ", state.config_items.len())
+    };
+    let tab1 = if sysctl_pending > 0 {
+        format!(" Kernel sysctl ({} | *{} staged) ", state.sysctl_items.len(), sysctl_pending)
+    } else {
+        format!(" Kernel sysctl ({}) ", state.sysctl_items.len())
+    };
+
+    let tabs = Tabs::new(vec![tab0, tab1])
+        .select(state.config_subtab.min(1))
+        .style(Style::default().fg(theme.text_secondary))
+        .highlight_style(Style::default().fg(theme.highlight).bg(theme.border).add_modifier(Modifier::BOLD))
+        .divider("│")
+        .block(
+            Block::default()
+                .title(format!(" {} ", translator.t("title.config")))
+                .title(
+                    ratatui::widgets::block::Title::from(" [Left/Right: Switch | Enter: Edit | u: Review & Commit] ")
+                        .alignment(Alignment::Right),
+                )
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.primary)),
+        );
+    f.render_widget(tabs, chunks[0]);
+
+    let (configs, mut table_state, section_title) = if state.config_subtab == 1 {
+        (&state.sysctl_items, state.sysctl_table_state.clone(), "Kernel sysctl (/proc/sys -> /etc/sysctl.d/99-puls.conf)".to_string())
+    } else {
+        (&state.config_items, state.config_table_state.clone(), translator.t("title.config"))
+    };
     
     if configs.is_empty() {
         let paragraph = Paragraph::new(translator.t("msg.no_config"))
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.text_secondary))
             .block(Block::default()
-                .title(translator.t("title.config"))
+                .title(section_title)
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.accent)));
-        f.render_widget(paragraph, area);
+        f.render_widget(paragraph, chunks[1]);
         return;
     }
     
@@ -3909,8 +3952,11 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     ];
     
     let rows = configs.iter().enumerate().map(|(i, c)| {
+        let is_modified = c.value != c.original_value;
         let style = if state.editing_config == Some(i) && state.has_sudo {
             Style::default().bg(theme.secondary).fg(theme.text)
+        } else if is_modified {
+            Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
         } else if !state.has_sudo {
             Style::default().fg(theme.text_secondary)
         } else {
@@ -3919,6 +3965,8 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
         
         let display_val = if state.editing_config == Some(i) && state.has_sudo {
             format!("{}█", state.edit_buffer)
+        } else if is_modified {
+            format!("{} (was: {})", c.value, c.original_value)
         } else {
             c.value.clone()
         };
@@ -3933,9 +3981,9 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let table = Table::new(
         rows,
         [
-            Constraint::Percentage(35),
-            Constraint::Percentage(45),
-            Constraint::Percentage(20),
+            Constraint::Percentage(34),
+            Constraint::Percentage(36),
+            Constraint::Percentage(30),
         ]
     )
     .header(
@@ -3946,9 +3994,9 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     .block(
         Block::default()
             .title(if state.has_sudo {
-                translator.t("title.config")
+                format!(" {} ", section_title)
             } else {
-                format!("{} {}", translator.t("title.config"), translator.t("modal.read_only"))
+                format!(" {} {} ", section_title, translator.t("modal.read_only"))
             })
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
@@ -3959,8 +4007,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             })
     );
     
-    let config_state = state.config_table_state.clone();
-    f.render_stateful_widget(table, area, &mut config_state.clone());
+    f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
 
 fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -4501,7 +4548,7 @@ fn render_grub_update_modal(f: &mut Frame, state: &AppState, translator: &Transl
     ];
 
     let mut has_changes = false;
-    for item in &state.config_items {
+    for item in state.config_items.iter().chain(state.sysctl_items.iter()) {
         if item.value != item.original_value {
             has_changes = true;
             lines.push(Line::from(vec![

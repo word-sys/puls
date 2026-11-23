@@ -431,10 +431,6 @@ impl SystemManager {
         let mut configs = Vec::new();
         let grub_file = "/etc/default/grub";
 
-        if !Path::new(grub_file).exists() {
-            return configs;
-        }
-
         if let Ok(content) = std::fs::read_to_string(grub_file) {
             for line in content.lines() {
                 if line.starts_with("GRUB_") && !line.starts_with('#') {
@@ -442,7 +438,7 @@ impl SystemManager {
                         let key = line[..pos].to_string();
                         let mut value = line[pos + 1..].to_string();
 
-                        if value.starts_with('"') && value.ends_with('"') {
+                        if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
                             value = value[1..value.len() - 1].to_string();
                         }
 
@@ -454,6 +450,24 @@ impl SystemManager {
                         });
                     }
                 }
+            }
+        }
+
+        if let Some(sdboot_path) = find_systemd_boot_loader_conf() {
+            if let Ok(content) = std::fs::read_to_string(&sdboot_path) {
+                configs.extend(parse_systemd_boot_loader_conf(&content));
+            }
+        }
+
+        if let Ok(cmdline) = std::fs::read_to_string("/etc/kernel/cmdline") {
+            let val = cmdline.trim().to_string();
+            if !val.is_empty() {
+                configs.push(ConfigItem {
+                    key: "KERNEL_CMDLINE".to_string(),
+                    value: val.clone(),
+                    original_value: val,
+                    description: "/etc/kernel/cmdline boot args".to_string(),
+                });
             }
         }
 
@@ -487,6 +501,73 @@ impl SystemManager {
         configs
     }
 
+    pub fn get_sysctl_config(&self) -> Vec<ConfigItem> {
+        const CURATED_SYSCTLS: &[(&str, &str)] = &[
+            ("vm.swappiness", "Swap aggressiveness (0-200)"),
+            ("vm.vfs_cache_pressure", "VFS inode/dentry cache reclaim bias"),
+            ("vm.dirty_ratio", "Max dirty memory % before sync writeback"),
+            ("vm.dirty_background_ratio", "Dirty memory % to start bg writeback"),
+            ("vm.max_map_count", "Max memory map areas per process"),
+            ("vm.overcommit_memory", "Memory overcommit policy (0/1/2)"),
+            ("fs.file-max", "System-wide max open file handles"),
+            ("fs.inotify.max_user_watches", "Max inotify watches per user"),
+            ("net.ipv4.ip_forward", "IPv4 packet forwarding (0/1)"),
+            ("net.ipv4.tcp_congestion_control", "Active TCP congestion control"),
+            ("net.core.somaxconn", "Max listen socket backlog"),
+            ("net.core.rmem_max", "Max socket receive buffer (bytes)"),
+            ("net.core.wmem_max", "Max socket send buffer (bytes)"),
+            ("kernel.sysrq", "Magic SysRq key bitmask"),
+            ("kernel.perf_event_paranoid", "Perf event access level"),
+            ("kernel.sched_autogroup_enabled", "Desktop scheduler autogroup (0/1)"),
+        ];
+
+        let mut items = Vec::new();
+        for &(key, desc) in CURATED_SYSCTLS {
+            let path = sysctl_key_to_proc_path(key);
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                let val = raw.trim().to_string();
+                items.push(ConfigItem {
+                    key: key.to_string(),
+                    value: val.clone(),
+                    original_value: val,
+                    description: desc.to_string(),
+                });
+            }
+        }
+        items
+    }
+
+    pub fn apply_sysctl_changes(&self, changes: &[(String, String)]) -> Result<String, String> {
+        if !self.has_sudo {
+            return Err("Insufficient privileges (root required)".to_string());
+        }
+        if changes.is_empty() {
+            return Ok(String::new());
+        }
+
+        let mut log = String::new();
+        for (key, value) in changes {
+            let proc_path = sysctl_key_to_proc_path(key);
+            std::fs::write(&proc_path, format!("{}\n", value.trim()))
+                .map_err(|e| format!("Failed writing {}: {}", proc_path.display(), e))?;
+            log.push_str(&format!("[+] Applied live sysctl {} = {}\n", key, value.trim()));
+        }
+
+        let dropin_path = Path::new("/etc/sysctl.d/99-puls.conf");
+        if dropin_path.exists() {
+            let ts = crate::utils::current_formatted_time("%Y%m%d_%H%M%S");
+            let bak = format!("/etc/sysctl.d/99-puls.conf.bak.{}", ts);
+            let _ = std::fs::copy(dropin_path, &bak);
+        }
+        let existing = std::fs::read_to_string(dropin_path).unwrap_or_default();
+        let merged = merge_sysctl_conf(&existing, changes);
+        ffi::atomic_write_file(dropin_path, merged.as_bytes())
+            .map_err(|e| format!("Failed persisting {}: {}", dropin_path.display(), e))?;
+        log.push_str("[+] Persisted sysctl changes to /etc/sysctl.d/99-puls.conf.\n");
+
+        Ok(log)
+    }
+
     pub fn apply_config_changes(&self, changes: &[(String, String)]) -> Result<String, String> {
         if !self.has_sudo {
             return Err("Insufficient privileges (root required)".to_string());
@@ -494,6 +575,8 @@ impl SystemManager {
 
         let mut output_log = String::new();
         let mut grub_changes = Vec::new();
+        let mut sdboot_changes = Vec::new();
+        let mut cmdline_change: Option<String> = None;
 
         for (key, value) in changes {
             if key == "hostname" {
@@ -506,7 +589,38 @@ impl SystemManager {
                 output_log.push_str("[+] Successfully updated system timezone.\n");
             } else if key.starts_with("GRUB_") {
                 grub_changes.push((key.clone(), value.clone()));
+            } else if let Some(sd_key) = key.strip_prefix("SDBOOT_") {
+                sdboot_changes.push((sd_key.to_string(), value.clone()));
+            } else if key == "KERNEL_CMDLINE" {
+                cmdline_change = Some(value.clone());
             }
+        }
+
+        if !sdboot_changes.is_empty() {
+            let sdboot_path = find_systemd_boot_loader_conf()
+                .ok_or_else(|| "systemd-boot loader.conf not found".to_string())?;
+            let ts = crate::utils::current_formatted_time("%Y%m%d_%H%M%S");
+            let bak = format!("{}.bak.{}", sdboot_path.display(), ts);
+            std::fs::copy(&sdboot_path, &bak)
+                .map_err(|e| format!("Failed backing up {}: {}", sdboot_path.display(), e))?;
+            output_log.push_str(&format!("[+] Created systemd-boot backup at {}.\n", bak));
+
+            let content = std::fs::read_to_string(&sdboot_path)
+                .map_err(|e| format!("Failed reading {}: {}", sdboot_path.display(), e))?;
+            let updated = update_systemd_boot_loader_conf(&content, &sdboot_changes);
+            ffi::atomic_write_file(&sdboot_path, updated.as_bytes())
+                .map_err(|e| format!("Failed updating {}: {}", sdboot_path.display(), e))?;
+            output_log.push_str(&format!("[+] Updated {}.\n", sdboot_path.display()));
+        }
+
+        if let Some(new_cmdline) = cmdline_change {
+            let cmdline_path = Path::new("/etc/kernel/cmdline");
+            let ts = crate::utils::current_formatted_time("%Y%m%d_%H%M%S");
+            let bak = format!("/etc/kernel/cmdline.bak.{}", ts);
+            let _ = std::fs::copy(cmdline_path, &bak);
+            ffi::atomic_write_file(cmdline_path, format!("{}\n", new_cmdline.trim()).as_bytes())
+                .map_err(|e| format!("Failed updating /etc/kernel/cmdline: {}", e))?;
+            output_log.push_str("[+] Updated /etc/kernel/cmdline.\n");
         }
 
         if !grub_changes.is_empty() {
@@ -647,6 +761,97 @@ impl SystemManager {
         }
         sessions
     }
+}
+
+pub fn find_systemd_boot_loader_conf() -> Option<PathBuf> {
+    for candidate in [
+        "/boot/efi/loader/loader.conf",
+        "/boot/loader/loader.conf",
+        "/efi/loader/loader.conf",
+    ] {
+        let p = PathBuf::from(candidate);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+pub fn parse_systemd_boot_loader_conf(content: &str) -> Vec<ConfigItem> {
+    let mut items = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+            let val = v.trim().to_string();
+            items.push(ConfigItem {
+                key: format!("SDBOOT_{}", k),
+                value: val.clone(),
+                original_value: val,
+                description: "systemd-boot loader.conf".to_string(),
+            });
+        }
+    }
+    items
+}
+
+pub fn update_systemd_boot_loader_conf(content: &str, changes: &[(String, String)]) -> String {
+    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+    for (key, value) in changes {
+        let mut found = false;
+        for line in &mut lines {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('#') {
+                if let Some(first_tok) = trimmed.split_whitespace().next() {
+                    if first_tok == key {
+                        *line = format!("{} {}", key, value);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !found {
+            lines.push(format!("{} {}", key, value));
+        }
+    }
+    lines.join("\n") + "\n"
+}
+
+pub fn sysctl_key_to_proc_path(key: &str) -> PathBuf {
+    let rel = key.replace('.', "/");
+    PathBuf::from("/proc/sys").join(rel)
+}
+
+pub fn merge_sysctl_conf(existing: &str, changes: &[(String, String)]) -> String {
+    let mut lines: Vec<String> = if existing.is_empty() {
+        vec!["# Managed by PULS".to_string()]
+    } else {
+        existing.lines().map(|s| s.to_string()).collect()
+    };
+
+    for (key, value) in changes {
+        let mut found = false;
+        for line in &mut lines {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('#') {
+                if let Some((k, _)) = trimmed.split_once('=') {
+                    if k.trim() == key {
+                        *line = format!("{} = {}", key, value.trim());
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !found {
+            lines.push(format!("{} = {}", key, value.trim()));
+        }
+    }
+    lines.join("\n") + "\n"
 }
 
 pub fn parse_journal_priority(code: &str) -> &'static str {
@@ -887,5 +1092,35 @@ mod tests {
         assert_eq!(blame.len(), 3);
         assert_eq!(blame[0].duration, "2.415s");
         assert_eq!(blame[0].unit, "NetworkManager-wait-online.service");
+    }
+
+    #[test]
+    fn test_systemd_boot_and_sysctl_helpers() {
+        let loader = "# systemd-boot\ndefault arch.conf\ntimeout 3\nconsole-mode max\n";
+        let items = parse_systemd_boot_loader_conf(loader);
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].key, "SDBOOT_default");
+        assert_eq!(items[1].value, "3");
+
+        let updated = update_systemd_boot_loader_conf(
+            loader,
+            &[("timeout".to_string(), "5".to_string()), ("editor".to_string(), "no".to_string())],
+        );
+        assert!(updated.contains("timeout 5\n"));
+        assert!(updated.contains("editor no\n"));
+
+        assert_eq!(
+            sysctl_key_to_proc_path("vm.swappiness"),
+            PathBuf::from("/proc/sys/vm/swappiness")
+        );
+        let merged = merge_sysctl_conf(
+            "vm.swappiness = 60\n",
+            &[
+                ("vm.swappiness".to_string(), "10".to_string()),
+                ("net.ipv4.ip_forward".to_string(), "1".to_string()),
+            ],
+        );
+        assert!(merged.contains("vm.swappiness = 10\n"));
+        assert!(merged.contains("net.ipv4.ip_forward = 1\n"));
     }
 }
