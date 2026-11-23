@@ -2,7 +2,7 @@ pub mod widgets;
 pub mod colors;
 pub mod layouts;
 
-use ratatui::{
+use crate::term::{
     prelude::*,
     widgets::{Block, Borders, Gauge, Paragraph, Row, Cell, Sparkline, Table, Tabs, BorderType, Chart, Dataset, GraphType, Axis},
     symbols::Marker,
@@ -114,7 +114,7 @@ fn render_affinity_modal(
         height: modal_h,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup);
+    f.render_widget(crate::term::widgets::Clear, popup);
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -182,7 +182,7 @@ fn render_ioprio_modal(
         height: modal_h,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup);
+    f.render_widget(crate::term::widgets::Clear, popup);
 
     let mut lines = vec![
         Line::from(Span::styled(
@@ -231,18 +231,18 @@ fn render_service_status_modal(f: &mut Frame, name: &str, status: &str, translat
         height: area.height * 8 / 10,
     };
     
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
     
     let block = Block::default()
         .title(translator.t("modal.status_title").replace("{}", name))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.highlight));
             
     let paragraph = Paragraph::new(status)
         .block(block)
         .style(Style::default().fg(theme.text))
-        .wrap(ratatui::widgets::Wrap { trim: false });
+        .wrap(crate::term::widgets::Wrap { trim: false });
         
     f.render_widget(paragraph, popup_area);
 }
@@ -256,12 +256,12 @@ fn render_kill_confirmation(f: &mut Frame, pid: crate::types::Pid, translator: &
         height: 5,
     };
     
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
     
     let block = Block::default()
         .title(translator.t("modal.kill_title"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning));
     
     let text = translator.t("modal.kill_confirm").replace("{}", &pid.to_string()).replace("\\n", "\n");
@@ -291,7 +291,7 @@ fn render_signal_modal(
         height,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let signals = crate::types::POSIX_SIGNALS;
     let mut lines = Vec::new();
@@ -330,7 +330,7 @@ fn render_signal_modal(
     let block = Block::default()
         .title(format!(" [*] {}: {} ", translator.t("modal.signal_title"), pid))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
 
     let paragraph = Paragraph::new(lines).block(block);
@@ -346,7 +346,7 @@ fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, t
         height: 5,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let action_key = match action.to_lowercase().as_str() {
         "start" => "action.start",
@@ -363,7 +363,7 @@ fn render_service_action_confirmation(f: &mut Frame, action: &str, name: &str, t
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning));
 
     let text = translator.t("modal.service_confirm").replace("{}", &action_display).replacen("{}", name, 1).replace("\\n", "\n");
@@ -384,7 +384,7 @@ fn render_container_action_confirmation(f: &mut Frame, action: &str, name: &str,
         height: 6,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let action_key = match action.to_lowercase().as_str() {
         "start" => "action.start",
@@ -398,7 +398,7 @@ fn render_container_action_confirmation(f: &mut Frame, action: &str, name: &str,
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning));
 
     let text = translator.t("modal.container_confirm").replace("{}", &action_display.to_uppercase()).replacen("{}", name, 1).replacen("{}", id, 1).replace("\\n", "\n");
@@ -419,17 +419,17 @@ fn render_container_logs_modal(f: &mut Frame, name: &str, id: &str, logs: &[Stri
         height: area.height * 8 / 10,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let title_text = format!(" {} ", translator.t("modal.container_logs_title").replace("{}", name).replacen("{}", id, 1));
     let block = Block::default()
         .title(title_text)
         .title(
-            ratatui::widgets::block::Title::from(" [↑/↓/PgUp/PgDn] Scroll ")
+            crate::term::widgets::block::Title::from(" [↑/↓/PgUp/PgDn] Scroll ")
                 .alignment(Alignment::Right),
         )
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.highlight));
 
     let inner_area = block.inner(popup_area);
@@ -448,7 +448,7 @@ fn render_container_logs_modal(f: &mut Frame, name: &str, id: &str, logs: &[Stri
     let paragraph = Paragraph::new(display_text)
         .block(block)
         .style(Style::default().fg(theme.text))
-        .wrap(ratatui::widgets::Wrap { trim: false });
+        .wrap(crate::term::widgets::Wrap { trim: false });
 
     f.render_widget(paragraph, popup_area);
 }
@@ -488,7 +488,7 @@ fn render_settings_modal(
         height,
     };
 
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let items = [
         translator.t("settings.refresh_interval"),
@@ -591,7 +591,7 @@ fn render_settings_modal(
     let block = Block::default()
         .title(format!(" [*] {} ", translator.t("settings.title")))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
 
     let paragraph = Paragraph::new(lines).block(block);
@@ -630,9 +630,9 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
         .block(Block::default()
             .title(translator.t("title.puls"))
             .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
-            .title(ratatui::widgets::block::Title::from(right_title).alignment(Alignment::Right))
+            .title(crate::term::widgets::block::Title::from(right_title).alignment(Alignment::Right))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
         .select(state.active_tab)
         .highlight_style(Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD));
@@ -682,7 +682,7 @@ fn render_cpu_gauge(f: &mut Frame, cpu_percent: f32, load_avg: (f64, f64, f64), 
         .block(Block::default()
             .title(translator.t("title.cpu"))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(color))
         .percent(cpu_percent.clamp(0.0, 100.0) as u16)
@@ -714,7 +714,7 @@ fn render_memory_gauge(f: &mut Frame, mem_used: u64, mem_total: u64, temp: Optio
         .block(Block::default()
             .title(translator.t("title.memory"))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(color))
         .percent(mem_percent.clamp(0.0, 100.0) as u16)
@@ -726,7 +726,7 @@ fn render_gpu_gauge(f: &mut Frame, gpu_util: Option<u32>, area: Rect, translator
     let block = Block::default()
         .title(translator.t("title.gpu"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
     
     if let Some(gpu_percent) = gpu_util {
@@ -750,7 +750,7 @@ fn render_network_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area
     let block = Block::default()
         .title(translator.t("title.network"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
@@ -780,7 +780,7 @@ fn render_disk_summary(f: &mut Frame, usage: &crate::types::GlobalUsage, area: R
     let block = Block::default()
         .title(translator.t("title.disk"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
@@ -1070,7 +1070,7 @@ fn render_dashboard_diagnostics(f: &mut Frame, state: &AppState, area: Rect, tra
         .block(diagnostics_block)
         .style(Style::default().fg(text_color))
         .alignment(Alignment::Left)
-        .wrap(ratatui::widgets::Wrap { trim: true });
+        .wrap(crate::term::widgets::Wrap { trim: true });
         
     f.render_widget(paragraph, area);
 }
@@ -1183,7 +1183,7 @@ fn render_system_status(f: &mut Frame, state: &AppState, area: Rect, translator:
             Block::default()
                 .title(format!("{}{}", translator.t("title.system_overview"), title_suffix))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(border_color))
         );
     
@@ -1210,7 +1210,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
             ])
             .split(area)
     } else {
-        std::rc::Rc::new([area])
+        vec![area]
     };
 
     let table_area = if state.editing_filter || !state.filter_text.is_empty() {
@@ -1288,7 +1288,7 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
             })
             .title_style(Style::default().fg(theme.text))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     )
     .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
@@ -1314,7 +1314,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
                 Block::default()
                     .title(translator.t("title.containers"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
             );
         f.render_widget(paragraph, area);
@@ -1379,7 +1379,7 @@ fn render_container_table(f: &mut Frame, state: &AppState, area: Rect, translato
         Block::default()
             .title(translator.t("title.containers"))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
@@ -1391,7 +1391,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
         let block = Block::default()
             .title(format!(" {} ", translator.t("title.process_details")))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border));
         let inner_area = block.inner(area);
         f.render_widget(block, area);
@@ -1429,11 +1429,11 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                 .title(title_str)
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
-                    ratatui::widgets::block::Title::from(nav_hint)
+                    crate::term::widgets::block::Title::from(nav_hint)
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border)),
         )
         .select(state.process_detail_subtab)
@@ -1458,7 +1458,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 
             let block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
             let inner_area = block.inner(overview_chunks[0]);
             f.render_widget(block, overview_chunks[0]);
@@ -1561,7 +1561,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 
             let info_paragraph = Paragraph::new(info_lines)
                 .block(Block::default().borders(Borders::NONE))
-                .wrap(ratatui::widgets::Wrap { trim: false });
+                .wrap(crate::term::widgets::Wrap { trim: false });
             f.render_widget(info_paragraph, layout[0]);
 
             // Column 1: FDs & Threads Preview
@@ -1626,7 +1626,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 
             let col1_paragraph = Paragraph::new(col1_lines)
                 .block(Block::default().borders(Borders::NONE))
-                .wrap(ratatui::widgets::Wrap { trim: false });
+                .wrap(crate::term::widgets::Wrap { trim: false });
             f.render_widget(col1_paragraph, layout[1]);
 
             // Column 2: Command & Environment Preview (RESTORED!)
@@ -1659,7 +1659,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 
             let col2_paragraph = Paragraph::new(col2_lines)
                 .block(Block::default().borders(Borders::NONE))
-                .wrap(ratatui::widgets::Wrap { trim: false });
+                .wrap(crate::term::widgets::Wrap { trim: false });
             f.render_widget(col2_paragraph, layout[2]);
 
             // CPU Core Usage at bottom
@@ -1667,7 +1667,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
             let core_block = Block::default()
                 .title(format!(" {} ", translator.t("proc_detail.core_usage")))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
             let core_inner = core_block.inner(overview_chunks[1]);
@@ -1699,7 +1699,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 
                         let core = &cores[actual_core_idx];
                         let gauge = Gauge::default()
-                            .block(Block::default().borders(Borders::ALL).border_type(ratatui::widgets::BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+                            .block(Block::default().borders(Borders::ALL).border_type(crate::term::widgets::BorderType::Rounded).border_style(Style::default().fg(theme.border)))
                             .label(format!("C{} {:.0}%", actual_core_idx, core.usage))
                             .gauge_style(Style::default().fg(get_usage_color(core.usage)))
                             .ratio((core.usage / 100.0) as f64);
@@ -1714,7 +1714,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
             let total_fds = process.fds.len();
             let base_block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded);
+                .border_type(crate::term::widgets::BorderType::Rounded);
             let inner = base_block.inner(content_area);
 
             let visible_rows = inner.height.saturating_sub(2) as usize;
@@ -1740,11 +1740,11 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                 .title(format!(" {} ", open_fds_title))
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
-                    ratatui::widgets::block::Title::from(format!(" {} ", showing_title))
+                    crate::term::widgets::block::Title::from(format!(" {} ", showing_title))
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
             f.render_widget(block, content_area);
@@ -1788,7 +1788,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
             let total_threads = process.thread_list.len();
             let base_block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded);
+                .border_type(crate::term::widgets::BorderType::Rounded);
             let inner = base_block.inner(content_area);
 
             let visible_rows = inner.height.saturating_sub(2) as usize;
@@ -1812,11 +1812,11 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                 .title(format!(" {} ", threads_title))
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
-                    ratatui::widgets::block::Title::from(format!(" {} ", showing_title))
+                    crate::term::widgets::block::Title::from(format!(" {} ", showing_title))
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
             f.render_widget(block, content_area);
@@ -1854,7 +1854,7 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
             let total_env = process.environ.len();
             let base_block = Block::default()
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded);
+                .border_type(crate::term::widgets::BorderType::Rounded);
             let inner = base_block.inner(content_area);
 
             let visible_rows = inner.height.saturating_sub(2) as usize;
@@ -1878,11 +1878,11 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
                 .title(format!(" {} ", environ_title))
                 .title_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
                 .title(
-                    ratatui::widgets::block::Title::from(format!(" {} ", showing_title))
+                    crate::term::widgets::block::Title::from(format!(" {} ", showing_title))
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border));
 
             f.render_widget(block, content_area);
@@ -1918,11 +1918,11 @@ fn render_process_detail_tab(f: &mut Frame, state: &mut AppState, area: Rect, tr
 }
 
 fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    use ratatui::widgets::{Chart, Dataset, Axis, Paragraph};
-    use ratatui::layout::{Layout, Constraint, Direction};
-    use ratatui::text::{Line, Span};
-    use ratatui::style::{Style, Modifier};
-    use ratatui::widgets::{Block, Borders, BorderType};
+    use crate::term::widgets::{Chart, Dataset, Axis, Paragraph};
+    use crate::term::layout::{Layout, Constraint, Direction};
+    use crate::term::text::{Line, Span};
+    use crate::term::style::{Style, Modifier};
+    use crate::term::widgets::{Block, Borders, BorderType};
 
     let cores = &state.dynamic_data.cores;
     
@@ -1933,7 +1933,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                 Block::default()
                     .title(translator.t("title.cpu_cores"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
             );
         f.render_widget(message, area);
@@ -2093,7 +2093,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         .block(Block::default()
             .title(format!(" {} ", translator.t("cpu.overview")))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
         );
     f.render_widget(info_paragraph, top_chunks[1]);
@@ -2107,7 +2107,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     let datasets = vec![
         Dataset::default()
             .name(translator.t("cpu.total_usage"))
-            .marker(ratatui::symbols::Marker::Braille)
+            .marker(crate::term::symbols::Marker::Braille)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(theme.primary))
             .data(&history_data)
@@ -2117,7 +2117,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
         .block(Block::default()
             .title(format!(" {} ", translator.t("cpu.usage_history")))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
         )
         .x_axis(Axis::default().bounds([0.0, 60.0]).style(Style::default().fg(theme.text_secondary)))
@@ -2277,7 +2277,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
         
     let grid_area = block.inner(inner_area);
@@ -2588,7 +2588,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         Block::default()
             .title(disks_title)
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
@@ -2604,7 +2604,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
                 Block::default()
                     .title(translator.t("title.network_interfaces"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.text_secondary))
             );
         f.render_widget(message, area);
@@ -2700,7 +2700,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
         Block::default()
             .title(format!(" {} ", translator.t("title.network_interfaces")))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
@@ -2749,7 +2749,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     let total_sockets = filtered_sockets.len();
     let socket_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
 
     let inner_area = socket_block.inner(socket_area);
@@ -2864,7 +2864,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
         socket_block
             .title(range_title)
             .title(
-                ratatui::widgets::block::Title::from(" [/: Filter | Enter: Inspect PID | Up/Down: Select] ")
+                crate::term::widgets::block::Title::from(" [/: Filter | Enter: Inspect PID | Up/Down: Select] ")
                     .alignment(Alignment::Right),
             ),
     );
@@ -2873,7 +2873,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
 }
 
 fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    use ratatui::widgets::BorderType; 
+    use crate::term::widgets::BorderType; 
     if let Some(err) = &state.dynamic_data.docker_error {
         let text = Paragraph::new(format!("Docker Error: {}", err))
              .style(Style::default().fg(theme.error))
@@ -2994,7 +2994,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
                 Block::default()
                     .title(translator.t("title.gpu"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.text_secondary))
             );
         f.render_widget(message, area);
@@ -3004,7 +3004,7 @@ fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
     let block = Block::default()
         .title(translator.t("title.gpu"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
     
     let inner_area = block.inner(area);
@@ -3071,7 +3071,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(border_color));
     
     let inner_area = block.inner(area);
@@ -3129,7 +3129,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
              Block::default()
                 .title(format!(" {} ", translator.t("gpu.util_history")))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
     f.render_widget(chart, layout[2]);
@@ -3162,7 +3162,7 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
              Block::default()
                 .title(format!(" {} ", translator.t("gpu.mem_history")))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
     f.render_widget(mem_chart, layout[3]);
@@ -3330,7 +3330,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
         Block::default()
             .title(translator.t("title.system_info"))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     )
     .column_spacing(2);
@@ -3388,7 +3388,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
                 }
             }))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     )
     .column_spacing(2);
@@ -3426,7 +3426,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
             Block::default()
                 .title(translator.t("title.process_stats"))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(if state.dynamic_data.reboot_required {
                     Style::default().fg(theme.warning)
                 } else {
@@ -3545,11 +3545,11 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             Block::default()
                 .title(format!(" {} [{}] ", translator.t("services.subtab_title"), scope_badge))
                 .title(
-                    ratatui::widgets::block::Title::from(" [u: System/User | v: Unit File | Left/Right: Subtab] ")
+                    crate::term::widgets::block::Title::from(" [u: System/User | v: Unit File | Left/Right: Subtab] ")
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.primary))
         );
     f.render_widget(tabs, chunks[0]);
@@ -3563,7 +3563,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .block(Block::default()
                     .title(translator.t("title.services"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.success)));
             f.render_widget(paragraph, chunks[1]);
             return;
@@ -3623,7 +3623,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                     format!(" {} [{}] {} ", translator.t("title.services"), scope_badge, translator.t("modal.read_only"))
                 })
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(if can_manage {
                     Style::default().fg(theme.border)
                 } else {
@@ -3647,7 +3647,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .block(Block::default()
                     .title(format!(" {} ", translator.t("timers.title")))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border)));
             f.render_widget(paragraph, chunks[1]);
             return;
@@ -3697,7 +3697,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             Block::default()
                 .title(format!(" {} ({}) ", translator.t("timers.title"), timers.len()))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
 
@@ -3712,7 +3712,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .block(Block::default()
                     .title(format!(" Boot Blame [{}] ", scope_badge))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border)));
             f.render_widget(paragraph, chunks[1]);
             return;
@@ -3741,7 +3741,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             Block::default()
                 .title(format!(" Boot Blame [{}] ({}) ", scope_badge, blame.len()))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.border))
         );
 
@@ -3828,7 +3828,7 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
             .block(Block::default()
                 .title(translator.t("title.logs"))
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.info)));
         f.render_widget(paragraph, chunks[1]);
         return;
@@ -3878,7 +3878,7 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
         Block::default()
             .title(translator.t("title.logs"))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
@@ -3917,7 +3917,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             Block::default()
                 .title(format!(" {} ", translator.t("title.config")))
                 .title(
-                    ratatui::widgets::block::Title::from(" [Left/Right: Switch | Enter: Edit | u: Review & Commit] ")
+                    crate::term::widgets::block::Title::from(" [Left/Right: Switch | Enter: Edit | u: Review & Commit] ")
                         .alignment(Alignment::Right),
                 )
                 .borders(Borders::ALL)
@@ -3939,7 +3939,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             .block(Block::default()
                 .title(section_title)
                 .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.accent)));
         f.render_widget(paragraph, chunks[1]);
         return;
@@ -4003,7 +4003,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
                 format!(" {} {} ", section_title, translator.t("modal.read_only"))
             })
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(if state.has_sudo {
                 Style::default().fg(theme.border)
             } else {
@@ -4181,7 +4181,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
                 }
             }))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(if is_charging { theme.highlight } else { theme.border }));
 
         let bat_p = Paragraph::new(lines).block(bat_block);
@@ -4197,7 +4197,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
                 Block::default()
                     .title(translator.t("title.sensors"))
                     .borders(Borders::ALL)
-                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_type(crate::term::widgets::BorderType::Rounded)
                     .border_style(Style::default().fg(theme.border))
             );
         f.render_widget(message, sensors_area);
@@ -4384,7 +4384,7 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
         Block::default()
             .title(format!(" {} ({}) ", translator.t("title.hardware_sensors"), count))
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
@@ -4406,12 +4406,12 @@ fn render_config_confirmation_modal(f: &mut Frame, key: &str, old_value: &str, n
         height: popup_height,
     };
     
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
     
     let block = Block::default()
         .title(translator.t("title.confirm_config_change"))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
         
     let inner_area = block.inner(popup_area);
@@ -4466,7 +4466,7 @@ fn render_log_details_modal(f: &mut Frame, log: &crate::types::LogEntry, transla
         height: area.height * 8 / 10,
     };
     
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let level_color = match log.level.as_str() {
         "ERROR" => theme.error,
@@ -4510,13 +4510,13 @@ fn render_log_details_modal(f: &mut Frame, log: &crate::types::LogEntry, transla
     let block = Block::default()
         .title(format!(" {}: {} ({}) ", translator.t("modal.log_details_title"), log.service, translator.t("modal.close_hint")))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.highlight));
         
     let paragraph = Paragraph::new(lines)
         .block(block)
         .style(Style::default().fg(theme.text))
-        .wrap(ratatui::widgets::Wrap { trim: false });
+        .wrap(crate::term::widgets::Wrap { trim: false });
         
     f.render_widget(paragraph, popup_area);
 }
@@ -4531,7 +4531,7 @@ fn render_grub_update_modal(f: &mut Frame, state: &AppState, translator: &Transl
         height: area.height * 8 / 10,
     };
     
-    f.render_widget(ratatui::widgets::Clear, popup_area);
+    f.render_widget(crate::term::widgets::Clear, popup_area);
 
     let mut lines = vec![
         Line::from(vec![
@@ -4599,13 +4599,13 @@ fn render_grub_update_modal(f: &mut Frame, state: &AppState, translator: &Transl
     let block = Block::default()
         .title(format!(" {} ", translator.t("modal.grub_title")))
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(crate::term::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.warning).add_modifier(Modifier::BOLD));
         
     let paragraph = Paragraph::new(lines)
         .block(block)
         .style(Style::default().fg(theme.text))
-        .wrap(ratatui::widgets::Wrap { trim: false });
+        .wrap(crate::term::widgets::Wrap { trim: false });
         
     f.render_widget(paragraph, popup_area);
 }
@@ -4655,5 +4655,26 @@ mod tests {
                 assert_ne!(text, *key, "Language {:?} missing translation for key {}", lang, key);
             }
         }
+    }
+
+    #[test]
+    fn test_render_ui_all_tabs_and_modals() {
+        let mut term = crate::term::Terminal::new(Vec::<u8>::new()).unwrap();
+        let translator = crate::language::Translator::new(crate::language::Language::English);
+        let mut state = AppState::default();
+        state.dynamic_data.global_usage.cpu = 45.0;
+        state.dynamic_data.global_usage.mem_total = 16 * 1024 * 1024 * 1024;
+        state.dynamic_data.global_usage.mem_used = 8 * 1024 * 1024 * 1024;
+        state.dynamic_data.global_usage.cpu_history.push_back(45.0);
+        state.dynamic_data.global_usage.mem_history.push_back(50.0);
+
+        for tab in 0..=12 {
+            state.active_tab = tab;
+            term.draw(|f| render_ui(f, &mut state, false, &translator)).unwrap();
+        }
+
+        state.show_settings_modal = true;
+        term.draw(|f| render_ui(f, &mut state, false, &translator)).unwrap();
+        assert!(!term.backend_mut().is_empty());
     }
 }

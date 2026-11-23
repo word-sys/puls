@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt;
-use ratatui::widgets::TableState;
+use crate::term::widgets::TableState;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Pid(pub u32);

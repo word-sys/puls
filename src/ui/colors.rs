@@ -1,4 +1,4 @@
-use ratatui::style::Color;
+use crate::term::style::Color;
 
 #[derive(Debug, Clone)]
 pub struct ColorScheme {

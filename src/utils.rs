@@ -103,8 +103,8 @@ pub fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-pub fn get_usage_color(percentage: f32) -> ratatui::style::Color {
-    use ratatui::style::Color;
+pub fn get_usage_color(percentage: f32) -> crate::term::style::Color {
+    use crate::term::style::Color;
     
     if percentage >= 90.0 {
         Color::Red

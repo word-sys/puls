@@ -1,6 +1,4 @@
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-};
+use crate::term::layout::{Constraint, Direction, Layout, Rect};
 
 #[derive(Debug, Clone)]
 pub struct MainLayout {
@@ -35,7 +33,7 @@ mod tests {
 
     #[test]
     fn test_main_layout() {
-        let area = ratatui::layout::Rect::new(0, 0, 80, 24);
+        let area = Rect::new(0, 0, 80, 24);
         let layout = create_main_layout(area);
         
         assert_eq!(layout.tab_area.height, 3);

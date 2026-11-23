@@ -8,6 +8,7 @@ mod language;
 mod system_service;
 mod error_logger;
 mod snapshot;
+mod term;
 
 use crate::types::{AppState, ProcessSortBy};
 use crate::monitors::{DataCollector, SharedDataCollector};
@@ -16,12 +17,14 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind, DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use crate::term::{
+    event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    terminal::{
+        disable_mouse_capture, disable_raw_mode, enable_mouse_capture, enable_raw_mode,
+        enter_alternate_screen, leave_alternate_screen,
+    },
+    Terminal,
 };
-use ratatui::{prelude::*, Terminal};
 
 use crate::config::{Cli};
 use crate::types::AppConfig;
@@ -79,14 +82,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    enter_alternate_screen(&mut stdout)?;
+    enable_mouse_capture(&mut stdout)?;
+    let mut terminal = Terminal::new(stdout)?;
 
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let mut out = io::stdout();
+        let _ = disable_mouse_capture(&mut out);
+        let _ = leave_alternate_screen(&mut out);
         original_hook(panic_info);
     }));
     
@@ -149,7 +154,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    disable_mouse_capture(terminal.backend_mut())?;
+    leave_alternate_screen(terminal.backend_mut())?;
     terminal.show_cursor()?;
 
     if let Err(ref e) = result {
@@ -217,7 +223,7 @@ fn check_and_load_lazy_data(state: &mut AppState) {
 }
 
 fn ui_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: &mut Terminal<io::Stdout>,
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
     config: &AppConfig,
@@ -248,7 +254,6 @@ fn ui_loop(
                     Event::Resize(_, _) => {
                         needs_redraw = true;
                     }
-                    _ => {}
                 }
             }
         }
@@ -271,7 +276,7 @@ fn ui_loop(
 }
 
 fn handle_key_event(
-    key: crossterm::event::KeyEvent,
+    key: crate::term::event::KeyEvent,
     app_state: &Arc<Mutex<AppState>>,
     data_collector: &SharedDataCollector,
     _config: &AppConfig,
@@ -1644,7 +1649,7 @@ fn handle_mouse_event(
                 state.settings_selected_idx = state.settings_selected_idx.saturating_sub(1);
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                let (term_width, term_height) = crossterm::terminal::size().unwrap_or((80, 24));
+                let (term_width, term_height) = crate::term::terminal::size().unwrap_or((80, 24));
                 let width = 68.min(term_width.saturating_sub(4));
                 let height = 20.min(term_height.saturating_sub(2));
                 let popup_x = (term_width.saturating_sub(width)) / 2;
@@ -1670,7 +1675,6 @@ fn handle_mouse_event(
                     }
                 }
             }
-            _ => {}
         }
         return Ok(());
     }
@@ -1678,7 +1682,7 @@ fn handle_mouse_event(
     // 2. Normal mode mouse handling
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            let (term_width, _) = crossterm::terminal::size().unwrap_or((80, 24));
+            let (term_width, _) = crate::term::terminal::size().unwrap_or((80, 24));
             
             // Tab bar is rows 0, 1, 2
             if mouse.row <= 2 {
@@ -1805,7 +1809,6 @@ fn handle_mouse_event(
                 }
             }
         }
-        _ => {}
     }
 
     Ok(())
@@ -1981,7 +1984,7 @@ impl From<io::Error> for AppError {
 fn check_system_requirements() -> Result<(), AppError> {
     use std::io::IsTerminal;
     if std::io::stdout().is_terminal() {
-        if let Ok((width, height)) = crossterm::terminal::size() {
+        if let Ok((width, height)) = crate::term::terminal::size() {
             if width < 80 || height < 24 {
                 crate::puls_warn!("Warning: Terminal size {}x{} is smaller than recommended 80x24", width, height);
             }

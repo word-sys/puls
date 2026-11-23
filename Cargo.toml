@@ -12,8 +12,6 @@ name = "puls"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.26"
-crossterm = "0.28"
 
 [features]
 default = ["docker"]
