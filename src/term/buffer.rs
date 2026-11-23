@@ -21,7 +21,7 @@ impl Default for BufferCell {
         Self {
             symbol: " ".to_string(),
             fg: Color::Reset,
-            bg: Color::Reset,
+            bg: Color::Black,
             modifier: Modifier::NONE,
             skip: false,
         }
@@ -33,7 +33,7 @@ impl BufferCell {
         self.symbol.clear();
         self.symbol.push(' ');
         self.fg = Color::Reset;
-        self.bg = Color::Reset;
+        self.bg = Color::Black;
         self.modifier = Modifier::NONE;
         self.skip = false;
     }
@@ -250,7 +250,7 @@ impl<W: Write> Terminal<W> {
         // Synchronized output markers prevent mid-frame tearing in modern terminals
         self.out_buf.push_str("\x1b[?2026h");
         if self.force_full_redraw {
-            self.out_buf.push_str("\x1b[0m\x1b[2J");
+            self.out_buf.push_str("\x1b[0m\x1b[40m\x1b[2J");
         }
         emit_diff(&self.previous, &self.current, self.force_full_redraw, &mut self.out_buf);
         self.out_buf.push_str("\x1b[0m\x1b[?2026l");
@@ -346,8 +346,9 @@ mod tests {
         assert!(out.contains("\x1b[2;3H"));
         assert!(out.contains("\x1b[1m"));
         assert!(out.contains("\x1b[32m"));
+        assert!(out.contains("\x1b[40m"));
         assert!(out.contains("HI"));
         // Unchanged cells should not trigger extra cursor jumps
-        assert_eq!(out.matches("\x1b[").count(), 4); // move + reset + bold + fg
+        assert_eq!(out.matches("\x1b[").count(), 5); // move + reset + bold + fg + bg
     }
 }

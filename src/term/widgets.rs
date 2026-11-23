@@ -17,6 +17,7 @@ pub struct Clear;
 impl Widget for Clear {
     fn render(self, area: Rect, buf: &mut Buffer) {
         buf.clear_area(area);
+        buf.set_style(area, Style::default().bg(crate::term::style::Color::Black));
     }
 }
 
@@ -402,7 +403,7 @@ impl Widget for Gauge<'_> {
         }
 
         let bar_color = self.gauge_style.fg.unwrap_or(crate::term::style::Color::Cyan);
-        let unfilled_bg = self.gauge_style.bg.unwrap_or(crate::term::style::Color::Reset);
+        let unfilled_bg = self.gauge_style.bg.unwrap_or(crate::term::style::Color::Black);
         let track_style = Style::default()
             .fg(crate::term::style::Color::DarkGray)
             .bg(unfilled_bg);
@@ -802,7 +803,24 @@ impl<'a> Table<'a> {
         if let Some(ref header) = self.header {
             if y < inner.bottom() {
                 render_table_row(buf, inner.x + sym_w, y, inner.right(), header, &col_widths, self.column_spacing, header.style);
-                y = y.saturating_add(1).saturating_add(header.bottom_margin);
+                y = y.saturating_add(1);
+                // Draw subtle horizontal column underline when bottom_margin >= 1 or space permits
+                let draw_divider = header.bottom_margin >= 1 || inner.height >= 6;
+                if draw_divider && y < inner.bottom() {
+                    let div_style = Style::default().fg(crate::term::style::Color::DarkGray);
+                    let mut cx = inner.x + sym_w;
+                    for &w in &col_widths {
+                        if cx >= inner.right() {
+                            break;
+                        }
+                        let eff_w = w.min(inner.right() - cx);
+                        for dx in 0..eff_w {
+                            buf.set_char(cx + dx, y, '─', div_style);
+                        }
+                        cx = cx.saturating_add(w).saturating_add(self.column_spacing);
+                    }
+                    y = y.saturating_add(header.bottom_margin.max(1));
+                }
             }
         }
 

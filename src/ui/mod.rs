@@ -17,6 +17,14 @@ pub use layouts::*;
 pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, translator: &Translator) {
     let theme_manager = crate::ui::colors::ThemeManager::from_index(state.current_theme);
     let theme = theme_manager.get_theme();
+    let canvas_bg = match theme.background {
+        Color::Reset => Color::Black,
+        other => other,
+    };
+    f.render_widget(
+        Block::default().style(Style::default().bg(canvas_bg).fg(theme.text)),
+        f.size(),
+    );
     
     let main_layout = create_main_layout(f.size());
     
@@ -635,7 +643,7 @@ fn render_tab_bar(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: boo
             .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border)))
         .select(state.active_tab)
-        .highlight_style(Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD));
+        .highlight_style(Style::default().fg(Color::Black).bg(theme.highlight).add_modifier(Modifier::BOLD));
     
     f.render_widget(tabs, area);
 }
@@ -1253,16 +1261,54 @@ fn render_process_table(f: &mut Frame, state: &mut AppState, area: Rect, transla
         } else {
             p.name.clone()
         };
+        let cgroup_str = p.cgroup_unit.as_deref().unwrap_or("-");
+        let cgroup_style = if cgroup_str == "-" {
+            Style::default().fg(theme.text_secondary)
+        } else {
+            Style::default().fg(theme.primary)
+        };
+        let user_style = if p.user == "root" {
+            Style::default().fg(theme.accent)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+        let nice_style = if p.nice < 0 {
+            Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+        let cpu_color = get_usage_color(p.cpu);
+        let cpu_style = if p.cpu >= 10.0 {
+            Style::default().fg(cpu_color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(cpu_color)
+        };
+        let mem_style = if p.mem >= 512 * 1024 * 1024 {
+            Style::default().fg(theme.warning)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        let read_style = if p.disk_read > 0 {
+            Style::default().fg(theme.success)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+        let write_style = if p.disk_write > 0 {
+            Style::default().fg(theme.warning)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+
         Row::new(vec![
-            p.pid.clone(),
-            truncate_string(&display_name, 30),
-            truncate_string(p.cgroup_unit.as_deref().unwrap_or("-"), 20),
-            truncate_string(&p.user, 10),
-            format!("{:>3}", p.nice),
-            format!("{:.2}%", p.cpu),
-            crate::utils::format_size(p.mem),
-            crate::utils::format_rate(p.disk_read),
-            crate::utils::format_rate(p.disk_write),
+            Cell::from(p.pid.clone()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(truncate_string(&display_name, 30)).style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Cell::from(truncate_string(cgroup_str, 20)).style(cgroup_style),
+            Cell::from(truncate_string(&p.user, 10)).style(user_style),
+            Cell::from(format!("{:>3}", p.nice)).style(nice_style),
+            Cell::from(format!("{:.2}%", p.cpu)).style(cpu_style),
+            Cell::from(crate::utils::format_size(p.mem)).style(mem_style),
+            Cell::from(crate::utils::format_rate(p.disk_read)).style(read_style),
+            Cell::from(crate::utils::format_rate(p.disk_write)).style(write_style),
         ]).style(Style::default().fg(theme.text))
     });
     
@@ -2453,6 +2499,126 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
 
 fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let disks = &state.dynamic_data.disks;
+    let card_disks = disks.len().min(3);
+    let top_h = if card_disks > 0 && area.height >= 16 {
+        (card_disks as u16 * 3 + 2).max(7)
+    } else {
+        0
+    };
+
+    let main_area = if top_h > 0 {
+        let v_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(top_h), Constraint::Min(6)])
+            .split(area);
+        let h_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(62), Constraint::Percentage(38)])
+            .split(v_chunks[0]);
+
+        let vol_block = Block::default()
+            .title(format!(" {} ({}) ", translator.t("dashboard.storage"), disks.len()))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border));
+        let vol_inner = vol_block.inner(h_chunks[0]);
+        f.render_widget(vol_block, h_chunks[0]);
+
+        let g_constraints: Vec<Constraint> = (0..card_disks).map(|_| Constraint::Length(3)).collect();
+        let g_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(g_constraints)
+            .split(vol_inner);
+
+        for (i, d) in disks.iter().take(card_disks).enumerate() {
+            let pct = if d.total > 0 {
+                (d.used as f64 / d.total as f64 * 100.0) as f32
+            } else {
+                0.0
+            };
+            let media = match d.is_ssd {
+                Some(true) => if d.device.to_lowercase().contains("nvme") { "NVMe" } else { "SSD" },
+                Some(false) => "HDD",
+                None => "BLK",
+            };
+            let lbl = format!(
+                "{} [{} / {}] — {:.1}% ({} / {} | Free: {})",
+                d.name,
+                d.fs,
+                media,
+                pct,
+                format_size(d.used),
+                format_size(d.total),
+                format_size(d.free)
+            );
+            let g = Gauge::default()
+                .gauge_style(Style::default().fg(get_usage_color(pct)))
+                .percent(pct as u16)
+                .label(lbl);
+            f.render_widget(g, g_layout[i]);
+        }
+
+        // Right card: Block I/O Throughput, Latency, PSI & ZRAM Summary
+        let usage = &state.dynamic_data.global_usage;
+        let max_await = disks.iter().map(|d| d.await_ms).fold(0.0f32, f32::max);
+        let max_busy = disks.iter().map(|d| d.busy_pct).fold(0.0f32, f32::max);
+        let mut io_lines = vec![
+            Line::from(vec![
+                Span::styled(" Read Rate:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<12}", format_rate(usage.disk_read)), Style::default().fg(theme.success).add_modifier(Modifier::BOLD)),
+                Span::styled("Write Rate: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format_rate(usage.disk_write), Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Peak Await: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<12}", format!("{:.2} ms", max_await)), Style::default().fg(theme.text)),
+                Span::styled("Peak Busy:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:.1}%", max_busy), Style::default().fg(get_usage_color(max_busy))),
+            ]),
+        ];
+        if state.dynamic_data.pressure.available {
+            let io = &state.dynamic_data.pressure.io;
+            io_lines.push(Line::from(vec![
+                Span::styled(" I/O PSI:    ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("some {:.1}%/{:.1}%/{:.1}% | full {:.1}%", io.some_avg10, io.some_avg60, io.some_avg300, io.full_avg10),
+                    Style::default().fg(if io.some_avg10 >= 10.0 { theme.warning } else { theme.text_secondary }),
+                ),
+            ]));
+        }
+        if let Some(z) = state.dynamic_data.zram_devices.first() {
+            io_lines.push(Line::from(vec![
+                Span::styled(" ZRAM Swap:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{} ({}) {} -> {} ({:.2}x)", z.device, z.algorithm, format_size(z.orig_bytes), format_size(z.compr_bytes), z.ratio()),
+                    Style::default().fg(theme.accent),
+                ),
+            ]));
+        } else {
+            let total_cap: u64 = disks.iter().map(|d| d.total).sum();
+            let total_used: u64 = disks.iter().map(|d| d.used).sum();
+            io_lines.push(Line::from(vec![
+                Span::styled(" Aggregate:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{} used of {} across {} mounts", format_size(total_used), format_size(total_cap), disks.len()),
+                    Style::default().fg(theme.text_secondary),
+                ),
+            ]));
+        }
+
+        let io_card = Paragraph::new(io_lines).block(
+            Block::default()
+                .title(" Block I/O & Telemetry ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border)),
+        );
+        f.render_widget(io_card, h_chunks[1]);
+        v_chunks[1]
+    } else {
+        area
+    };
+
     let headers: Vec<Cell> = vec![
         Cell::from(translator.t("disks.mount")),
         Cell::from(translator.t("disks.device")),
@@ -2481,6 +2647,9 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         } else {
             0.0
         };
+        let use_color = get_usage_color(usage_percent);
+        let filled = ((usage_percent.clamp(0.0, 100.0) / 100.0) * 5.0).round() as usize;
+        let use_bar = format!("{}{} {:>5}", "█".repeat(filled), "░".repeat(5usize.saturating_sub(filled)), format_percentage(usage_percent));
         
         let inodes_display = match (disk.inodes_used, disk.inodes_total) {
             (Some(used), Some(total)) => format!("{}/{}", format_count(used), format_count(total)),
@@ -2502,6 +2671,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         };
         let sched_display = disk.io_scheduler.as_deref().unwrap_or("-");
         let temp_display = disk.temp.map(|t| crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)).unwrap_or_else(|| "-".to_string());
+        let temp_color = disk.temp.map(get_usage_color).unwrap_or(theme.text_secondary);
         let health_display = disk.health_pct.map(|h| format!("{}%", h)).unwrap_or_else(|| "-".to_string());
         let cycles_display = disk.power_cycles.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string());
         let type_display = match disk.is_ssd {
@@ -2510,32 +2680,30 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             None => "-",
         };
         let mount_options_display = disk.mount_options.as_deref().unwrap_or("-");
+        let read_style = if disk.read_rate > 0 { Style::default().fg(theme.success).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_secondary) };
+        let write_style = if disk.write_rate > 0 { Style::default().fg(theme.warning).add_modifier(Modifier::BOLD) } else { Style::default().fg(theme.text_secondary) };
         
         Row::new(vec![
-            truncate_string(&disk.name, 15),
-            truncate_string(&disk.device, 18),
-            disk.fs.clone(),
-            format_size(disk.total),
-            format_size(disk.used),
-            format_size(disk.free),
-            format_percentage(usage_percent),
-            inodes_display,
-            inodes_pct_display,
-            format_rate(disk.read_rate),
-            format_rate(disk.write_rate),
-            await_display,
-            busy_display,
-            sched_display.to_string(),
-            temp_display,
-            health_display,
-            cycles_display,
-            type_display.to_string(),
-            mount_options_display.to_string(),
-        ]).style(Style::default().fg(
-            if usage_percent > 90.0 { theme.error }
-            else if usage_percent > 75.0 { theme.warning }
-            else { theme.text }
-        ))
+            Cell::from(truncate_string(&disk.name, 15)).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Cell::from(truncate_string(&disk.device, 18)).style(Style::default().fg(theme.text)),
+            Cell::from(disk.fs.clone()).style(Style::default().fg(theme.accent)),
+            Cell::from(format_size(disk.total)).style(Style::default().fg(theme.text)),
+            Cell::from(format_size(disk.used)).style(Style::default().fg(use_color)),
+            Cell::from(format_size(disk.free)).style(Style::default().fg(theme.success)),
+            Cell::from(use_bar).style(Style::default().fg(use_color).add_modifier(Modifier::BOLD)),
+            Cell::from(inodes_display).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(inodes_pct_display).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(format_rate(disk.read_rate)).style(read_style),
+            Cell::from(format_rate(disk.write_rate)).style(write_style),
+            Cell::from(await_display).style(Style::default().fg(if disk.await_ms >= 10.0 { theme.warning } else { theme.text_secondary })),
+            Cell::from(busy_display).style(Style::default().fg(get_usage_color(disk.busy_pct))),
+            Cell::from(sched_display.to_string()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(temp_display).style(Style::default().fg(temp_color)),
+            Cell::from(health_display).style(Style::default().fg(theme.success)),
+            Cell::from(cycles_display).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(type_display.to_string()).style(Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)),
+            Cell::from(mount_options_display.to_string()).style(Style::default().fg(theme.text_secondary)),
+        ])
     });
     
     let mut disks_title = if state.dynamic_data.pressure.available {
@@ -2571,16 +2739,16 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             Constraint::Length(9),   // Total
             Constraint::Length(9),   // Used
             Constraint::Length(9),   // Free
-            Constraint::Length(7),   // Use%
+            Constraint::Length(12),  // Use% bar
             Constraint::Length(12),  // Inodes (U/T)
-            Constraint::Length(7),   // Ino%
+            Constraint::Length(6),   // Ino%
             Constraint::Length(10),  // Read Rate
             Constraint::Length(10),  // Write Rate
             Constraint::Length(7),   // Await
             Constraint::Length(6),   // Busy%
-            Constraint::Length(11),  // Sched
+            Constraint::Length(10),  // Sched
             Constraint::Length(6),   // Temp
-            Constraint::Length(7),   // Health
+            Constraint::Length(6),   // Health
             Constraint::Length(7),   // Cycles
             Constraint::Length(5),   // Type
             Constraint::Min(12),     // Mount Options
@@ -2598,7 +2766,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             .border_style(Style::default().fg(theme.border))
     );
     
-    f.render_widget(table, area);
+    f.render_widget(table, main_area);
 }
 
 fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -2669,19 +2837,33 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
         };
         let mtu_str = net.mtu.map(|m| m.to_string()).unwrap_or_else(|| "-".to_string());
 
+        let status_cell = if net.is_up {
+            Cell::from("● UP").style(Style::default().fg(theme.success).add_modifier(Modifier::BOLD))
+        } else {
+            Cell::from("○ DOWN").style(Style::default().fg(theme.error))
+        };
+        let down_style = if net.down_rate > 0 {
+            Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+        let up_style = if net.up_rate > 0 {
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+
         Row::new(vec![
-            net.name.clone(),
-            if net.is_up { "UP".to_string() } else { "DOWN".to_string() },
-            link_str,
-            mtu_str,
-            format_rate(net.down_rate),
-            format_rate(net.up_rate),
-            format_size(net.total_down),
-            format_size(net.total_up),
-            format!("{}/{}", net.packets_rx, net.packets_tx),
-        ]).style(Style::default().fg(
-            if net.is_up { theme.success } else { theme.error }
-        ))
+            Cell::from(net.name.clone()).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            status_cell,
+            Cell::from(link_str).style(Style::default().fg(theme.highlight)),
+            Cell::from(mtu_str).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(format_rate(net.down_rate)).style(down_style),
+            Cell::from(format_rate(net.up_rate)).style(up_style),
+            Cell::from(format_size(net.total_down)).style(Style::default().fg(theme.text)),
+            Cell::from(format_size(net.total_up)).style(Style::default().fg(theme.text)),
+            Cell::from(format!("{}/{}", net.packets_rx, net.packets_tx)).style(Style::default().fg(theme.text_secondary)),
+        ])
     });
     
     let iface_table = Table::new(
@@ -2878,7 +3060,7 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     f.render_widget(socket_table, socket_area);
 }
 
-fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_containers_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     use crate::term::widgets::BorderType; 
     if let Some(err) = &state.dynamic_data.docker_error {
         let text = Paragraph::new(format!("Docker Error: {}", err))
@@ -2936,18 +3118,18 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator
         };
         
         Row::new(vec![
-            c.id.clone(),
-            truncate_string(&c.name, 20),
-            truncate_string(&c.image, 25),
-            c.status.clone(),
-            c.cpu.clone(),
-            c.mem.clone(),
-            c.net_down.clone(),
-            c.net_up.clone(),
-            c.disk_r.clone(),
-            c.disk_w.clone(),
-            truncate_string(&c.ports, 20),
-        ]).style(Style::default().fg(status_color))
+            Cell::from(c.id.clone()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(truncate_string(&c.name, 20)).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Cell::from(truncate_string(&c.image, 25)).style(Style::default().fg(theme.accent)),
+            Cell::from(c.status.clone()).style(Style::default().fg(status_color).add_modifier(Modifier::BOLD)),
+            Cell::from(c.cpu.clone()).style(Style::default().fg(theme.text)),
+            Cell::from(c.mem.clone()).style(Style::default().fg(theme.text)),
+            Cell::from(c.net_down.clone()).style(Style::default().fg(theme.success)),
+            Cell::from(c.net_up.clone()).style(Style::default().fg(theme.warning)),
+            Cell::from(c.disk_r.clone()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(c.disk_w.clone()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(truncate_string(&c.ports, 20)).style(Style::default().fg(theme.highlight)),
+        ])
     });
     
     let table = Table::new(
@@ -2987,8 +3169,7 @@ fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator
             .border_style(Style::default().fg(theme.border))
     );
     
-    let mut container_state = state.container_table_state.clone();
-    f.render_stateful_widget(table, area, &mut container_state);
+    f.render_stateful_widget(table, area, &mut state.container_table_state);
 }
 
 fn render_gpu_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode: bool, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
@@ -3315,33 +3496,56 @@ fn render_single_gpu(f: &mut Frame, gpu: &crate::types::GpuInfo, area: Rect, ind
 }
 
 fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    let layout = Layout::default()
+    let v_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(50), // System Info Key-Value Table
-            Constraint::Percentage(35), // Active User Sessions Table
-            Constraint::Percentage(15), // Process & Reboot Summary
+            Constraint::Min(10),   // 2-Column Host Architecture & User Sessions
+            Constraint::Length(4), // Process & Reboot Summary
         ])
         .split(area);
+
+    let top_chunks = if area.width >= 96 {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(v_chunks[0])
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(v_chunks[0])
+    };
     
     let rows = state.system_info.iter().map(|(key, value)| {
-        Row::new(vec![key.clone(), value.clone()]).style(Style::default().fg(theme.text))
+        let val_style = if key == "Hostname" || key == "OS" || key == "Kernel" {
+            Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        Row::new(vec![
+            Cell::from(key.clone()).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Cell::from(value.clone()).style(val_style),
+        ])
     });
     
     let table = Table::new(
         rows,
-        [Constraint::Length(22), Constraint::Min(30)]
+        [Constraint::Length(20), Constraint::Min(28)]
+    )
+    .header(
+        Row::new(vec!["Property", "System Value"])
+            .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .block(
         Block::default()
-            .title(translator.t("title.system_info"))
+            .title(format!(" {} ", translator.t("title.system_info")))
             .borders(Borders::ALL)
             .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     )
     .column_spacing(2);
     
-    f.render_widget(table, layout[0]);
+    f.render_widget(table, top_chunks[0]);
 
     // Active User Sessions
     let user_rows: Vec<Row> = if state.user_sessions.is_empty() {
@@ -3356,11 +3560,11 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
     } else {
         state.user_sessions.iter().map(|s| {
             Row::new(vec![
-                s.user.clone(),
-                s.line.clone(),
-                s.login_time.clone(),
-                s.host.clone(),
-            ]).style(Style::default().fg(theme.text))
+                Cell::from(s.user.clone()).style(Style::default().fg(theme.highlight).add_modifier(Modifier::BOLD)),
+                Cell::from(s.line.clone()).style(Style::default().fg(theme.accent)),
+                Cell::from(s.login_time.clone()).style(Style::default().fg(theme.text)),
+                Cell::from(s.host.clone()).style(Style::default().fg(theme.text_secondary)),
+            ])
         }).collect()
     };
 
@@ -3373,10 +3577,10 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
     let user_table = Table::new(
         user_rows,
         [
+            Constraint::Length(14),
+            Constraint::Length(12),
             Constraint::Length(18),
-            Constraint::Length(16),
-            Constraint::Length(24),
-            Constraint::Min(20),
+            Constraint::Min(12),
         ]
     )
     .header(
@@ -3399,7 +3603,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
     )
     .column_spacing(2);
 
-    f.render_widget(user_table, layout[1]);
+    f.render_widget(user_table, top_chunks[1]);
     
     use crate::utils::count_process_states;
     let (running, sleeping, zombie, other) = count_process_states(&state.dynamic_data.processes);
@@ -3420,17 +3624,17 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
         .replacen("{}", &reboot_badge, 1);
     
     let stats_style = if state.dynamic_data.reboot_required {
-        Style::default().fg(theme.warning)
+        Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme.text)
+        Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
     };
 
     let stats = Paragraph::new(stats_text)
-        .alignment(Alignment::Left)
+        .alignment(Alignment::Center)
         .style(stats_style)
         .block(
             Block::default()
-                .title(translator.t("title.process_stats"))
+                .title(format!(" {} ", translator.t("title.process_stats")))
                 .borders(Borders::ALL)
                 .border_type(crate::term::widgets::BorderType::Rounded)
                 .border_style(if state.dynamic_data.reboot_required {
@@ -3440,7 +3644,7 @@ fn render_system_info_tab(f: &mut Frame, state: &AppState, area: Rect, translato
                 })
         );
     
-    f.render_widget(stats, layout[2]);
+    f.render_widget(stats, v_chunks[1]);
 }
 
 fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator) {
@@ -3518,7 +3722,7 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
     f.render_widget(footer, area);
 }
 
-fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_services_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -3585,35 +3789,53 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             header_enabled.as_str(),
         ];
         
+        let running_cnt = services.iter().filter(|s| s.status.to_lowercase().contains("running") || s.status.eq_ignore_ascii_case("active")).count();
+        let failed_cnt = services.iter().filter(|s| s.status.to_lowercase().contains("fail")).count();
         let rows = services.iter().enumerate().map(|(i, s)| {
-            let enabled = if s.enabled { "[+]" } else { "[-]" };
+            let is_editing = state.editing_service == Some(i) && can_manage;
+            let st_lower = s.status.to_lowercase();
+            let (status_str, status_style) = if st_lower.contains("running") || st_lower == "active" {
+                (format!("● {}", s.status), Style::default().fg(theme.success).add_modifier(Modifier::BOLD))
+            } else if st_lower.contains("fail") {
+                (format!("✖ {}", s.status), Style::default().fg(theme.error).add_modifier(Modifier::BOLD))
+            } else if st_lower.contains("activating") || st_lower.contains("reload") {
+                (format!("↻ {}", s.status), Style::default().fg(theme.warning).add_modifier(Modifier::BOLD))
+            } else {
+                (format!("○ {}", s.status), Style::default().fg(theme.text_secondary))
+            };
+            let (en_str, en_style) = if s.enabled {
+                ("✓ enabled", Style::default().fg(theme.primary))
+            } else {
+                ("─ disabled", Style::default().fg(theme.text_secondary))
+            };
             let name_display = if can_manage {
                 s.name.clone()
             } else {
                 format!("{} [RO]", s.name)
             };
-            
-            let style = if state.editing_service == Some(i) && can_manage {
-                Style::default().bg(theme.secondary).fg(theme.text)
+            let name_style = if is_editing {
+                Style::default().bg(theme.secondary).fg(theme.text).add_modifier(Modifier::BOLD)
+            } else if st_lower.contains("fail") {
+                Style::default().fg(theme.error).add_modifier(Modifier::BOLD)
             } else if !can_manage {
                 Style::default().fg(theme.text_secondary)
             } else {
-                Style::default().fg(theme.text)
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
             };
-            
+
             Row::new(vec![
-                name_display,
-                s.status.clone(),
-                enabled.to_string(),
-            ]).style(style)
+                Cell::from(name_display).style(name_style),
+                Cell::from(status_str).style(status_style),
+                Cell::from(en_str).style(en_style),
+            ])
         });
         
         let table = Table::new(
             rows,
             [
-                Constraint::Length(34),
-                Constraint::Length(16),
-                Constraint::Length(12),
+                Constraint::Min(38),
+                Constraint::Length(22),
+                Constraint::Length(14),
             ]
         )
         .header(
@@ -3621,12 +3843,13 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         )
         .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+        .highlight_symbol(">> ")
         .block(
             Block::default()
                 .title(if can_manage {
-                    format!(" {} [{}] ", translator.t("title.services"), scope_badge)
+                    format!(" {} [{}] — Active: {} | Failed: {} ", translator.t("title.services"), scope_badge, running_cnt, failed_cnt)
                 } else {
-                    format!(" {} [{}] {} ", translator.t("title.services"), scope_badge, translator.t("modal.read_only"))
+                    format!(" {} [{}] {} — Active: {} | Failed: {} ", translator.t("title.services"), scope_badge, translator.t("modal.read_only"), running_cnt, failed_cnt)
                 })
                 .borders(Borders::ALL)
                 .border_type(crate::term::widgets::BorderType::Rounded)
@@ -3637,8 +3860,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 })
         );
         
-        let mut service_state = state.services_table_state.clone();
-        f.render_stateful_widget(table, chunks[1], &mut service_state);
+        f.render_stateful_widget(table, chunks[1], &mut state.services_table_state);
     } else if state.services_subtab == 1 {
         let timers = &state.timers;
         if timers.is_empty() {
@@ -3707,8 +3929,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .border_style(Style::default().fg(theme.border))
         );
 
-        let mut timers_state = state.timers_table_state.clone();
-        f.render_stateful_widget(table, chunks[1], &mut timers_state);
+        f.render_stateful_widget(table, chunks[1], &mut state.timers_table_state);
     } else {
         let blame = &state.boot_blame;
         if blame.is_empty() {
@@ -3724,25 +3945,35 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
             return;
         }
 
-        let headers = vec![Cell::from("Startup Time"), Cell::from("Systemd Unit")];
-        let rows = blame.iter().map(|b| {
-            let style = if b.duration.contains("min") || b.duration.ends_with('s') && !b.duration.ends_with("ms") {
-                Style::default().fg(theme.warning)
+        let headers = vec![Cell::from("Startup Time"), Cell::from("Impact"), Cell::from("Systemd Unit")];
+        let total_items = blame.len().max(1);
+        let rows = blame.iter().enumerate().map(|(idx, b)| {
+            let is_slow = b.duration.contains("min") || (b.duration.ends_with('s') && !b.duration.ends_with("ms"));
+            let color = if is_slow {
+                theme.warning
             } else {
-                Style::default().fg(theme.text)
+                theme.success
             };
-            Row::new(vec![b.duration.clone(), b.unit.clone()]).style(style)
+            let rank_ratio = 1.0 - (idx as f64 / total_items as f64).min(0.95);
+            let filled = ((rank_ratio * 12.0).round() as usize).clamp(1, 12);
+            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(12 - filled));
+            Row::new(vec![
+                Cell::from(b.duration.clone()).style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Cell::from(bar).style(Style::default().fg(color)),
+                Cell::from(b.unit.clone()).style(Style::default().fg(theme.text)),
+            ])
         });
 
         let table = Table::new(
             rows,
-            [Constraint::Length(18), Constraint::Min(30)],
+            [Constraint::Length(16), Constraint::Length(16), Constraint::Min(30)],
         )
         .header(
             Row::new(headers)
                 .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
         )
         .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+        .highlight_symbol(">> ")
         .block(
             Block::default()
                 .title(format!(" Boot Blame [{}] ({}) ", scope_badge, blame.len()))
@@ -3751,12 +3982,11 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
                 .border_style(Style::default().fg(theme.border))
         );
 
-        let mut blame_state = state.boot_blame_table_state.clone();
-        f.render_stateful_widget(table, chunks[1], &mut blame_state);
+        f.render_stateful_widget(table, chunks[1], &mut state.boot_blame_table_state);
     }
 }
 
-fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_logs_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -3847,32 +4077,36 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
     let headers = vec![
         header_timestamp.as_str(),
         header_level.as_str(),
+        "Service / Unit",
         header_message.as_str(),
     ];
     
     let rows = logs.iter().map(|l| {
-        let level_color = match l.level.as_str() {
-            "EMERG" | "ALERT" | "CRIT" | "ERROR" => theme.error,
-            "WARNING" => theme.warning,
-            "NOTICE" => theme.accent,
-            "INFO" => theme.success,
-            "DEBUG" => theme.text_secondary,
-            _ => theme.text,
+        let (level_color, msg_color) = match l.level.as_str() {
+            "EMERG" | "ALERT" | "CRIT" | "ERROR" => (theme.error, theme.error),
+            "WARNING" => (theme.warning, theme.warning),
+            "NOTICE" => (theme.accent, theme.text),
+            "INFO" => (theme.success, theme.text),
+            "DEBUG" => (theme.text_secondary, theme.text_secondary),
+            _ => (theme.text, theme.text),
         };
+        let svc = if l.service.is_empty() { "-" } else { l.service.as_str() };
         
         Row::new(vec![
-            l.timestamp.clone(),
-            l.level.clone(),
-            l.message.clone(),
-        ]).style(Style::default().fg(level_color))
+            Cell::from(l.timestamp.clone()).style(Style::default().fg(theme.text_secondary)),
+            Cell::from(format!("[{}]", l.level)).style(Style::default().fg(level_color).add_modifier(Modifier::BOLD)),
+            Cell::from(truncate_string(svc, 22)).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Cell::from(l.message.clone()).style(Style::default().fg(msg_color)),
+        ])
     });
     
     let table = Table::new(
         rows,
         [
-            Constraint::Length(20),
+            Constraint::Length(19),
             Constraint::Length(10),
-            Constraint::Min(40),
+            Constraint::Length(22),
+            Constraint::Min(36),
         ]
     )
     .header(
@@ -3880,19 +4114,19 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
             .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+    .highlight_symbol(">> ")
     .block(
         Block::default()
-            .title(translator.t("title.logs"))
+            .title(format!(" {} ({}) ", translator.t("title.logs"), logs.len()))
             .borders(Borders::ALL)
             .border_type(crate::term::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
     );
     
-    let logs_state = state.logs_table_state.clone();
-    f.render_stateful_widget(table, chunks[1], &mut logs_state.clone());
+    f.render_stateful_widget(table, chunks[1], &mut state.logs_table_state);
 }
 
-fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
+fn render_config_tab(f: &mut Frame, state: &mut AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -3932,10 +4166,15 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
         );
     f.render_widget(tabs, chunks[0]);
 
-    let (configs, mut table_state, section_title) = if state.config_subtab == 1 {
-        (&state.sysctl_items, state.sysctl_table_state.clone(), "Kernel sysctl (/proc/sys -> /etc/sysctl.d/99-puls.conf)".to_string())
+    let section_title = if state.config_subtab == 1 {
+        "Kernel sysctl (/proc/sys -> /etc/sysctl.d/99-puls.conf)".to_string()
     } else {
-        (&state.config_items, state.config_table_state.clone(), translator.t("title.config"))
+        translator.t("title.config")
+    };
+    let configs = if state.config_subtab == 1 {
+        &state.sysctl_items
+    } else {
+        &state.config_items
     };
     
     if configs.is_empty() {
@@ -3961,39 +4200,40 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
         header_desc.as_str(),
     ];
     
-    let rows = configs.iter().enumerate().map(|(i, c)| {
+    let rows: Vec<Row> = configs.iter().enumerate().map(|(i, c)| {
         let is_modified = c.value != c.original_value;
-        let style = if state.editing_config == Some(i) && state.has_sudo {
-            Style::default().bg(theme.secondary).fg(theme.text)
+        let is_editing = state.editing_config == Some(i) && state.has_sudo;
+        let val_style = if is_editing {
+            Style::default().bg(theme.secondary).fg(theme.text).add_modifier(Modifier::BOLD)
         } else if is_modified {
             Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
         } else if !state.has_sudo {
             Style::default().fg(theme.text_secondary)
         } else {
-            Style::default().fg(theme.text)
+            Style::default().fg(theme.success).add_modifier(Modifier::BOLD)
         };
         
-        let display_val = if state.editing_config == Some(i) && state.has_sudo {
+        let display_val = if is_editing {
             format!("{}█", state.edit_buffer)
         } else if is_modified {
-            format!("{} (was: {})", c.value, c.original_value)
+            format!("* {} (was: {})", c.value, c.original_value)
         } else {
             c.value.clone()
         };
         
         Row::new(vec![
-            c.key.clone(),
-            display_val,
-            c.description.clone(),
-        ]).style(style)
-    });
+            Cell::from(c.key.clone()).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Cell::from(display_val).style(val_style),
+            Cell::from(c.description.clone()).style(Style::default().fg(theme.text_secondary)),
+        ])
+    }).collect();
     
     let table = Table::new(
         rows,
         [
+            Constraint::Percentage(32),
             Constraint::Percentage(34),
-            Constraint::Percentage(36),
-            Constraint::Percentage(30),
+            Constraint::Percentage(34),
         ]
     )
     .header(
@@ -4001,6 +4241,7 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
     )
     .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+    .highlight_symbol(">> ")
     .block(
         Block::default()
             .title(if state.has_sudo {
@@ -4017,51 +4258,175 @@ fn render_config_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             })
     );
     
-    f.render_stateful_widget(table, chunks[1], &mut table_state);
+    if state.config_subtab == 1 {
+        f.render_stateful_widget(table, chunks[1], &mut state.sysctl_table_state);
+    } else {
+        f.render_stateful_widget(table, chunks[1], &mut state.config_table_state);
+    }
 }
 
 fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(8), // RAM & Swap Gauges
-            Constraint::Min(0),    // Details Table
-        ])
-        .split(area);
+    let usage = &state.dynamic_data.global_usage;
+    let mem_percent = if usage.mem_total > 0 {
+        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
+    } else {
+        0.0
+    };
+    let swap_percent = if usage.swap_total > 0 {
+        (usage.swap_used as f64 / usage.swap_total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let show_mid_panel = area.height >= 20;
+    let chunks = if show_mid_panel {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),  // Side-by-side RAM & Swap Gauges
+                Constraint::Length(10), // History Chart + Memory Composition Breakdown
+                Constraint::Min(6),     // Details Table
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),
+                Constraint::Min(6),
+            ])
+            .split(area)
+    };
 
     let gauge_chunks = Layout::default()
-        .direction(Direction::Vertical)
+        .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(4), // RAM
-            Constraint::Length(4), // Swap
+            Constraint::Percentage(50), // RAM
+            Constraint::Percentage(50), // Swap
         ])
         .split(chunks[0]);
 
-    let usage = &state.dynamic_data.global_usage;
-    
-    let mem_percent = if usage.mem_total > 0 {
-        (usage.mem_used as f64 / usage.mem_total as f64) * 100.0
-    } else { 0.0 };
-    
     let mem_gauge = Gauge::default()
-        .block(Block::default().title(translator.t("title.ram_usage")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .block(Block::default().title(format!(" {} ", translator.t("title.ram_usage"))).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(get_usage_color(mem_percent as f32)))
         .percent(mem_percent as u16)
         .label(format!("{:.1}% ({} / {})", mem_percent, format_size(usage.mem_used), format_size(usage.mem_total)));
     f.render_widget(mem_gauge, gauge_chunks[0]);
 
-    let swap_percent = if usage.swap_total > 0 {
-         (usage.swap_used as f64 / usage.swap_total as f64) * 100.0
-    } else { 0.0 }; 
-    
     let swap_gauge = Gauge::default()
-        .block(Block::default().title(translator.t("title.swap_usage")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
+        .block(Block::default().title(format!(" {} ", translator.t("title.swap_usage"))).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)))
         .gauge_style(Style::default().fg(theme.primary))
         .percent(swap_percent as u16)
         .label(format!("{:.1}% ({} / {})", swap_percent, format_size(usage.swap_used), format_size(usage.swap_total)));
     f.render_widget(swap_gauge, gauge_chunks[1]);
 
-    let total_mem_str = format_size(usage.mem_used + (usage.mem_total - usage.mem_used));
+    let table_area = if show_mid_panel {
+        let mid_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(54), Constraint::Percentage(46)])
+            .split(chunks[1]);
+
+        let history_data: Vec<(f64, f64)> = usage
+            .mem_history
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64, v as f64))
+            .collect();
+        let datasets = vec![Dataset::default()
+            .name(translator.t("title.memory"))
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme.accent))
+            .data(&history_data)];
+        let chart = Chart::new(datasets)
+            .block(
+                Block::default()
+                    .title(format!(" {} ", translator.t("dashboard.mem_history")))
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border)),
+            )
+            .x_axis(Axis::default().bounds([0.0, 60.0]).style(Style::default().fg(theme.text_secondary)))
+            .y_axis(
+                Axis::default()
+                    .bounds([0.0, 100.0])
+                    .labels(vec![
+                        Span::styled("0%", Style::default().fg(theme.text_secondary)),
+                        Span::styled("100%", Style::default().fg(theme.text_secondary)),
+                    ])
+                    .style(Style::default().fg(theme.text_secondary)),
+            );
+        f.render_widget(chart, mid_chunks[0]);
+
+        let free_bytes = usage.mem_total.saturating_sub(usage.mem_used);
+        let cached_pct = if usage.mem_total > 0 {
+            (usage.mem_cached as f64 / usage.mem_total as f64) * 100.0
+        } else {
+            0.0
+        };
+        let free_pct = (100.0 - mem_percent).max(0.0);
+        let mk_bar = |pct: f64| -> String {
+            let f = ((pct.clamp(0.0, 100.0) / 100.0) * 16.0).round() as usize;
+            format!("▐{}{}▌ {:>5.1}%", "█".repeat(f), "░".repeat(16usize.saturating_sub(f)), pct)
+        };
+
+        let mut comp_lines = vec![
+            Line::from(vec![
+                Span::styled(" Active Used:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(mk_bar(mem_percent), Style::default().fg(get_usage_color(mem_percent as f32))),
+                Span::styled(format!("  {}", format_size(usage.mem_used)), Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Page Cache:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(mk_bar(cached_pct), Style::default().fg(theme.accent)),
+                Span::styled(format!("  {}", format_size(usage.mem_cached)), Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Available:    ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(mk_bar(free_pct), Style::default().fg(theme.success)),
+                Span::styled(format!("  {}", format_size(free_bytes)), Style::default().fg(theme.text)),
+            ]),
+            Line::from(vec![
+                Span::styled(" Swap Space:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(mk_bar(swap_percent), Style::default().fg(theme.warning)),
+                Span::styled(format!("  {}", format_size(usage.swap_used)), Style::default().fg(theme.text)),
+            ]),
+        ];
+        if state.dynamic_data.pressure.available {
+            let m = &state.dynamic_data.pressure.memory;
+            comp_lines.push(Line::from(""));
+            comp_lines.push(Line::from(vec![
+                Span::styled(" Memory PSI:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}%", m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60),
+                    Style::default().fg(if m.some_avg10 >= 10.0 { theme.warning } else { theme.text_secondary }),
+                ),
+            ]));
+        }
+        if let Some(z) = state.dynamic_data.zram_devices.first() {
+            comp_lines.push(Line::from(vec![
+                Span::styled(" ZRAM Ratio:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!("{} ({}) {} -> {} ({:.2}x)", z.device, z.algorithm, format_size(z.orig_bytes), format_size(z.compr_bytes), z.ratio()),
+                    Style::default().fg(theme.highlight),
+                ),
+            ]));
+        }
+
+        let comp_p = Paragraph::new(comp_lines).block(
+            Block::default()
+                .title(" Memory Composition & Pressure ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border)),
+        );
+        f.render_widget(comp_p, mid_chunks[1]);
+        chunks[2]
+    } else {
+        chunks[1]
+    };
+
+    let total_mem_str = format_size(usage.mem_total);
     let used_mem_str = format_size(usage.mem_used);
     let cached_mem_str = format_size(usage.mem_cached);
     let free_mem_str = format_size(usage.mem_total.saturating_sub(usage.mem_used));
@@ -4072,30 +4437,31 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let (mem_type, mem_gen, mem_speed, mem_temp) = state.dynamic_data.global_usage.mem_details.clone()
         .unwrap_or_else(|| (unknown_str.clone(), unknown_str, "N/A".into(), "N/A".into()));
 
-    let mut rows = vec![
-        Row::new(vec![translator.t("memory.total_mem"), total_mem_str]), 
-        Row::new(vec![translator.t("memory.used_mem"), used_mem_str]),
-        Row::new(vec![translator.t("memory.cached_buffers"), cached_mem_str]),
-        Row::new(vec![translator.t("memory.free_available"), free_mem_str]),
-        Row::new(vec![translator.t("memory.type"), mem_type]),
-        Row::new(vec![translator.t("memory.generation"), mem_gen]),
-        Row::new(vec![translator.t("memory.speed"), mem_speed]),
-        Row::new(vec![translator.t("memory.temperature"), mem_temp]),
+    let mut kv_pairs = vec![
+        (translator.t("memory.total_mem"), total_mem_str, theme.text),
+        (translator.t("memory.used_mem"), used_mem_str, get_usage_color(mem_percent as f32)),
+        (translator.t("memory.cached_buffers"), cached_mem_str, theme.accent),
+        (translator.t("memory.free_available"), free_mem_str, theme.success),
+        (translator.t("memory.type"), mem_type, theme.highlight),
+        (translator.t("memory.generation"), mem_gen, theme.highlight),
+        (translator.t("memory.speed"), mem_speed, theme.text),
+        (translator.t("memory.temperature"), mem_temp, theme.text),
     ];
 
     if state.dynamic_data.pressure.available {
         let m = &state.dynamic_data.pressure.memory;
-        rows.push(Row::new(vec![
+        kv_pairs.push((
             "PSI Memory Stall".to_string(),
             format!(
                 "some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% (10s/60s/300s)",
                 m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60
             ),
-        ]));
+            if m.some_avg10 >= 10.0 { theme.warning } else { theme.text_secondary },
+        ));
     }
 
     for z in &state.dynamic_data.zram_devices {
-        rows.push(Row::new(vec![
+        kv_pairs.push((
             format!("ZRAM ({} / {})", z.device, z.algorithm),
             format!(
                 "{} -> {} (RAM: {}, {:.2}x ratio)",
@@ -4104,16 +4470,27 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
                 format_size(z.mem_used_bytes),
                 z.ratio()
             ),
-        ]));
+            theme.primary,
+        ));
     }
+
+    let rows: Vec<Row> = kv_pairs
+        .into_iter()
+        .map(|(k, v, c)| {
+            Row::new(vec![
+                Cell::from(k).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+                Cell::from(v).style(Style::default().fg(c)),
+            ])
+        })
+        .collect();
     
     let table = Table::new(
         rows,
-        [Constraint::Percentage(50), Constraint::Percentage(50)]
+        [Constraint::Percentage(42), Constraint::Percentage(58)]
     ).header(Row::new(headers).style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)))
-     .block(Block::default().title(translator.t("title.details")).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
+     .block(Block::default().title(format!(" {} ", translator.t("title.details"))).borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::default().fg(theme.border)));
      
-    f.render_widget(table, chunks[1]);
+    f.render_widget(table, table_area);
 }
 
 fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {
