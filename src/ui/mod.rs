@@ -3466,7 +3466,9 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
         alerts.push(translator.t("alert.disk_critical"));
     }
     
-    let help_text = if state.paused {
+    let help_text = if let Some(ref replay) = state.replay_status {
+        replay.clone()
+    } else if state.paused {
         translator.t("help.paused")
     } else {
         match state.active_tab {
@@ -3494,13 +3496,15 @@ fn render_footer(f: &mut Frame, state: &AppState, area: Rect, translator: &Trans
     
     let footer_style = if !alerts.is_empty() {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if state.replay_status.is_some() {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
     } else if state.paused {
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
     
-    let footer_msg = format!("{} | {}", alert_text, translator.t("help.settings_badge"));
+    let footer_msg = format!("{} | [E] Export | {}", alert_text, translator.t("help.settings_badge"));
     let footer = Paragraph::new(footer_msg)
         .style(footer_style)
         .alignment(Alignment::Center);

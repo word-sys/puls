@@ -7,6 +7,7 @@ mod ui;
 mod language;
 mod system_service;
 mod error_logger;
+mod snapshot;
 
 use crate::types::{AppState, ProcessSortBy};
 use crate::monitors::{DataCollector, SharedDataCollector};
@@ -29,8 +30,22 @@ use crate::ui::render_ui;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     init_logging(cli.verbose)?;
+    if let Some(snapshot_target) = cli.snapshot.clone() {
+        let config = AppConfig::from(cli);
+        run_headless_snapshot(&config, &snapshot_target)?;
+        return Ok(());
+    }
     check_system_requirements()?;
     let config = AppConfig::from(cli);
+
+    let loaded_replay_frames = if let Some(ref replay_file) = config.replay_path {
+        Some(
+            snapshot::load_flight_recording(std::path::Path::new(replay_file))
+                .map_err(AppError::Config)?,
+        )
+    } else {
+        None
+    };
     
     let telemetry = config.telemetry;
     if telemetry {
@@ -94,18 +109,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         
         let sys_mgr = system_service::SystemManager::new();
         state.has_sudo = sys_mgr.has_sudo_privileges();
+
+        if let Some(frames) = loaded_replay_frames {
+            snapshot::apply_replay_frame(&mut state, &frames, 0);
+            state.replay_frames = frames;
+            state.replay_idx = 0;
+            state.paused = true;
+        }
     }
     
     let stop_signal = Arc::new((Mutex::new(false), Condvar::new()));
-    let app_state_clone = app_state.clone();
-    let data_collector_clone = data_collector.clone();
-    let config_clone = config.clone();
-    let stop_signal_clone = stop_signal.clone();
-    let collector_handle = thread::Builder::new()
-        .name("puls-collector".to_string())
-        .spawn(move || {
-            data_collection_loop(app_state_clone, data_collector_clone, config_clone, stop_signal_clone);
-        })?;
+    let collector_handle = if config.replay_path.is_none() {
+        let app_state_clone = app_state.clone();
+        let data_collector_clone = data_collector.clone();
+        let config_clone = config.clone();
+        let stop_signal_clone = stop_signal.clone();
+        Some(
+            thread::Builder::new()
+                .name("puls-collector".to_string())
+                .spawn(move || {
+                    data_collection_loop(app_state_clone, data_collector_clone, config_clone, stop_signal_clone);
+                })?,
+        )
+    } else {
+        None
+    };
 
     let result = ui_loop(&mut terminal, app_state, data_collector, &config);
 
@@ -116,7 +144,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cvar.notify_all();
         }
     }
-    let _ = collector_handle.join();
+    if let Some(handle) = collector_handle {
+        let _ = handle.join();
+    }
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
@@ -728,7 +758,45 @@ fn handle_key_event(
             }
         }
 
-        KeyCode::Char('p') | KeyCode::Char('P') if state.active_tab != 11 => {
+        KeyCode::Char('>') if !state.replay_frames.is_empty() && state.active_tab != 9 && !state.editing_filter => {
+            if state.replay_idx + 1 < state.replay_frames.len() {
+                state.replay_idx += 1;
+                let frames = state.replay_frames.clone();
+                let idx = state.replay_idx;
+                snapshot::apply_replay_frame(&mut state, &frames, idx);
+            }
+        }
+
+        KeyCode::Char('<') if !state.replay_frames.is_empty() && state.active_tab != 9 && !state.editing_filter => {
+            if state.replay_idx > 0 {
+                state.replay_idx -= 1;
+                let frames = state.replay_frames.clone();
+                let idx = state.replay_idx;
+                snapshot::apply_replay_frame(&mut state, &frames, idx);
+            }
+        }
+
+        KeyCode::Char('E') if !state.editing_filter && state.editing_config.is_none() && state.editing_service.is_none() => {
+            let ts = crate::utils::format_timestamp(crate::utils::current_timestamp() as i64, "%Y%m%d_%H%M%S");
+            let filename = format!("puls_snapshot_{}.json", ts);
+            let json = snapshot::render_snapshot_json(&state.system_info, &state.dynamic_data);
+            match std::fs::write(&filename, json) {
+                Ok(_) => {
+                    state.service_status_modal = Some((
+                        "Snapshot Export".to_string(),
+                        format!("Saved telemetry snapshot to:\n\n  {}", filename),
+                    ));
+                }
+                Err(e) => {
+                    state.service_status_modal = Some((
+                        "Snapshot Export Error".to_string(),
+                        format!("Failed to write {}: {}", filename, e),
+                    ));
+                }
+            }
+        }
+
+        KeyCode::Char('p') | KeyCode::Char('P') if state.active_tab != 11 && state.replay_frames.is_empty() => {
             state.paused = !state.paused;
         }
         
@@ -1753,10 +1821,50 @@ fn wait_or_stop(stop_signal: &(Mutex<bool>, Condvar), duration: Duration) -> boo
     *guard
 }
 
+fn run_headless_snapshot(config: &AppConfig, target: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut collector = DataCollector::new(config.clone());
+    let system_info = collector.get_system_info();
+    let first = collector.collect_data(
+        None,
+        false,
+        "",
+        &ProcessSortBy::Cpu,
+        false,
+        false,
+        types::GlobalUsage::default(),
+        0,
+    );
+    thread::sleep(Duration::from_millis(120));
+    let second = collector.collect_data(
+        None,
+        false,
+        "",
+        &ProcessSortBy::Cpu,
+        false,
+        false,
+        first.global_usage,
+        0,
+    );
+
+    let output = if target.ends_with(".md") {
+        snapshot::render_snapshot_markdown(&system_info, &second)
+    } else {
+        snapshot::render_snapshot_json(&system_info, &second)
+    };
+
+    if target.is_empty() {
+        print!("{}", output);
+    } else {
+        std::fs::write(target, output)?;
+        println!("Snapshot written to {}", target);
+    }
+    Ok(())
+}
+
 fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
-    _config: AppConfig,
+    config: AppConfig,
     stop_signal: Arc<(Mutex<bool>, Condvar)>,
 ) {
     let mut prev_global_usage = types::GlobalUsage::default();
@@ -1809,6 +1917,12 @@ fn data_collection_loop(
         };
         
         prev_global_usage = new_data.global_usage.clone();
+
+        if let Some(ref rec_path) = config.record_path {
+            if let Err(e) = snapshot::append_flight_frame(std::path::Path::new(rec_path), &new_data) {
+                crate::puls_warn!("Flight recorder write error: {}", e);
+            }
+        }
         
         {
             let mut state = app_state.lock().unwrap();

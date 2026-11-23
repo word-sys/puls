@@ -15,6 +15,9 @@ pub struct Cli {
     pub tr: bool,
     pub verbose: bool,
     pub telemetry: bool,
+    pub snapshot: Option<String>,
+    pub record: Option<String>,
+    pub replay: Option<String>,
 }
 
 impl Cli {
@@ -32,6 +35,9 @@ impl Cli {
             tr: false,
             verbose: false,
             telemetry: false,
+            snapshot: None,
+            record: None,
+            replay: None,
         };
 
         let args: Vec<String> = std::env::args().collect();
@@ -55,6 +61,9 @@ impl Cli {
                     println!("  --tr                 Shortcut for Turkish language");
                     println!("  -v, --verbose        Enable verbose stderr error logging");
                     println!("  --telemetry          Show initialization telemetry");
+                    println!("  --snapshot [PATH]    Capture single telemetry snapshot (stdout JSON, or .json/.md file) and exit");
+                    println!("  --record <FILE>      Record telemetry frames to a JSONL flight log");
+                    println!("  --replay <FILE>      Replay a recorded JSONL flight log offline");
                     println!("  -h, --help           Print help information");
                     std::process::exit(0);
                 }
@@ -106,6 +115,26 @@ impl Cli {
                 }
                 "--telemetry" => {
                     cli.telemetry = true;
+                }
+                "--snapshot" => {
+                    if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                        i += 1;
+                        cli.snapshot = Some(args[i].clone());
+                    } else {
+                        cli.snapshot = Some(String::new());
+                    }
+                }
+                "--record" => {
+                    if i + 1 < args.len() {
+                        i += 1;
+                        cli.record = Some(args[i].clone());
+                    }
+                }
+                "--replay" => {
+                    if i + 1 < args.len() {
+                        i += 1;
+                        cli.replay = Some(args[i].clone());
+                    }
                 }
                 other if other.starts_with('-') && !other.starts_with("--") => {
                     for c in other.chars().skip(1) {
@@ -262,6 +291,8 @@ impl From<Cli> for AppConfig {
             temp_unit_fahrenheit,
             default_tab,
             process_tree_view,
+            record_path: cli.record,
+            replay_path: cli.replay,
         }
     }
 }
@@ -291,6 +322,8 @@ impl Default for AppConfig {
             temp_unit_fahrenheit: false,
             default_tab: 0,
             process_tree_view: false,
+            record_path: None,
+            replay_path: None,
         }
     }
 }

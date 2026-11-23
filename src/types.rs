@@ -490,6 +490,9 @@ pub struct AppState {
     pub temp_unit_fahrenheit: bool,
     pub default_tab: usize,
     pub refresh_rate_ms: u64,
+    pub replay_status: Option<String>,
+    pub replay_frames: Vec<crate::snapshot::FlightFrame>,
+    pub replay_idx: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -611,4 +614,6 @@ pub struct AppConfig {
     pub temp_unit_fahrenheit: bool,
     pub default_tab: usize,
     pub process_tree_view: bool,
+    pub record_path: Option<String>,
+    pub replay_path: Option<String>,
 }
