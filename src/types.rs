@@ -475,6 +475,9 @@ pub struct AppState {
     pub timers: Vec<SystemTimerInfo>,
     pub timers_loaded: bool,
     pub timers_table_state: TableState,
+    pub boot_blame: Vec<BootBlameEntry>,
+    pub boot_blame_table_state: TableState,
+    pub user_services_mode: bool,
     pub services_subtab: usize,
     pub user_sessions: Vec<UserSessionInfo>,
     pub user_sessions_loaded: bool,
@@ -525,6 +528,12 @@ pub struct SystemTimerInfo {
     pub passed: String,
     pub unit: String,
     pub activates: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BootBlameEntry {
+    pub duration: String,
+    pub unit: String,
 }
 
 #[derive(Clone, Debug, Default)]

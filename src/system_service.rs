@@ -1,21 +1,40 @@
 use std::process::Command;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
 use crate::sys::ffi;
-use crate::types::{ServiceInfo, LogEntry, ConfigItem, SystemTimerInfo, UserSessionInfo};
+use crate::sys::unix_http::JsonValue;
+use crate::types::{BootBlameEntry, ServiceInfo, LogEntry, ConfigItem, SystemTimerInfo, UserSessionInfo};
 
 pub struct SystemManager {
     has_sudo: bool,
+    user_scope: bool,
 }
 
 impl SystemManager {
     pub fn new() -> Self {
         let has_sudo = Self::check_sudo();
-        SystemManager { has_sudo }
+        SystemManager { has_sudo, user_scope: false }
+    }
+
+    pub fn with_user_scope(user_scope: bool) -> Self {
+        let has_sudo = Self::check_sudo();
+        SystemManager { has_sudo, user_scope }
     }
 
     pub fn has_sudo_privileges(&self) -> bool {
         self.has_sudo
+    }
+
+    fn can_manage(&self) -> bool {
+        self.user_scope || self.has_sudo
+    }
+
+    fn systemctl_cmd(&self) -> Command {
+        let mut cmd = Command::new("systemctl");
+        if self.user_scope {
+            cmd.arg("--user");
+        }
+        cmd
     }
 
     fn check_sudo() -> bool {
@@ -27,7 +46,8 @@ impl SystemManager {
         let mut loaded_states = HashMap::new();
         let mut visited_services = HashSet::new();
 
-        if let Ok(output) = Command::new("systemctl")
+        if let Ok(output) = self
+            .systemctl_cmd()
             .args(["list-units", "--type=service", "--all", "--no-pager", "--no-legend", "--full"])
             .output()
         {
@@ -49,7 +69,8 @@ impl SystemManager {
             }
         }
 
-        if let Ok(output) = Command::new("systemctl")
+        if let Ok(output) = self
+            .systemctl_cmd()
             .args(["list-unit-files", "--type=service", "--no-pager", "--no-legend", "--full"])
             .output()
         {
@@ -80,13 +101,14 @@ impl SystemManager {
                     };
 
                     let is_running = status_str == "Running" || status_str == "Starting" || status_str == "Reloading";
+                    let manageable = self.can_manage();
 
                     services.push(ServiceInfo {
                         name: name.replace(".service", ""),
                         status: status_str,
                         enabled: is_enabled,
-                        can_start: !is_running && self.has_sudo,
-                        can_stop: is_running && self.has_sudo,
+                        can_start: !is_running && manageable,
+                        can_stop: is_running && manageable,
                     });
                 }
             }
@@ -100,13 +122,14 @@ impl SystemManager {
                  
                  let status_str = if active == "active" { "Running" } else { "Stopped" };
                  let is_running = status_str == "Running";
+                 let manageable = self.can_manage();
                  
                  services.push(ServiceInfo {
                      name: name.replace(".service", ""),
                      status: status_str.to_string(),
                      enabled: false,
-                     can_start: !is_running && self.has_sudo,
-                     can_stop: is_running && self.has_sudo,
+                     can_start: !is_running && manageable,
+                     can_stop: is_running && manageable,
                  });
             }
         }
@@ -117,11 +140,12 @@ impl SystemManager {
     }
 
     pub fn start_service(&self, service_name: &str) -> Result<(), String> {
-        if !self.has_sudo {
+        if !self.can_manage() {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["start", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
@@ -134,11 +158,12 @@ impl SystemManager {
     }
 
     pub fn stop_service(&self, service_name: &str) -> Result<(), String> {
-        if !self.has_sudo {
+        if !self.can_manage() {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["stop", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
@@ -151,11 +176,12 @@ impl SystemManager {
     }
 
     pub fn restart_service(&self, service_name: &str) -> Result<(), String> {
-        if !self.has_sudo {
+        if !self.can_manage() {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["restart", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
@@ -168,11 +194,12 @@ impl SystemManager {
     }
 
     pub fn enable_service(&self, service_name: &str) -> Result<(), String> {
-        if !self.has_sudo {
+        if !self.can_manage() {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["enable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
@@ -185,11 +212,12 @@ impl SystemManager {
     }
 
     pub fn disable_service(&self, service_name: &str) -> Result<(), String> {
-        if !self.has_sudo {
+        if !self.can_manage() {
             return Err("Insufficient privileges (root required)".to_string());
         }
 
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["disable", &format!("{}.service", service_name)])
             .output()
             .map_err(|e| e.to_string())?;
@@ -202,7 +230,8 @@ impl SystemManager {
     }
 
     pub fn get_service_status(&self, service_name: &str) -> String {
-        let output = Command::new("systemctl")
+        let output = self
+            .systemctl_cmd()
             .args(["status", &format!("{}.service", service_name), "--no-pager"])
             .output();
 
@@ -219,8 +248,42 @@ impl SystemManager {
         }
     }
 
+    pub fn get_service_unit_file(&self, service_name: &str) -> String {
+        let unit_file = format!("{}.service", service_name);
+        let mut search_dirs: Vec<PathBuf> = Vec::new();
+        if self.user_scope {
+            if let Ok(home) = std::env::var("HOME") {
+                search_dirs.push(PathBuf::from(&home).join(".config/systemd/user"));
+            }
+            search_dirs.push(PathBuf::from("/etc/systemd/user"));
+            search_dirs.push(PathBuf::from("/usr/lib/systemd/user"));
+        } else {
+            search_dirs.push(PathBuf::from("/etc/systemd/system"));
+            search_dirs.push(PathBuf::from("/run/systemd/system"));
+            search_dirs.push(PathBuf::from("/usr/lib/systemd/system"));
+            search_dirs.push(PathBuf::from("/lib/systemd/system"));
+        }
+
+        for dir in search_dirs {
+            let candidate = dir.join(&unit_file);
+            if let Ok(content) = std::fs::read_to_string(&candidate) {
+                return format!("# {}\n\n{}", candidate.display(), content);
+            }
+        }
+
+        match self.systemctl_cmd().args(["cat", &unit_file, "--no-pager"]).output() {
+            Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+            Ok(out) => String::from_utf8_lossy(&out.stderr).into_owned(),
+            Err(e) => format!("Unit file not found: {}", e),
+        }
+    }
+
     pub fn get_service_logs(&self, service_name: &str) -> String {
-        let output = Command::new("journalctl")
+        let mut cmd = Command::new("journalctl");
+        if self.user_scope {
+            cmd.arg("--user");
+        }
+        let output = cmd
             .args(["-u", &format!("{}.service", service_name), "-n", "50", "--no-pager"])
             .output();
 
@@ -240,6 +303,21 @@ impl SystemManager {
             }
             Err(e) => format!("Error getting service logs: {}", e),
         }
+    }
+
+    pub fn get_boot_blame(&self) -> Vec<BootBlameEntry> {
+        let mut cmd = Command::new("systemd-analyze");
+        if self.user_scope {
+            cmd.arg("--user");
+        }
+        cmd.args(["blame", "--no-pager"]);
+        let Ok(out) = cmd.output() else {
+            return Vec::new();
+        };
+        if !out.status.success() {
+            return Vec::new();
+        }
+        parse_boot_blame(&String::from_utf8_lossy(&out.stdout))
     }
 
     pub fn get_boots(&self) -> Vec<crate::types::BootInfo> {
@@ -272,61 +350,67 @@ impl SystemManager {
     }
 
     pub fn get_logs(&self, limit: usize, filter: Option<&str>, boot_id: Option<&str>) -> Vec<LogEntry> {
-        let mut logs = Vec::new();
-
-        let mut args = vec![
-            "--no-pager".to_string(),
-            "--output=short".to_string(),
-        ];
+        let mut base_args = vec!["--no-pager".to_string()];
 
         if limit > 0 {
-            args.push("--lines".to_string());
-            args.push(limit.to_string());
+            base_args.push("--lines".to_string());
+            base_args.push(limit.to_string());
         }
 
         if let Some(f) = filter {
             if !f.is_empty() {
-                args.push(format!("--grep={}", f));
+                base_args.push(format!("--grep={}", f));
             }
         }
         
         if let Some(bid) = boot_id {
-            args.push(format!("--boot={}", bid));
+            base_args.push(format!("--boot={}", bid));
         } else {
-            args.push("--boot=0".to_string());
+            base_args.push("--boot=0".to_string());
         }
 
-        let output = match Command::new("journalctl")
-            .args(&args)
-            .output()
-        {
+        let mut json_args = base_args.clone();
+        json_args.push("--output=json".to_string());
+        if let Ok(output) = Command::new("journalctl").args(&json_args).output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let parsed: Vec<LogEntry> = stdout
+                    .lines()
+                    .filter_map(parse_journal_json_line)
+                    .collect();
+                if !parsed.is_empty() {
+                    return parsed;
+                }
+            }
+        }
+
+        let mut short_args = base_args;
+        short_args.push("--output=short".to_string());
+        let mut logs = Vec::new();
+        let output = match Command::new("journalctl").args(&short_args).output() {
             Ok(output) => output,
             Err(_) => return logs,
         };
-        
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-
         for line in stdout.lines() {
             let parts: Vec<&str> = line.splitn(4, ' ').collect();
-
             if parts.len() >= 3 {
                 let timestamp = format!("{} {}", parts.first().unwrap_or(&""), parts.get(1).unwrap_or(&""));
                 let service_and_msg = parts.get(3).unwrap_or(&"");
                 let (service, message) = if let Some(colon_pos) = service_and_msg.find(':') {
                     let svc = &service_and_msg[..colon_pos];
-                    let msg = &service_and_msg[colon_pos + 1..].trim();
+                    let msg = service_and_msg[colon_pos + 1..].trim();
                     (svc.to_string(), msg.to_string())
                 } else {
                     (service_and_msg.to_string(), String::new())
                 };
 
-                let level = if message.to_uppercase().contains("ERROR") {
+                let upper = message.to_uppercase();
+                let level = if upper.contains("ERROR") || upper.contains("FAIL") {
                     "ERROR"
-                } else if message.to_uppercase().contains("WARN") {
+                } else if upper.contains("WARN") {
                     "WARNING"
-                } else if message.to_uppercase().contains("FAIL") || message.to_uppercase().contains("FAILED") {
-                    "ERROR"
                 } else {
                     "INFO"
                 };
@@ -531,7 +615,8 @@ impl SystemManager {
 
     pub fn get_systemd_timers(&self) -> Vec<SystemTimerInfo> {
         let mut timers = Vec::new();
-        if let Ok(output) = Command::new("systemctl")
+        if let Ok(output) = self
+            .systemctl_cmd()
             .args(["list-timers", "--no-pager", "--no-legend", "--full"])
             .output()
         {
@@ -562,6 +647,86 @@ impl SystemManager {
         }
         sessions
     }
+}
+
+pub fn parse_journal_priority(code: &str) -> &'static str {
+    match code.trim() {
+        "0" => "EMERG",
+        "1" => "ALERT",
+        "2" => "CRIT",
+        "3" => "ERROR",
+        "4" => "WARNING",
+        "5" => "NOTICE",
+        "6" => "INFO",
+        "7" => "DEBUG",
+        _ => "INFO",
+    }
+}
+
+pub fn parse_journal_json_line(line: &str) -> Option<LogEntry> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let val = JsonValue::parse(trimmed).ok()?;
+
+    let timestamp = val
+        .get("__REALTIME_TIMESTAMP")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .map(|usec| crate::utils::format_timestamp(usec / 1_000_000, "%b %d %H:%M:%S"))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let level = val
+        .get("PRIORITY")
+        .and_then(|v| v.as_str())
+        .map(parse_journal_priority)
+        .unwrap_or("INFO")
+        .to_string();
+
+    let service = val
+        .get("SYSLOG_IDENTIFIER")
+        .and_then(|v| v.as_str())
+        .or_else(|| val.get("_SYSTEMD_UNIT").and_then(|v| v.as_str()))
+        .or_else(|| val.get("_COMM").and_then(|v| v.as_str()))
+        .unwrap_or("systemd")
+        .to_string();
+
+    let message = match val.get("MESSAGE") {
+        Some(JsonValue::String(s)) => s.clone(),
+        Some(JsonValue::Array(arr)) => {
+            let bytes: Vec<u8> = arr
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect();
+            String::from_utf8_lossy(&bytes).into_owned()
+        }
+        _ => String::new(),
+    };
+
+    Some(LogEntry {
+        timestamp,
+        level,
+        service,
+        message,
+    })
+}
+
+pub fn parse_boot_blame(content: &str) -> Vec<BootBlameEntry> {
+    let mut entries = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+        if tokens.len() >= 2 {
+            let unit = tokens[tokens.len() - 1].to_string();
+            let duration = tokens[..tokens.len() - 1].join(" ");
+            entries.push(BootBlameEntry { duration, unit });
+        }
+    }
+    entries
 }
 
 pub fn parse_systemd_timer_line(line: &str) -> Option<SystemTimerInfo> {
@@ -702,5 +867,25 @@ mod tests {
         assert_eq!(session2.line, "pts/1");
         assert_eq!(session2.login_time, "2026-09-19 10:15");
         assert_eq!(session2.host, "192.168.1.100");
+    }
+
+    #[test]
+    fn test_parse_journal_json_and_boot_blame() {
+        let line = r#"{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"3","SYSLOG_IDENTIFIER":"sshd","MESSAGE":"Failed password for root"}"#;
+        let entry = parse_journal_json_line(line).expect("parse journal json failed");
+        assert_eq!(entry.level, "ERROR");
+        assert_eq!(entry.service, "sshd");
+        assert_eq!(entry.message, "Failed password for root");
+
+        let warn_line = r#"{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"docker.service","MESSAGE":"Daemon slow"}"#;
+        let warn_entry = parse_journal_json_line(warn_line).expect("parse warn json failed");
+        assert_eq!(warn_entry.level, "WARNING");
+        assert_eq!(warn_entry.service, "docker.service");
+
+        let blame_txt = "  2.415s NetworkManager-wait-online.service\n  842ms snapd.service\n  120ms systemd-udev-trigger.service\n";
+        let blame = parse_boot_blame(blame_txt);
+        assert_eq!(blame.len(), 3);
+        assert_eq!(blame[0].duration, "2.415s");
+        assert_eq!(blame[0].unit, "NetworkManager-wait-online.service");
     }
 }

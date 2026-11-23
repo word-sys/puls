@@ -147,14 +147,13 @@ fn check_and_load_lazy_data(state: &mut AppState) {
     }
 
     if state.active_tab == 8 && !state.services_loaded {
-        state.services = sys_mgr.get_services();
-        if !state.services.is_empty() {
-            state.services_table_state.select(Some(0));
-        }
-        state.timers = sys_mgr.get_systemd_timers();
-        if !state.timers.is_empty() {
-            state.timers_table_state.select(Some(0));
-        }
+        let svc_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
+        state.services = svc_mgr.get_services();
+        state.services_table_state.select(if state.services.is_empty() { None } else { Some(0) });
+        state.timers = svc_mgr.get_systemd_timers();
+        state.timers_table_state.select(if state.timers.is_empty() { None } else { Some(0) });
+        state.boot_blame = svc_mgr.get_boot_blame();
+        state.boot_blame_table_state.select(if state.boot_blame.is_empty() { None } else { Some(0) });
         state.services_loaded = true;
         state.timers_loaded = true;
     }
@@ -625,7 +624,7 @@ fn handle_key_event(
         KeyCode::Char('l') if state.active_tab == 8 && state.service_status_modal.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    let sys_mgr = system_service::SystemManager::new();
+                    let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                     let status = sys_mgr.get_service_status(&service.name);
                     state.service_status_modal = Some((service.name.clone(), status));
                 }
@@ -635,11 +634,27 @@ fn handle_key_event(
         KeyCode::Char('g') if state.active_tab == 8 && state.service_status_modal.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    let sys_mgr = system_service::SystemManager::new();
+                    let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                     let logs = sys_mgr.get_service_logs(&service.name);
                     state.service_status_modal = Some((format!("Logs: {}", service.name), logs));
                 }
             }
+        }
+
+        KeyCode::Char('v') if state.active_tab == 8 && state.services_subtab == 0 && state.service_status_modal.is_none() => {
+            if let Some(idx) = state.services_table_state.selected() {
+                if let Some(service) = state.services.get(idx) {
+                    let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
+                    let unit_text = sys_mgr.get_service_unit_file(&service.name);
+                    state.service_status_modal = Some((format!("Unit: {}.service", service.name), unit_text));
+                }
+            }
+        }
+
+        KeyCode::Char('u') if state.active_tab == 8 && state.pending_service_action.is_none() && state.service_status_modal.is_none() => {
+            state.user_services_mode = !state.user_services_mode;
+            state.services_loaded = false;
+            state.timers_loaded = false;
         }
 
         KeyCode::Char('/') if state.active_tab == 9 && !state.editing_filter => {
@@ -986,7 +1001,7 @@ fn handle_key_event(
 
         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if state.pending_service_action.is_some() => {
              if let Some((action, service_name)) = state.pending_service_action.take() {
-                let sys_mgr = system_service::SystemManager::new();
+                let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                 let result = match action.as_str() {
                     "stop" => sys_mgr.stop_service(&service_name),
                     _ => Ok(()),
@@ -1047,67 +1062,110 @@ fn handle_key_event(
             state.pending_container_action = None;
         }
         
-        KeyCode::Left | KeyCode::Right if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            state.services_subtab = (state.services_subtab + 1) % 2;
+        KeyCode::Left if state.active_tab == 8 && state.pending_service_action.is_none() => {
+            state.services_subtab = (state.services_subtab + 2) % 3;
+        }
+        KeyCode::Right if state.active_tab == 8 && state.pending_service_action.is_none() => {
+            state.services_subtab = (state.services_subtab + 1) % 3;
         }
 
         KeyCode::Down if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            if state.services_subtab == 0 {
-                let len = state.services.len();
-                if len > 0 {
-                    let current = state.services_table_state.selected().unwrap_or(0);
-                    state.services_table_state.select(Some((current + 1) % len));
+            match state.services_subtab {
+                0 => {
+                    let len = state.services.len();
+                    if len > 0 {
+                        let current = state.services_table_state.selected().unwrap_or(0);
+                        state.services_table_state.select(Some((current + 1) % len));
+                    }
                 }
-            } else {
-                let len = state.timers.len();
-                if len > 0 {
-                    let current = state.timers_table_state.selected().unwrap_or(0);
-                    state.timers_table_state.select(Some((current + 1) % len));
+                1 => {
+                    let len = state.timers.len();
+                    if len > 0 {
+                        let current = state.timers_table_state.selected().unwrap_or(0);
+                        state.timers_table_state.select(Some((current + 1) % len));
+                    }
+                }
+                _ => {
+                    let len = state.boot_blame.len();
+                    if len > 0 {
+                        let current = state.boot_blame_table_state.selected().unwrap_or(0);
+                        state.boot_blame_table_state.select(Some((current + 1) % len));
+                    }
                 }
             }
         }
         KeyCode::Up if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            if state.services_subtab == 0 {
-                let len = state.services.len();
-                if len > 0 {
-                    let current = state.services_table_state.selected().unwrap_or(0);
-                    state.services_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+            match state.services_subtab {
+                0 => {
+                    let len = state.services.len();
+                    if len > 0 {
+                        let current = state.services_table_state.selected().unwrap_or(0);
+                        state.services_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                    }
                 }
-            } else {
-                let len = state.timers.len();
-                if len > 0 {
-                    let current = state.timers_table_state.selected().unwrap_or(0);
-                    state.timers_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                1 => {
+                    let len = state.timers.len();
+                    if len > 0 {
+                        let current = state.timers_table_state.selected().unwrap_or(0);
+                        state.timers_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                    }
+                }
+                _ => {
+                    let len = state.boot_blame.len();
+                    if len > 0 {
+                        let current = state.boot_blame_table_state.selected().unwrap_or(0);
+                        state.boot_blame_table_state.select(Some(if current == 0 { len - 1 } else { current - 1 }));
+                    }
                 }
             }
         }
         KeyCode::PageDown if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            if state.services_subtab == 0 {
-                let len = state.services.len();
-                if len > 0 {
-                    let current = state.services_table_state.selected().unwrap_or(0);
-                    state.services_table_state.select(Some((current + 10).min(len - 1)));
+            match state.services_subtab {
+                0 => {
+                    let len = state.services.len();
+                    if len > 0 {
+                        let current = state.services_table_state.selected().unwrap_or(0);
+                        state.services_table_state.select(Some((current + 10).min(len - 1)));
+                    }
                 }
-            } else {
-                let len = state.timers.len();
-                if len > 0 {
-                    let current = state.timers_table_state.selected().unwrap_or(0);
-                    state.timers_table_state.select(Some((current + 10).min(len - 1)));
+                1 => {
+                    let len = state.timers.len();
+                    if len > 0 {
+                        let current = state.timers_table_state.selected().unwrap_or(0);
+                        state.timers_table_state.select(Some((current + 10).min(len - 1)));
+                    }
+                }
+                _ => {
+                    let len = state.boot_blame.len();
+                    if len > 0 {
+                        let current = state.boot_blame_table_state.selected().unwrap_or(0);
+                        state.boot_blame_table_state.select(Some((current + 10).min(len - 1)));
+                    }
                 }
             }
         }
         KeyCode::PageUp if state.active_tab == 8 && state.pending_service_action.is_none() => {
-            if state.services_subtab == 0 {
-                let len = state.services.len();
-                if len > 0 {
-                    let current = state.services_table_state.selected().unwrap_or(0);
-                    state.services_table_state.select(Some(current.saturating_sub(10)));
+            match state.services_subtab {
+                0 => {
+                    let len = state.services.len();
+                    if len > 0 {
+                        let current = state.services_table_state.selected().unwrap_or(0);
+                        state.services_table_state.select(Some(current.saturating_sub(10)));
+                    }
                 }
-            } else {
-                let len = state.timers.len();
-                if len > 0 {
-                    let current = state.timers_table_state.selected().unwrap_or(0);
-                    state.timers_table_state.select(Some(current.saturating_sub(10)));
+                1 => {
+                    let len = state.timers.len();
+                    if len > 0 {
+                        let current = state.timers_table_state.selected().unwrap_or(0);
+                        state.timers_table_state.select(Some(current.saturating_sub(10)));
+                    }
+                }
+                _ => {
+                    let len = state.boot_blame.len();
+                    if len > 0 {
+                        let current = state.boot_blame_table_state.selected().unwrap_or(0);
+                        state.boot_blame_table_state.select(Some(current.saturating_sub(10)));
+                    }
                 }
             }
         }
@@ -1177,8 +1235,8 @@ fn handle_key_event(
         KeyCode::Char('s') if state.active_tab == 8 && state.editing_service.is_none() && state.pending_service_action.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    if service.can_start && state.has_sudo {
-                        let sys_mgr = system_service::SystemManager::new();
+                    if service.can_start && (state.has_sudo || state.user_services_mode) {
+                        let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                         let service_name = service.name.clone();
                         match sys_mgr.start_service(&service_name) {
                             Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Started {}", service_name))),
@@ -1193,7 +1251,7 @@ fn handle_key_event(
         KeyCode::Char('x') if state.active_tab == 8 && state.editing_service.is_none() && state.pending_service_action.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    if service.can_stop && state.has_sudo {
+                    if service.can_stop && (state.has_sudo || state.user_services_mode) {
                         state.pending_service_action = Some(("stop".to_string(), service.name.clone()));
                     }
                 }
@@ -1203,8 +1261,8 @@ fn handle_key_event(
         KeyCode::Char('r') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    if state.has_sudo {
-                        let sys_mgr = system_service::SystemManager::new();
+                    if state.has_sudo || state.user_services_mode {
+                        let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                         let service_name = service.name.clone();
                         match sys_mgr.restart_service(&service_name) {
                             Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Restarted {}", service_name))),
@@ -1256,8 +1314,8 @@ fn handle_key_event(
         KeyCode::Char('+') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    if state.has_sudo {
-                         let sys_mgr = system_service::SystemManager::new();
+                    if state.has_sudo || state.user_services_mode {
+                         let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                          let service_name = service.name.clone();
                          match sys_mgr.enable_service(&service_name) {
                              Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Enabled {}", service_name))),
@@ -1272,8 +1330,8 @@ fn handle_key_event(
         KeyCode::Char('_') if state.active_tab == 8 && state.editing_service.is_none() => {
             if let Some(idx) = state.services_table_state.selected() {
                 if let Some(service) = state.services.get(idx) {
-                    if state.has_sudo {
-                         let sys_mgr = system_service::SystemManager::new();
+                    if state.has_sudo || state.user_services_mode {
+                         let sys_mgr = system_service::SystemManager::with_user_scope(state.user_services_mode);
                          let service_name = service.name.clone();
                          match sys_mgr.disable_service(&service_name) {
                              Ok(_) => state.service_status_modal = Some(("Success".to_string(), format!("Disabled {}", service_name))),

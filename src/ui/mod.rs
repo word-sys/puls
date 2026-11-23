@@ -3519,21 +3519,31 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
 
     let services_count = state.services.len();
     let timers_count = state.timers.len();
+    let blame_count = state.boot_blame.len();
+
+    let scope_badge = if state.user_services_mode { "USER" } else { "SYSTEM" };
+    let can_manage = state.has_sudo || state.user_services_mode;
 
     let subtab_1 = translator.t("services.subtab_services").replacen("{}", &services_count.to_string(), 1);
     let subtab_2 = translator.t("services.subtab_timers").replacen("{}", &timers_count.to_string(), 1);
+    let subtab_3 = format!("Boot Blame ({})", blame_count);
     let subtab_titles = vec![
         format!(" {} ", subtab_1),
         format!(" {} ", subtab_2),
+        format!(" {} ", subtab_3),
     ];
     let tabs = Tabs::new(subtab_titles)
-        .select(state.services_subtab)
+        .select(state.services_subtab.min(2))
         .style(Style::default().fg(theme.text_secondary))
         .highlight_style(Style::default().fg(theme.highlight).bg(theme.border).add_modifier(Modifier::BOLD))
         .divider("│")
         .block(
             Block::default()
-                .title(format!(" {} ", translator.t("services.subtab_title")))
+                .title(format!(" {} [{}] ", translator.t("services.subtab_title"), scope_badge))
+                .title(
+                    ratatui::widgets::block::Title::from(" [u: System/User | v: Unit File | Left/Right: Subtab] ")
+                        .alignment(Alignment::Right),
+                )
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
                 .border_style(Style::default().fg(theme.primary))
@@ -3567,15 +3577,15 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
         
         let rows = services.iter().enumerate().map(|(i, s)| {
             let enabled = if s.enabled { "[+]" } else { "[-]" };
-            let name_display = if state.has_sudo {
+            let name_display = if can_manage {
                 s.name.clone()
             } else {
                 format!("{} [RO]", s.name)
             };
             
-            let style = if state.editing_service == Some(i) && state.has_sudo {
+            let style = if state.editing_service == Some(i) && can_manage {
                 Style::default().bg(theme.secondary).fg(theme.text)
-            } else if !state.has_sudo {
+            } else if !can_manage {
                 Style::default().fg(theme.text_secondary)
             } else {
                 Style::default().fg(theme.text)
@@ -3591,7 +3601,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
         let table = Table::new(
             rows,
             [
-                Constraint::Length(28),
+                Constraint::Length(34),
                 Constraint::Length(16),
                 Constraint::Length(12),
             ]
@@ -3603,14 +3613,14 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
         .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
         .block(
             Block::default()
-                .title(if state.has_sudo {
-                    translator.t("title.services")
+                .title(if can_manage {
+                    format!(" {} [{}] ", translator.t("title.services"), scope_badge)
                 } else {
-                    format!("{} {}", translator.t("title.services"), translator.t("modal.read_only"))
+                    format!(" {} [{}] {} ", translator.t("title.services"), scope_badge, translator.t("modal.read_only"))
                 })
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(if state.has_sudo {
+                .border_style(if can_manage {
                     Style::default().fg(theme.border)
                 } else {
                     Style::default().fg(theme.text_secondary)
@@ -3619,7 +3629,7 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
         
         let mut service_state = state.services_table_state.clone();
         f.render_stateful_widget(table, chunks[1], &mut service_state);
-    } else {
+    } else if state.services_subtab == 1 {
         let timers = &state.timers;
         if timers.is_empty() {
             let msg = if state.timers_loaded {
@@ -3689,6 +3699,50 @@ fn render_services_tab(f: &mut Frame, state: &AppState, area: Rect, translator: 
 
         let mut timers_state = state.timers_table_state.clone();
         f.render_stateful_widget(table, chunks[1], &mut timers_state);
+    } else {
+        let blame = &state.boot_blame;
+        if blame.is_empty() {
+            let paragraph = Paragraph::new("No boot blame timing available (systemd-analyze blame).")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(theme.text_secondary))
+                .block(Block::default()
+                    .title(format!(" Boot Blame [{}] ", scope_badge))
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.border)));
+            f.render_widget(paragraph, chunks[1]);
+            return;
+        }
+
+        let headers = vec![Cell::from("Startup Time"), Cell::from("Systemd Unit")];
+        let rows = blame.iter().map(|b| {
+            let style = if b.duration.contains("min") || b.duration.ends_with('s') && !b.duration.ends_with("ms") {
+                Style::default().fg(theme.warning)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            Row::new(vec![b.duration.clone(), b.unit.clone()]).style(style)
+        });
+
+        let table = Table::new(
+            rows,
+            [Constraint::Length(18), Constraint::Min(30)],
+        )
+        .header(
+            Row::new(headers)
+                .style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))
+        )
+        .highlight_style(Style::default().bg(theme.border).fg(theme.highlight).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .title(format!(" Boot Blame [{}] ({}) ", scope_badge, blame.len()))
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(theme.border))
+        );
+
+        let mut blame_state = state.boot_blame_table_state.clone();
+        f.render_stateful_widget(table, chunks[1], &mut blame_state);
     }
 }
 
@@ -3788,8 +3842,9 @@ fn render_logs_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tra
     
     let rows = logs.iter().map(|l| {
         let level_color = match l.level.as_str() {
-            "ERROR" => theme.error,
+            "EMERG" | "ALERT" | "CRIT" | "ERROR" => theme.error,
             "WARNING" => theme.warning,
+            "NOTICE" => theme.accent,
             "INFO" => theme.success,
             "DEBUG" => theme.text_secondary,
             _ => theme.text,
