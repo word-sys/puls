@@ -92,16 +92,12 @@ pub fn get_socket_process_map() -> HashMap<u64, (u32, String)> {
     map
 }
 
-pub fn parse_socket_file(
-    path: &str,
+pub fn parse_socket_content(
+    content: &str,
     protocol: SocketProtocol,
     proc_map: &HashMap<u64, (u32, String)>,
 ) -> Vec<SocketInfo> {
     let mut sockets = Vec::new();
-    let Ok(content) = fs::read_to_string(path) else {
-        return sockets;
-    };
-
     let is_ipv6 = matches!(protocol, SocketProtocol::Tcp6 | SocketProtocol::Udp6);
     let is_udp = matches!(protocol, SocketProtocol::Udp | SocketProtocol::Udp6);
 
@@ -111,12 +107,10 @@ pub fn parse_socket_file(
             continue;
         }
 
-        // Local address and port
         let mut local_parts = parts[1].split(':');
         let local_addr_hex = local_parts.next().unwrap_or("");
         let local_port_hex = local_parts.next().unwrap_or("");
 
-        // Remote address and port
         let mut rem_parts = parts[2].split(':');
         let rem_addr_hex = rem_parts.next().unwrap_or("");
         let rem_port_hex = rem_parts.next().unwrap_or("");
@@ -143,6 +137,18 @@ pub fn parse_socket_file(
             tcp_state_name(state_val).to_string()
         };
 
+        let (tx_queue, rx_queue) = parts[4]
+            .split_once(':')
+            .map(|(tx, rx)| {
+                (
+                    u32::from_str_radix(tx, 16).unwrap_or(0),
+                    u32::from_str_radix(rx, 16).unwrap_or(0),
+                )
+            })
+            .unwrap_or((0, 0));
+
+        let retransmits = u32::from_str_radix(parts[6], 16).unwrap_or(0);
+
         let inode = parts[9].parse::<u64>().unwrap_or(0);
         let (pid, process_name) = if inode > 0 {
             if let Some((p, comm)) = proc_map.get(&inode) {
@@ -161,6 +167,9 @@ pub fn parse_socket_file(
             remote_addr,
             remote_port,
             state,
+            tx_queue,
+            rx_queue,
+            retransmits,
             inode,
             pid,
             process_name,
@@ -168,6 +177,40 @@ pub fn parse_socket_file(
     }
 
     sockets
+}
+
+pub fn parse_socket_file(
+    path: &str,
+    protocol: SocketProtocol,
+    proc_map: &HashMap<u64, (u32, String)>,
+) -> Vec<SocketInfo> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    parse_socket_content(&content, protocol, proc_map)
+}
+
+pub fn filter_sockets<'a>(sockets: &'a [SocketInfo], filter: &str) -> Vec<&'a SocketInfo> {
+    let q = filter.trim().to_lowercase();
+    if q.is_empty() {
+        return sockets.iter().collect();
+    }
+    sockets
+        .iter()
+        .filter(|s| {
+            s.protocol.as_str().to_lowercase().contains(&q)
+                || s.local_addr.to_lowercase().contains(&q)
+                || s.local_port.to_string().contains(&q)
+                || s.remote_addr.to_lowercase().contains(&q)
+                || s.remote_port.to_string().contains(&q)
+                || s.state.to_lowercase().contains(&q)
+                || s.pid.map(|p| p.to_string().contains(&q)).unwrap_or(false)
+                || s.process_name
+                    .as_deref()
+                    .map(|n| n.to_lowercase().contains(&q))
+                    .unwrap_or(false)
+        })
+        .collect()
 }
 
 fn socket_state_priority(state: &str) -> u8 {
@@ -239,5 +282,26 @@ mod tests {
         for s in &sockets {
             assert!(!s.local_addr.is_empty());
         }
+    }
+
+    #[test]
+    fn test_parse_socket_queues_retransmits_and_filter() {
+        let sample = "\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0050 0101A8C0:C350 01 00000100:00000400 02:0000000A 00000005  1000        0 55555 1 00000000
+";
+        let mut proc_map = HashMap::new();
+        proc_map.insert(55555u64, (4321u32, "nginx".to_string()));
+        let sockets = parse_socket_content(sample, SocketProtocol::Tcp, &proc_map);
+        assert_eq!(sockets.len(), 1);
+        assert_eq!(sockets[0].local_port, 80);
+        assert_eq!(sockets[0].tx_queue, 256);
+        assert_eq!(sockets[0].rx_queue, 1024);
+        assert_eq!(sockets[0].retransmits, 5);
+        assert_eq!(sockets[0].pid, Some(4321));
+
+        assert_eq!(filter_sockets(&sockets, "nginx").len(), 1);
+        assert_eq!(filter_sockets(&sockets, "80").len(), 1);
+        assert_eq!(filter_sockets(&sockets, "postgres").len(), 0);
     }
 }

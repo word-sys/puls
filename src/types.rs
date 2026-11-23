@@ -242,6 +242,10 @@ pub struct DetailedNetInfo {
     pub packets_rx: u64,
     pub packets_tx: u64,
     pub is_up: bool,
+    pub link_speed_mbps: Option<u32>,
+    pub mtu: Option<u32>,
+    pub wifi_signal_dbm: Option<i32>,
+    pub wifi_quality: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -271,6 +275,9 @@ pub struct SocketInfo {
     pub remote_addr: String,
     pub remote_port: u16,
     pub state: String,
+    pub tx_queue: u32,
+    pub rx_queue: u32,
+    pub retransmits: u32,
     pub inode: u64,
     pub pid: Option<u32>,
     pub process_name: Option<String>,
@@ -464,6 +471,7 @@ pub struct AppState {
     pub process_detail_subtab: usize,
     pub process_detail_scroll: usize,
     pub network_socket_scroll: usize,
+    pub socket_filter: String,
     pub timers: Vec<SystemTimerInfo>,
     pub timers_loaded: bool,
     pub timers_table_state: TableState,

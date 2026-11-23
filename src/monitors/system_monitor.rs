@@ -546,6 +546,7 @@ impl SystemMonitor {
         
         let mut current_net_usage = HashMap::new();
         let net_devs = procfs::read_net_dev();
+        let wifi_map = procfs::read_wireless_info();
         let networks: Vec<DetailedNetInfo> = net_devs
             .into_iter()
             .map(|dev| {
@@ -566,6 +567,8 @@ impl SystemMonitor {
                 );
 
                 let is_up = sysfs::is_net_interface_up(&dev.name);
+                let (link_speed_mbps, mtu) = sysfs::read_net_link_meta(&dev.name);
+                let wifi = wifi_map.get(&dev.name).copied();
                 
                 DetailedNetInfo {
                     name: dev.name,
@@ -576,6 +579,10 @@ impl SystemMonitor {
                     packets_rx: dev.rx_packets,
                     packets_tx: dev.tx_packets,
                     is_up,
+                    link_speed_mbps,
+                    mtu,
+                    wifi_signal_dbm: wifi.map(|w| w.signal_dbm),
+                    wifi_quality: wifi.map(|w| w.quality),
                 }
             })
             .collect();

@@ -300,6 +300,11 @@ fn handle_key_event(
                         state.editing_filter = false;
                         state.edit_buffer.clear();
                         state.process_table_state.select(Some(0));
+                    } else if state.active_tab == 5 {
+                        state.socket_filter = state.edit_buffer.clone();
+                        state.editing_filter = false;
+                        state.edit_buffer.clear();
+                        state.network_socket_scroll = 0;
                     }
                 } else if let Some(idx) = state.editing_config {
                     let new_val = state.edit_buffer.clone();
@@ -533,6 +538,11 @@ fn handle_key_event(
                 state.process_table_state.select(Some(0));
                 return Ok(false);
             }
+            if state.active_tab == 5 && !state.socket_filter.is_empty() {
+                state.socket_filter.clear();
+                state.network_socket_scroll = 0;
+                return Ok(false);
+            }
             return Ok(true);
         }
 
@@ -640,6 +650,11 @@ fn handle_key_event(
         KeyCode::Char('/') if state.active_tab == 1 && !state.editing_filter => {
              state.editing_filter = true;
              state.edit_buffer = state.filter_text.clone();
+        }
+
+        KeyCode::Char('/') if state.active_tab == 5 && !state.editing_filter => {
+             state.editing_filter = true;
+             state.edit_buffer = state.socket_filter.clone();
         }
 
         // Filter and edit keys are now handled in the early is_editing check at the top of handle_key_event
@@ -752,7 +767,7 @@ fn handle_key_event(
         }
 
         KeyCode::Down if state.active_tab == 5 => {
-            let total = state.dynamic_data.sockets.len();
+            let total = crate::monitors::network_sockets::filter_sockets(&state.dynamic_data.sockets, &state.socket_filter).len();
             if total > 0 {
                 state.network_socket_scroll = (state.network_socket_scroll + 1).min(total.saturating_sub(1));
             }
@@ -761,7 +776,7 @@ fn handle_key_event(
             state.network_socket_scroll = state.network_socket_scroll.saturating_sub(1);
         }
         KeyCode::PageDown if state.active_tab == 5 => {
-            let total = state.dynamic_data.sockets.len();
+            let total = crate::monitors::network_sockets::filter_sockets(&state.dynamic_data.sockets, &state.socket_filter).len();
             if total > 0 {
                 state.network_socket_scroll = (state.network_socket_scroll + 15).min(total.saturating_sub(1));
             }
@@ -773,8 +788,19 @@ fn handle_key_event(
             state.network_socket_scroll = 0;
         }
         KeyCode::End if state.active_tab == 5 => {
-            let total = state.dynamic_data.sockets.len();
+            let total = crate::monitors::network_sockets::filter_sockets(&state.dynamic_data.sockets, &state.socket_filter).len();
             state.network_socket_scroll = total.saturating_sub(1);
+        }
+        KeyCode::Enter if state.active_tab == 5 => {
+            let filtered = crate::monitors::network_sockets::filter_sockets(&state.dynamic_data.sockets, &state.socket_filter);
+            if let Some(sock) = filtered.get(state.network_socket_scroll) {
+                if let Some(pid) = sock.pid {
+                    state.active_tab = 1;
+                    state.selected_pid = Some(crate::types::Pid::from(pid));
+                    state.process_detail_subtab = 0;
+                    state.process_detail_scroll = 0;
+                }
+            }
         }
 
         KeyCode::Tab => {

@@ -2613,17 +2613,31 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     
     let networks = &state.dynamic_data.networks;
     let iface_height = ((networks.len() as u16) + 4).clamp(5, 9);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(iface_height), // Interfaces
-            Constraint::Min(6),               // Active Sockets & Connections
-        ])
-        .split(area);
+    let show_filter_bar = state.editing_filter || !state.socket_filter.is_empty();
+    let chunks = if show_filter_bar {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(iface_height),
+                Constraint::Length(3),
+                Constraint::Min(6),
+            ])
+            .split(area)
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(iface_height),
+                Constraint::Min(6),
+            ])
+            .split(area)
+    };
 
     let headers: Vec<Cell> = vec![
         Cell::from(translator.t("network.iface")),
         Cell::from(translator.t("network.status")),
+        Cell::from("Link / Wi-Fi"),
+        Cell::from("MTU"),
         Cell::from(translator.t("network.down_rate")),
         Cell::from(translator.t("network.up_rate")),
         Cell::from(translator.t("network.total_down")),
@@ -2632,9 +2646,28 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     ];
     
     let rows = networks.iter().map(|net| {
+        let link_str = if let Some(dbm) = net.wifi_signal_dbm {
+            if let Some(q) = net.wifi_quality {
+                format!("{}dBm (Q:{})", dbm, q)
+            } else {
+                format!("{}dBm", dbm)
+            }
+        } else if let Some(mbps) = net.link_speed_mbps {
+            if mbps >= 1000 {
+                format!("{} Gbps", mbps / 1000)
+            } else {
+                format!("{} Mbps", mbps)
+            }
+        } else {
+            "-".to_string()
+        };
+        let mtu_str = net.mtu.map(|m| m.to_string()).unwrap_or_else(|| "-".to_string());
+
         Row::new(vec![
             net.name.clone(),
             if net.is_up { "UP".to_string() } else { "DOWN".to_string() },
+            link_str,
+            mtu_str,
             format_rate(net.down_rate),
             format_rate(net.up_rate),
             format_size(net.total_down),
@@ -2648,12 +2681,14 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     let iface_table = Table::new(
         rows,
         [
-            Constraint::Min(12),     // Interface
-            Constraint::Length(8),   // Status
-            Constraint::Length(12),  // Download/s
-            Constraint::Length(12),  // Upload/s
-            Constraint::Length(12),  // Total Down
-            Constraint::Length(12),  // Total Up
+            Constraint::Min(10),     // Interface
+            Constraint::Length(6),   // Status
+            Constraint::Length(16),  // Link / Wi-Fi
+            Constraint::Length(7),   // MTU
+            Constraint::Length(11),  // Download/s
+            Constraint::Length(11),  // Upload/s
+            Constraint::Length(11),  // Total Down
+            Constraint::Length(11),  // Total Up
             Constraint::Length(15),  // Packets
         ]
     )
@@ -2671,44 +2706,77 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
     
     f.render_widget(iface_table, chunks[0]);
 
-    // Active Sockets & Connections table
-    let sockets = &state.dynamic_data.sockets;
+    let socket_area = if show_filter_bar {
+        let prompt = if state.editing_filter {
+            format!("{}█", state.edit_buffer)
+        } else {
+            state.socket_filter.clone()
+        };
+        let filter_widget = Paragraph::new(prompt)
+            .style(if state.editing_filter {
+                Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.success)
+            })
+            .block(
+                Block::default()
+                    .title(" Socket Filter (port / IP / state / process) ")
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(if state.editing_filter { theme.primary } else { theme.border })),
+            );
+        f.render_widget(filter_widget, chunks[1]);
+        chunks[2]
+    } else {
+        chunks[1]
+    };
+
+    let filtered_sockets = crate::monitors::network_sockets::filter_sockets(
+        &state.dynamic_data.sockets,
+        &state.socket_filter,
+    );
     let socket_headers: Vec<Cell> = vec![
         Cell::from(translator.t("network.proto")),
         Cell::from(translator.t("network.local_addr")),
         Cell::from(translator.t("network.remote_addr")),
         Cell::from(translator.t("network.state")),
+        Cell::from("TxQ/RxQ"),
+        Cell::from("Retr"),
         Cell::from(translator.t("network.pid_prog")),
         Cell::from(translator.t("network.inode")),
     ];
 
-    let total_sockets = sockets.len();
+    let total_sockets = filtered_sockets.len();
     let socket_block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border));
 
-    let inner_area = socket_block.inner(chunks[1]);
-    let visible_rows = inner_area.height.saturating_sub(1) as usize;
+    let inner_area = socket_block.inner(socket_area);
+    let visible_rows = inner_area.height.saturating_sub(1).max(1) as usize;
 
-    let (visible_sockets, range_title) = if total_sockets == 0 {
-        (&[][..], format!(" {} (0) ", translator.t("network.active_sockets")))
+    let selected_idx = state.network_socket_scroll.min(total_sockets.saturating_sub(1));
+    let scroll_start = if selected_idx >= visible_rows {
+        selected_idx + 1 - visible_rows
     } else {
-        let max_scroll = total_sockets.saturating_sub(visible_rows);
-        let scroll = state.network_socket_scroll.min(max_scroll);
-        let end = (scroll + visible_rows).min(total_sockets);
-        let slice = &sockets[scroll..end];
-        let title = format!(
+        0
+    };
+    let end = (scroll_start + visible_rows).min(total_sockets);
+
+    let range_title = if total_sockets == 0 {
+        format!(" {} (0) ", translator.t("network.active_sockets"))
+    } else {
+        format!(
             " {} [{}-{}/{}] ",
             translator.t("network.active_sockets"),
-            scroll + 1,
+            scroll_start + 1,
             end,
             total_sockets
-        );
-        (slice, title)
+        )
     };
 
-    let socket_rows = visible_sockets.iter().map(|s| {
+    let socket_rows = filtered_sockets[scroll_start..end].iter().enumerate().map(|(rel_idx, s)| {
+        let is_selected = scroll_start + rel_idx == selected_idx;
         let local = if s.local_port == 0 {
             if matches!(s.protocol, crate::types::SocketProtocol::Tcp6 | crate::types::SocketProtocol::Udp6) {
                 format!("[{}]:*", s.local_addr)
@@ -2739,6 +2807,17 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
             _ => "-".to_string(),
         };
 
+        let queue_str = if s.tx_queue > 0 || s.rx_queue > 0 {
+            format!("{}/{}", s.tx_queue, s.rx_queue)
+        } else {
+            "0/0".to_string()
+        };
+        let retr_style = if s.retransmits > 0 {
+            Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_secondary)
+        };
+
         let state_style = match s.state.as_str() {
             "LISTEN" => Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
             "ESTABLISHED" | "ESTAB" => Style::default().fg(theme.success),
@@ -2746,25 +2825,35 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
             _ => Style::default().fg(theme.text_secondary),
         };
 
+        let row_style = if is_selected {
+            Style::default().fg(theme.highlight).add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default().fg(theme.text)
+        };
+
         Row::new(vec![
             Cell::from(s.protocol.as_str().to_string()).style(Style::default().fg(theme.accent)),
-            Cell::from(truncate_string(&local, 30)),
-            Cell::from(truncate_string(&remote, 30)),
+            Cell::from(truncate_string(&local, 26)),
+            Cell::from(truncate_string(&remote, 26)),
             Cell::from(s.state.clone()).style(state_style),
-            Cell::from(truncate_string(&proc_display, 24)).style(Style::default().fg(theme.highlight)),
+            Cell::from(queue_str),
+            Cell::from(s.retransmits.to_string()).style(retr_style),
+            Cell::from(truncate_string(&proc_display, 22)).style(Style::default().fg(theme.highlight)),
             Cell::from(if s.inode > 0 { s.inode.to_string() } else { "-".to_string() }).style(Style::default().fg(theme.text_secondary)),
-        ]).style(Style::default().fg(theme.text))
+        ]).style(row_style)
     });
 
     let socket_table = Table::new(
         socket_rows,
         [
             Constraint::Length(6),   // Proto
-            Constraint::Min(22),     // Local Address
-            Constraint::Min(22),     // Remote Address
-            Constraint::Length(13),  // State
-            Constraint::Length(24),  // PID/Program
-            Constraint::Length(10),  // Inode
+            Constraint::Min(20),     // Local Address
+            Constraint::Min(20),     // Remote Address
+            Constraint::Length(12),  // State
+            Constraint::Length(11),  // TxQ/RxQ
+            Constraint::Length(6),   // Retr
+            Constraint::Length(22),  // PID/Program
+            Constraint::Length(9),   // Inode
         ],
     )
     .header(
@@ -2775,12 +2864,12 @@ fn render_network_tab(f: &mut Frame, state: &AppState, area: Rect, is_safe_mode:
         socket_block
             .title(range_title)
             .title(
-                ratatui::widgets::block::Title::from(format!(" [{}] ", translator.t("cpu.scroll_hint")))
+                ratatui::widgets::block::Title::from(" [/: Filter | Enter: Inspect PID | Up/Down: Select] ")
                     .alignment(Alignment::Right),
             ),
     );
 
-    f.render_widget(socket_table, chunks[1]);
+    f.render_widget(socket_table, socket_area);
 }
 
 fn render_containers_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Translator, theme: &crate::ui::colors::ColorScheme) {

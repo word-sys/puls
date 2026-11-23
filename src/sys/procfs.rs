@@ -568,6 +568,36 @@ pub fn read_net_dev() -> Vec<NetDevCounters> {
         .unwrap_or_default()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WifiInfo {
+    pub quality: i32,
+    pub signal_dbm: i32,
+}
+
+pub fn parse_proc_net_wireless(content: &str) -> HashMap<String, WifiInfo> {
+    let mut map = HashMap::new();
+    for line in content.lines().skip(2) {
+        let Some((iface, rest)) = line.split_once(':') else {
+            continue;
+        };
+        let name = iface.trim().to_string();
+        let cols: Vec<&str> = rest.split_whitespace().collect();
+        if cols.len() < 3 {
+            continue;
+        }
+        let quality = cols[1].trim_end_matches('.').parse::<i32>().unwrap_or(0);
+        let signal_dbm = cols[2].trim_end_matches('.').parse::<i32>().unwrap_or(0);
+        map.insert(name, WifiInfo { quality, signal_dbm });
+    }
+    map
+}
+
+pub fn read_wireless_info() -> HashMap<String, WifiInfo> {
+    fs::read_to_string("/proc/net/wireless")
+        .map(|s| parse_proc_net_wireless(&s))
+        .unwrap_or_default()
+}
+
 extern "C" {
     fn sysconf(name: std::ffi::c_int) -> std::ffi::c_long;
 }
@@ -1240,5 +1270,18 @@ Swap:               1024 kB
         assert!((await_ms - 5.0).abs() < 0.01);
         // 400ms io_time in 1000ms -> 40.0% busy
         assert!((busy_pct - 40.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_proc_net_wireless() {
+        let sample = "\
+Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE
+ face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22
+ wlan0: 0000   64.  -46.  -256        0      0      0      0      0        0
+";
+        let map = parse_proc_net_wireless(sample);
+        let w = map.get("wlan0").expect("wlan0 missing");
+        assert_eq!(w.quality, 64);
+        assert_eq!(w.signal_dbm, -46);
     }
 }

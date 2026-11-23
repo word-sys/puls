@@ -21,6 +21,20 @@ pub fn is_net_interface_up(iface: &str) -> bool {
     iface == "lo"
 }
 
+pub fn read_net_link_meta(iface: &str) -> (Option<u32>, Option<u32>) {
+    let base = Path::new("/sys/class/net").join(iface);
+    let speed = fs::read_to_string(base.join("speed"))
+        .ok()
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .filter(|&v| v > 0)
+        .map(|v| v as u32);
+    let mtu = fs::read_to_string(base.join("mtu"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|&v| v > 0);
+    (speed, mtu)
+}
+
 pub struct HwmonScanner {
     max_seen: HashMap<String, f32>,
 }
