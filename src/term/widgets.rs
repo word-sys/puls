@@ -179,7 +179,11 @@ impl Widget for Block<'_> {
 
         if area.width > 2 {
             let max_title_w = (area.width - 2) as usize;
-            let tstyle = self.style.patch(self.title_style);
+            let base_tstyle = if self.title_style == Style::default() {
+                bstyle.add_modifier(Modifier::BOLD)
+            } else {
+                self.style.patch(self.title_style)
+            };
             for title in &self.titles {
                 let tw = title.content.width().min(max_title_w);
                 let tx = match title.alignment {
@@ -187,7 +191,7 @@ impl Widget for Block<'_> {
                     Alignment::Center => left + 1 + ((max_title_w.saturating_sub(tw)) / 2) as u16,
                     Alignment::Right => right.saturating_sub(tw as u16),
                 };
-                buf.set_line(tx, top, &title.content, max_title_w, tstyle);
+                buf.set_line(tx, top, &title.content, max_title_w, base_tstyle);
             }
         }
     }
@@ -397,6 +401,16 @@ impl Widget for Gauge<'_> {
             return;
         }
 
+        let bar_color = self.gauge_style.fg.unwrap_or(crate::term::style::Color::Cyan);
+        let unfilled_bg = self.gauge_style.bg.unwrap_or(crate::term::style::Color::Reset);
+        let track_style = Style::default()
+            .fg(crate::term::style::Color::DarkGray)
+            .bg(unfilled_bg);
+        let bar_draw_style = Style::default()
+            .fg(bar_color)
+            .bg(unfilled_bg)
+            .add_modifier(self.gauge_style.modifier);
+
         let fill_f = inner.width as f64 * self.ratio.clamp(0.0, 1.0);
         let filled_cols = fill_f.floor() as u16;
         let frac = fill_f - filled_cols as f64;
@@ -417,45 +431,74 @@ impl Widget for Gauge<'_> {
             .unwrap_or_else(|| format!("{}%", (self.ratio * 100.0).round() as u16));
         let label_w = str_width(&label_text);
         let label_x = inner.x + (inner.width as usize).saturating_sub(label_w) as u16 / 2;
-        let label_y = inner.y + inner.height / 2;
 
-        let filled_style = Style {
-            fg: self.gauge_style.bg,
-            bg: self.gauge_style.fg,
-            modifier: self.gauge_style.modifier,
-        };
-
-        for y in inner.y..inner.bottom() {
+        let draw_bar_row = |buf: &mut Buffer, y: u16| {
             for dx in 0..inner.width {
                 let x = inner.x + dx;
                 if dx < filled_cols {
-                    buf.set_char(x, y, '█', self.gauge_style);
+                    buf.set_char(x, y, '█', bar_draw_style);
                 } else if dx == filled_cols {
                     if let Some(ch) = partial_ch {
-                        buf.set_char(x, y, ch, self.gauge_style);
+                        buf.set_char(x, y, ch, bar_draw_style);
+                    } else {
+                        buf.set_char(x, y, '░', track_style);
                     }
+                } else {
+                    buf.set_char(x, y, '░', track_style);
                 }
             }
-        }
+        };
 
-        // Overlay centered label with high-contrast style over filled vs unfilled region
-        let mut cx = label_x;
-        for ch in label_text.chars() {
-            let w = char_width(ch);
-            if w == 0 {
-                continue;
-            }
-            if cx >= inner.right() {
-                break;
-            }
-            let rel_x = cx.saturating_sub(inner.x);
-            let style = if rel_x < filled_cols {
-                filled_style.add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().add_modifier(Modifier::BOLD)
+        if inner.height >= 2 {
+            // 2+ rows: dedicated high-contrast label row above a sleek 1-row progress bar
+            let top_y = inner.y + (inner.height - 2) / 2;
+            let bar_y = top_y + 1;
+            let label_style = Style::default()
+                .fg(crate::term::style::Color::White)
+                .bg(unfilled_bg)
+                .add_modifier(Modifier::BOLD);
+            buf.set_stringn(label_x, top_y, &label_text, inner.width as usize, label_style);
+            draw_bar_row(buf, bar_y);
+        } else {
+            // 1-row compact gauge: draw bar + overlay high-contrast centered label
+            let y = inner.y;
+            draw_bar_row(buf, y);
+
+            let filled_fg = match bar_color {
+                crate::term::style::Color::White
+                | crate::term::style::Color::Gray
+                | crate::term::style::Color::LightYellow
+                | crate::term::style::Color::LightGreen
+                | crate::term::style::Color::LightCyan => crate::term::style::Color::Black,
+                _ => crate::term::style::Color::White,
             };
-            buf.set_char(cx, label_y, ch, style);
-            cx = cx.saturating_add(w as u16);
+
+            let mut cx = label_x;
+            for ch in label_text.chars() {
+                let w = char_width(ch);
+                if w == 0 {
+                    continue;
+                }
+                if cx >= inner.right() {
+                    break;
+                }
+                let rel_x = cx.saturating_sub(inner.x);
+                let is_filled = rel_x < filled_cols || (rel_x == filled_cols && frac >= 0.5);
+                if let Some(cell) = buf.get_mut(cx, y) {
+                    cell.reset();
+                    cell.symbol.clear();
+                    cell.symbol.push(ch);
+                    cell.modifier = Modifier::BOLD;
+                    if is_filled {
+                        cell.fg = filled_fg;
+                        cell.bg = bar_color;
+                    } else {
+                        cell.fg = crate::term::style::Color::White;
+                        cell.bg = unfilled_bg;
+                    }
+                }
+                cx = cx.saturating_add(w as u16);
+            }
         }
     }
 }
@@ -480,10 +523,18 @@ impl<'a> Sparkline<'a> {
 
 impl Widget for Sparkline<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.width == 0 || area.height == 0 || self.data.is_empty() {
+        if area.width == 0 || area.height == 0 {
             return;
         }
         const BARS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        let baseline_style = Style::default().fg(crate::term::style::Color::DarkGray);
+        let bottom_y = area.bottom() - 1;
+        for dx in 0..area.width {
+            buf.set_char(area.x + dx, bottom_y, '▁', baseline_style);
+        }
+        if self.data.is_empty() {
+            return;
+        }
         let max_val = self.data.iter().copied().max().unwrap_or(1).max(1);
         let visible_len = self.data.len().min(area.width as usize);
         let start = self.data.len() - visible_len;
@@ -496,7 +547,7 @@ impl Widget for Sparkline<'_> {
                 units = 1;
             }
             for row_from_bottom in 0..area.height as usize {
-                let y = area.bottom() - 1 - row_from_bottom as u16;
+                let y = bottom_y - row_from_bottom as u16;
                 let level = units.min(8);
                 units = units.saturating_sub(8);
                 if level > 0 {
@@ -578,12 +629,15 @@ impl Widget for Tabs<'_> {
             if x >= right {
                 break;
             }
-            let base = if i == self.selected {
-                self.style.patch(self.highlight_style)
-            } else {
-                self.style
-            };
-            x = buf.set_line(x, y, title, (right - x) as usize, base);
+            let tab_start_x = x;
+            x = buf.set_line(x, y, title, (right - x) as usize, self.style);
+            if i == self.selected && x > tab_start_x {
+                let mut hl = self.highlight_style;
+                if hl.bg == Some(crate::term::style::Color::White) {
+                    hl.bg = Some(crate::term::style::Color::DarkGray);
+                }
+                buf.set_style(Rect::new(tab_start_x, y, x - tab_start_x, 1), hl);
+            }
             if i < last_idx && x < right {
                 x = buf.set_span(x, y, &self.divider, (right - x) as usize, self.style);
             }
@@ -773,17 +827,6 @@ impl<'a> Table<'a> {
                 break;
             }
             let is_selected = state.selected == Some(i);
-            let row_style = if is_selected {
-                row.style.patch(self.highlight_style)
-            } else {
-                row.style
-            };
-            if is_selected {
-                buf.set_style(Rect::new(inner.x, y, inner.width, 1), row_style);
-                if sym_w > 0 {
-                    buf.set_stringn(inner.x, y, sym_str, sym_w as usize, row_style);
-                }
-            }
             render_table_row(
                 buf,
                 inner.x + sym_w,
@@ -792,8 +835,18 @@ impl<'a> Table<'a> {
                 row,
                 &col_widths,
                 self.column_spacing,
-                row_style,
+                row.style,
             );
+            if is_selected {
+                let mut hl = row.style.patch(self.highlight_style);
+                if hl.bg == Some(crate::term::style::Color::White) {
+                    hl.bg = Some(crate::term::style::Color::DarkGray);
+                }
+                if sym_w > 0 {
+                    buf.set_stringn(inner.x, y, sym_str, sym_w as usize, hl);
+                }
+                buf.set_style(Rect::new(inner.x, y, inner.width, 1), hl);
+            }
             y = y.saturating_add(1).saturating_add(row.bottom_margin);
         }
     }
@@ -978,43 +1031,75 @@ impl Widget for Chart<'_> {
             .unwrap_or(0)
             .min(inner.width.saturating_sub(2) as usize) as u16;
         let has_y_axis = y_label_w > 0;
+        let has_x_axis = !self.x_axis.labels.is_empty();
         let axis_x = inner.x + y_label_w;
-        let axis_y = inner.bottom() - 1;
+        let bottom_y = inner.bottom() - 1;
 
         let plot_x = if has_y_axis { axis_x + 1 } else { inner.x };
         let plot_y = inner.y;
         let plot_w = inner.right().saturating_sub(plot_x) as usize;
-        let plot_h = axis_y.saturating_sub(plot_y) as usize;
+        let plot_h = if has_x_axis {
+            bottom_y.saturating_sub(plot_y) as usize
+        } else {
+            inner.height as usize
+        };
+        let plot_bottom = plot_y + plot_h.saturating_sub(1) as u16;
 
-        // Draw Y-axis labels & vertical rule
+        let axis_style = if self.y_axis.style != Style::default() {
+            self.y_axis.style
+        } else {
+            self.x_axis.style
+        };
+
+        // Draw Y-axis labels (right-aligned) & vertical rule with tick marks
         if has_y_axis {
+            for y in inner.y..=plot_bottom {
+                buf.set_char(axis_x, y, '│', axis_style);
+            }
             let n_labels = self.y_axis.labels.len();
             for (idx, lbl) in self.y_axis.labels.iter().enumerate() {
                 let ly = if n_labels <= 1 {
-                    axis_y
+                    plot_bottom
                 } else {
                     let frac = idx as f64 / (n_labels - 1) as f64;
-                    let off = ((axis_y - inner.y) as f64 * (1.0 - frac)).round() as u16;
+                    let off = ((plot_bottom - inner.y) as f64 * (1.0 - frac)).round() as u16;
                     inner.y + off
                 };
-                buf.set_span(inner.x, ly, lbl, y_label_w as usize, self.y_axis.style);
+                let lw = lbl.width().min(y_label_w as usize);
+                let lx = inner.x + y_label_w.saturating_sub(lw as u16);
+                buf.set_span(lx, ly, lbl, lw, axis_style);
+                buf.set_char(axis_x, ly, '┤', axis_style);
             }
-            for y in inner.y..axis_y {
-                buf.set_char(axis_x, y, '│', self.y_axis.style);
+            // Add midpoint 50% tick when 0%..100% bounds have vertical room
+            if n_labels == 2 && plot_h >= 5 && (self.y_axis.bounds[1] - 100.0).abs() < 0.1 {
+                let mid_y = inner.y + (plot_bottom - inner.y) / 2;
+                if mid_y > inner.y && mid_y < plot_bottom {
+                    let mid_lbl = "50%";
+                    let lw = mid_lbl.len().min(y_label_w as usize);
+                    let lx = inner.x + y_label_w.saturating_sub(lw as u16);
+                    buf.set_stringn(lx, mid_y, mid_lbl, lw, axis_style);
+                    buf.set_char(axis_x, mid_y, '┤', axis_style);
+                }
             }
-            buf.set_char(axis_x, axis_y, '└', self.y_axis.style);
         }
 
-        // Draw X-axis rule
-        for x in plot_x..inner.right() {
-            buf.set_char(x, axis_y, '─', self.x_axis.style);
+        if has_x_axis {
+            if has_y_axis {
+                buf.set_char(axis_x, bottom_y, '└', axis_style);
+            }
+            for x in plot_x..inner.right() {
+                buf.set_char(x, bottom_y, '─', axis_style);
+            }
         }
 
         if plot_w == 0 || plot_h == 0 {
             return;
         }
 
-        let [x_min, x_max] = self.x_axis.bounds;
+        let [x_min, mut x_max] = self.x_axis.bounds;
+        if (x_max - 60.0).abs() < 0.01 {
+            x_max = 59.0;
+        }
         let [y_min, y_max] = self.y_axis.bounds;
         let x_span = (x_max - x_min).abs().max(f64::EPSILON);
         let y_span = (y_max - y_min).abs().max(f64::EPSILON);
@@ -1053,7 +1138,6 @@ impl Widget for Chart<'_> {
                 for pair in ds.data.windows(2) {
                     let (mut x0, mut y0) = map_pt(pair[0].0, pair[0].1);
                     let (x1, y1) = map_pt(pair[1].0, pair[1].1);
-                    // Bresenham rasterization on the 2x4 Braille sub-pixel grid
                     let dx = (x1 - x0).abs();
                     let sx_step = if x0 < x1 { 1 } else { -1 };
                     let dy = -(y1 - y0).abs();
@@ -1077,27 +1161,29 @@ impl Widget for Chart<'_> {
                 }
             }
 
+            let dot_style = ds.style.add_modifier(Modifier::BOLD);
             for cy in 0..plot_h {
                 for cx in 0..plot_w {
                     let mask = grid[cy * plot_w + cx];
                     if mask != 0 {
                         let ch = char::from_u32(0x2800 + mask as u32).unwrap_or('⣿');
-                        buf.set_char(plot_x + cx as u16, plot_y + cy as u16, ch, ds.style);
+                        buf.set_char(plot_x + cx as u16, plot_y + cy as u16, ch, dot_style);
                     }
                 }
             }
         }
 
-        // Compact legend in top-right corner when space allows
-        if plot_w >= 12 && plot_h >= 2 {
+        // Compact legend badge in top-right corner when space allows
+        if plot_w >= 14 && plot_h >= 2 {
             let mut ly = plot_y;
             for ds in &self.datasets {
-                if ds.name.is_empty() || ly >= axis_y {
+                if ds.name.is_empty() || ly > plot_bottom {
                     continue;
                 }
-                let nw = str_width(&ds.name).min(plot_w);
+                let badge = format!(" ━ {} ", ds.name);
+                let nw = str_width(&badge).min(plot_w);
                 let lx = inner.right().saturating_sub(nw as u16);
-                buf.set_stringn(lx, ly, &ds.name, nw, ds.style);
+                buf.set_stringn(lx, ly, &badge, nw, ds.style.add_modifier(Modifier::BOLD));
                 ly += 1;
             }
         }

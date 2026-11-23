@@ -829,7 +829,7 @@ fn render_dashboard_cpu_chart(f: &mut Frame, state: &AppState, area: Rect, trans
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
         )
-        .x_axis(Axis::default().bounds([0.0, 60.0]))
+        .x_axis(Axis::default().bounds([0.0, 60.0]).style(Style::default().fg(theme.text_secondary)))
         .y_axis(Axis::default()
             .bounds([0.0, 100.0])
             .labels(vec![
@@ -863,7 +863,7 @@ fn render_dashboard_mem_chart(f: &mut Frame, state: &AppState, area: Rect, trans
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
         )
-        .x_axis(Axis::default().bounds([0.0, 60.0]))
+        .x_axis(Axis::default().bounds([0.0, 60.0]).style(Style::default().fg(theme.text_secondary)))
         .y_axis(Axis::default()
             .bounds([0.0, 100.0])
             .labels(vec![
@@ -940,7 +940,13 @@ fn render_dashboard_storage(f: &mut Frame, state: &AppState, area: Rect, transla
         } else {
             0.0
         };
-        let label = format!("{} ({:.1}%)", disk.name, usage_percent);
+        let label = format!(
+            "{} — {:.1}% ({} / {})",
+            disk.name,
+            usage_percent,
+            format_size(disk.used),
+            format_size(disk.total)
+        );
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(get_usage_color(usage_percent)))
             .percent(usage_percent as u16)
@@ -4018,16 +4024,16 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(50), // RAM & Swap Gauges
-            Constraint::Percentage(50), // Details Table
+            Constraint::Length(8), // RAM & Swap Gauges
+            Constraint::Min(0),    // Details Table
         ])
         .split(area);
 
     let gauge_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(50), // RAM
-            Constraint::Percentage(50), // Swap
+            Constraint::Length(4), // RAM
+            Constraint::Length(4), // Swap
         ])
         .split(chunks[0]);
 
