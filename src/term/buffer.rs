@@ -250,7 +250,9 @@ impl<W: Write> Terminal<W> {
         // Synchronized output markers prevent mid-frame tearing in modern terminals
         self.out_buf.push_str("\x1b[?2026h");
         if self.force_full_redraw {
-            self.out_buf.push_str("\x1b[0m\x1b[40m\x1b[2J");
+            self.out_buf.push_str("\x1b[0m");
+            Color::Black.write_bg_ansi(&mut self.out_buf);
+            self.out_buf.push_str("\x1b[2J");
         }
         emit_diff(&self.previous, &self.current, self.force_full_redraw, &mut self.out_buf);
         self.out_buf.push_str("\x1b[0m\x1b[?2026l");
@@ -346,7 +348,7 @@ mod tests {
         assert!(out.contains("\x1b[2;3H"));
         assert!(out.contains("\x1b[1m"));
         assert!(out.contains("\x1b[32m"));
-        assert!(out.contains("\x1b[40m"));
+        assert!(out.contains("\x1b[40m") || out.contains("\x1b[48;2;0;0;0m"));
         assert!(out.contains("HI"));
         // Unchanged cells should not trigger extra cursor jumps
         assert_eq!(out.matches("\x1b[").count(), 5); // move + reset + bold + fg + bg

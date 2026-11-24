@@ -1,4 +1,24 @@
 use std::ops::BitOr;
+use std::sync::OnceLock;
+
+pub fn supports_truecolor() -> bool {
+    static TRUECOLOR: OnceLock<bool> = OnceLock::new();
+    *TRUECOLOR.get_or_init(|| {
+        if let Ok(ct) = std::env::var("COLORTERM") {
+            let l = ct.to_lowercase();
+            if l.contains("truecolor") || l.contains("24bit") {
+                return true;
+            }
+        }
+        if let Ok(term) = std::env::var("TERM") {
+            let l = term.to_lowercase();
+            if l.contains("256color") || l.contains("kitty") || l.contains("alacritty") || l.contains("wezterm") || l.contains("direct") {
+                return true;
+            }
+        }
+        false
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Color {
@@ -51,7 +71,13 @@ impl Color {
     pub fn write_bg_ansi(self, out: &mut String) {
         match self {
             Color::Reset => out.push_str("\x1b[49m"),
-            Color::Black => out.push_str("\x1b[40m"),
+            Color::Black => {
+                if supports_truecolor() {
+                    out.push_str("\x1b[48;2;0;0;0m");
+                } else {
+                    out.push_str("\x1b[40m");
+                }
+            }
             Color::Red => out.push_str("\x1b[41m"),
             Color::Green => out.push_str("\x1b[42m"),
             Color::Yellow => out.push_str("\x1b[43m"),

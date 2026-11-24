@@ -1,6 +1,6 @@
 [package]
 name = "puls"
-version = "0.9.4"
+version = "0.10.0"
 edition = "2021"
 authors = ["word-sys"]
 description = "A unified system monitoring and management tool for Linux"
@@ -37,15 +37,16 @@ depends = "$auto"
 section = "utils"
 priority = "optional"
 extended-description = """\
-PULS is a terminal-based system monitoring tool.
+PULS is a zero-dependency terminal-based Linux system monitoring and administration tool.
 Features:
-- CPU, Memory, Disk, Network monitoring
-- GPU monitoring (NVIDIA, AMD, Intel)
-- Process management
-- Service control (systemd)
-- Docker monitoring
-- System information
-- GRUB configuration
+- Pure Rust standard library + direct Linux /proc, /sys, FFI, and ANSI TUI engine (0 external crates)
+- CPU, NUMA, Memory, ZRAM, PSI, Disks (await/busy/scheduler), Network & Socket Inspector
+- GPU monitoring (dynamic NVML, AMD/Intel DRM VRAM attribution)
+- Process management (tree, signals, renice, CPU affinity, I/O priority, cgroup/PSS)
+- Service control (systemd system & --user, timers, boot blame, structured journald)
+- Docker & Podman monitoring over native Unix socket HTTP + cgroup v2 fast-path
+- Transactional GRUB, systemd-boot, and live kernel sysctl editor
+- Headless telemetry snapshots (--snapshot) and JSONL flight recorder (--record / --replay)
 """
 assets = [
     ["target/release/puls", "usr/bin/", "755"],

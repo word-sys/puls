@@ -14,6 +14,31 @@ use crate::language::Translator;
 
 pub use layouts::*;
 
+fn format_psi_total(us: u64) -> String {
+    if us >= 1_000_000 {
+        format!("{:.2}s", us as f64 / 1_000_000.0)
+    } else if us >= 1_000 {
+        format!("{:.1}ms", us as f64 / 1_000.0)
+    } else {
+        format!("{}us", us)
+    }
+}
+
+fn inline_bar_spans(filled: usize, total: usize, fill_color: Color) -> Vec<Span<'static>> {
+    let filled = filled.min(total);
+    let empty = total.saturating_sub(filled);
+    let mut spans = Vec::with_capacity(4);
+    spans.push(Span::styled("▐", Style::default().fg(Color::DarkGray)));
+    if filled > 0 {
+        spans.push(Span::styled("█".repeat(filled), Style::default().fg(fill_color)));
+    }
+    if empty > 0 {
+        spans.push(Span::styled("░".repeat(empty), Style::default().fg(Color::DarkGray)));
+    }
+    spans.push(Span::styled("▌", Style::default().fg(Color::DarkGray)));
+    spans
+}
+
 pub fn render_ui(f: &mut Frame, state: &mut AppState, is_safe_mode: bool, translator: &Translator) {
     let theme_manager = crate::ui::colors::ThemeManager::from_index(state.current_theme);
     let theme = theme_manager.get_theme();
@@ -2192,19 +2217,17 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             };
             let bar_len: usize = 10;
             let filled = ((mem_pct.clamp(0.0, 100.0) / 100.0) * bar_len as f64).round() as usize;
-            let empty = bar_len.saturating_sub(filled);
-            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+            let bar_color = get_usage_color(mem_pct as f32);
 
             numa_lines.push(Line::from(vec![
                 Span::styled(format!("Node {}: ", node.id), Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("{} Cores", node.cpus.len()), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
                 Span::styled(format!(" ({})", if node.cpu_list_str.is_empty() { format!("0-{}", node.cpus.len().saturating_sub(1)) } else { node.cpu_list_str.clone() }), Style::default().fg(theme.text_secondary)),
             ]));
-            numa_lines.push(Line::from(vec![
-                Span::styled("  RAM:  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled(bar, Style::default().fg(get_usage_color(mem_pct as f32))),
-                Span::styled(format!(" {:.1}%", mem_pct), Style::default().fg(get_usage_color(mem_pct as f32)).add_modifier(Modifier::BOLD)),
-            ]));
+            let mut ram_spans = vec![Span::styled("  RAM:  ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))];
+            ram_spans.extend(inline_bar_spans(filled, bar_len, bar_color));
+            ram_spans.push(Span::styled(format!(" {:.1}%", mem_pct), Style::default().fg(bar_color).add_modifier(Modifier::BOLD)));
+            numa_lines.push(Line::from(ram_spans));
             numa_lines.push(Line::from(vec![
                 Span::styled("        ", Style::default()),
                 Span::styled(format!("{} / {}", 
@@ -2382,33 +2405,27 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
             if use_compact {
                 let bar_len: usize = 6;
                 let filled = ((core.usage.clamp(0.0, 100.0) / 100.0) * bar_len as f32).round() as usize;
-                let empty = bar_len.saturating_sub(filled);
-                let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
 
                 let temp_str = core.temp
                     .map(|t| format!(" {}", crate::utils::format_temp_int(t, state.temp_unit_fahrenheit)))
                     .unwrap_or_default();
 
-                let spans = if core_area.width >= 24 {
-                    vec![
-                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text_secondary)),
-                        Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
-                    ]
+                let mut spans = vec![
+                    Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(Color::Black).add_modifier(Modifier::BOLD)),
+                ];
+                if core_area.width >= 24 {
+                    spans.push(Span::raw(" "));
+                    spans.extend(inline_bar_spans(filled, bar_len, core_color));
+                    spans.push(Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)));
+                    spans.push(Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text_secondary)));
+                    spans.push(Span::styled(temp_str, Style::default().fg(theme.text_secondary)));
                 } else if core_area.width >= 18 {
-                    vec![
-                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
-                    ]
+                    spans.push(Span::raw(" "));
+                    spans.extend(inline_bar_spans(filled, bar_len, core_color));
+                    spans.push(Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)));
                 } else {
-                    vec![
-                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {:>4.0}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
-                    ]
-                };
+                    spans.push(Span::styled(format!(" {:>4.0}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)));
+                }
 
                 f.render_widget(Paragraph::new(Line::from(spans)), *core_area);
             } else {
@@ -2435,7 +2452,7 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                 if inner_core_area.height >= 2 {
                     // Line 1: Header (Badge, Freq, Temp)
                     let header_spans = vec![
-                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(Color::Black).add_modifier(Modifier::BOLD)),
                         Span::styled(format!(" {:.2} GHz", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
                         Span::styled(temp_str, Style::default().fg(core.temp.map(get_usage_color).unwrap_or(theme.text_secondary))),
                     ];
@@ -2447,13 +2464,8 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                     } else {
                         0
                     };
-                    let empty = bar_width.saturating_sub(filled);
-                    let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
-
-                    let bar_spans = vec![
-                        Span::styled(bar_str, Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
-                    ];
+                    let mut bar_spans = inline_bar_spans(filled, bar_width, core_color);
+                    bar_spans.push(Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)));
 
                     let mut lines = vec![
                         Line::from(header_spans),
@@ -2479,18 +2491,17 @@ fn render_cpu_cores_tab(f: &mut Frame, state: &AppState, area: Rect, translator:
                     // Single inner line (height == 1): render compact meter inside box
                     let bar_len: usize = 6;
                     let filled = ((core.usage.clamp(0.0, 100.0) / 100.0) * bar_len as f32).round() as usize;
-                    let empty = bar_len.saturating_sub(filled);
-                    let bar_str = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
 
-                    let line = Line::from(vec![
-                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(theme.background).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {}", bar_str), Style::default().fg(core_color)),
-                        Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)),
-                        Span::styled(temp_str, Style::default().fg(theme.text_secondary)),
-                    ]);
+                    let mut spans = vec![
+                        Span::styled(format!(" {} ", core_label), Style::default().bg(core_color).fg(Color::Black).add_modifier(Modifier::BOLD)),
+                        Span::raw(" "),
+                    ];
+                    spans.extend(inline_bar_spans(filled, bar_len, core_color));
+                    spans.push(Span::styled(format!(" {:>4.1}%", core.usage), Style::default().fg(core_color).add_modifier(Modifier::BOLD)));
+                    spans.push(Span::styled(format!(" {:.1}G", core.freq as f64 / 1000.0), Style::default().fg(theme.text)));
+                    spans.push(Span::styled(temp_str, Style::default().fg(theme.text_secondary)));
 
-                    f.render_widget(Paragraph::new(line), inner_core_area);
+                    f.render_widget(Paragraph::new(Line::from(spans)), inner_core_area);
                 }
             }
         }
@@ -2649,7 +2660,19 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
         };
         let use_color = get_usage_color(usage_percent);
         let filled = ((usage_percent.clamp(0.0, 100.0) / 100.0) * 5.0).round() as usize;
-        let use_bar = format!("{}{} {:>5}", "█".repeat(filled), "░".repeat(5usize.saturating_sub(filled)), format_percentage(usage_percent));
+        let mut use_bar_spans = Vec::with_capacity(3);
+        if filled > 0 {
+            use_bar_spans.push(Span::styled("█".repeat(filled), Style::default().fg(use_color)));
+        }
+        let empty = 5usize.saturating_sub(filled);
+        if empty > 0 {
+            use_bar_spans.push(Span::styled("░".repeat(empty), Style::default().fg(Color::DarkGray)));
+        }
+        use_bar_spans.push(Span::styled(
+            format!(" {:>5}", format_percentage(usage_percent)),
+            Style::default().fg(use_color).add_modifier(Modifier::BOLD),
+        ));
+        let use_bar_line = Line::from(use_bar_spans);
         
         let inodes_display = match (disk.inodes_used, disk.inodes_total) {
             (Some(used), Some(total)) => format!("{}/{}", format_count(used), format_count(total)),
@@ -2690,7 +2713,7 @@ fn render_disks_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &Tr
             Cell::from(format_size(disk.total)).style(Style::default().fg(theme.text)),
             Cell::from(format_size(disk.used)).style(Style::default().fg(use_color)),
             Cell::from(format_size(disk.free)).style(Style::default().fg(theme.success)),
-            Cell::from(use_bar).style(Style::default().fg(use_color).add_modifier(Modifier::BOLD)),
+            Cell::from(use_bar_line),
             Cell::from(inodes_display).style(Style::default().fg(theme.text_secondary)),
             Cell::from(inodes_pct_display).style(Style::default().fg(theme.text_secondary)),
             Cell::from(format_rate(disk.read_rate)).style(read_style),
@@ -3956,10 +3979,10 @@ fn render_services_tab(f: &mut Frame, state: &mut AppState, area: Rect, translat
             };
             let rank_ratio = 1.0 - (idx as f64 / total_items as f64).min(0.95);
             let filled = ((rank_ratio * 12.0).round() as usize).clamp(1, 12);
-            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(12 - filled));
+            let bar_line = Line::from(inline_bar_spans(filled, 12, color));
             Row::new(vec![
                 Cell::from(b.duration.clone()).style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
-                Cell::from(bar).style(Style::default().fg(color)),
+                Cell::from(bar_line),
                 Cell::from(b.unit.clone()).style(Style::default().fg(theme.text)),
             ])
         });
@@ -4365,41 +4388,50 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
             0.0
         };
         let free_pct = (100.0 - mem_percent).max(0.0);
-        let mk_bar = |pct: f64| -> String {
-            let f = ((pct.clamp(0.0, 100.0) / 100.0) * 16.0).round() as usize;
-            format!("▐{}{}▌ {:>5.1}%", "█".repeat(f), "░".repeat(16usize.saturating_sub(f)), pct)
+        let build_comp_line = |label: &'static str, pct: f64, color: Color, detail: String| -> Line<'static> {
+            let filled = ((pct.clamp(0.0, 100.0) / 100.0) * 16.0).round() as usize;
+            let mut spans = vec![Span::styled(label, Style::default().fg(theme.primary).add_modifier(Modifier::BOLD))];
+            spans.extend(inline_bar_spans(filled, 16, color));
+            spans.push(Span::styled(format!(" {:>5.1}%", pct), Style::default().fg(if filled > 0 { color } else { theme.text_secondary }).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(format!("  {}", detail), Style::default().fg(theme.text)));
+            Line::from(spans)
+        };
+
+        let swap_detail = if usage.swap_total > 0 {
+            format!("{} / {}", format_size(usage.swap_used), format_size(usage.swap_total))
+        } else {
+            "Disabled".to_string()
         };
 
         let mut comp_lines = vec![
-            Line::from(vec![
-                Span::styled(" Active Used:  ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(mk_bar(mem_percent), Style::default().fg(get_usage_color(mem_percent as f32))),
-                Span::styled(format!("  {}", format_size(usage.mem_used)), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Page Cache:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(mk_bar(cached_pct), Style::default().fg(theme.accent)),
-                Span::styled(format!("  {}", format_size(usage.mem_cached)), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Available:    ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(mk_bar(free_pct), Style::default().fg(theme.success)),
-                Span::styled(format!("  {}", format_size(free_bytes)), Style::default().fg(theme.text)),
-            ]),
-            Line::from(vec![
-                Span::styled(" Swap Space:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::styled(mk_bar(swap_percent), Style::default().fg(theme.warning)),
-                Span::styled(format!("  {}", format_size(usage.swap_used)), Style::default().fg(theme.text)),
-            ]),
+            build_comp_line(" Active Used:  ", mem_percent, get_usage_color(mem_percent as f32), format_size(usage.mem_used)),
+            build_comp_line(" Page Cache:   ", cached_pct, theme.accent, format_size(usage.mem_cached)),
+            build_comp_line(" Available:    ", free_pct, theme.success, format_size(free_bytes)),
+            build_comp_line(" Swap Space:   ", swap_percent, theme.warning, swap_detail),
         ];
         if state.dynamic_data.pressure.available {
             let m = &state.dynamic_data.pressure.memory;
+            let status_tag = if m.full_avg10 >= 5.0 || m.some_avg10 >= 20.0 {
+                "STALLED"
+            } else if m.some_avg10 > 0.0 {
+                "ACTIVE"
+            } else {
+                "OK"
+            };
             comp_lines.push(Line::from(""));
             comp_lines.push(Line::from(vec![
                 Span::styled(" Memory PSI:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
                 Span::styled(
-                    format!("some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}%", m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60),
-                    Style::default().fg(if m.some_avg10 >= 10.0 { theme.warning } else { theme.text_secondary }),
+                    format!(
+                        "[{}] some {:.2}%/{:.2}%/{:.2}% | full {:.2}% (total: {})",
+                        status_tag,
+                        m.some_avg10,
+                        m.some_avg60,
+                        m.some_avg300,
+                        m.full_avg10,
+                        format_psi_total(m.some_total_us),
+                    ),
+                    Style::default().fg(if m.some_avg10 >= 10.0 { theme.warning } else { theme.success }),
                 ),
             ]));
         }
@@ -4434,8 +4466,16 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
     let headers = vec![translator.t("memory.metric"), translator.t("memory.value")];
 
     let unknown_str = translator.t("memory.unknown");
-    let (mem_type, mem_gen, mem_speed, mem_temp) = state.dynamic_data.global_usage.mem_details.clone()
+    let (mem_type, mut mem_gen, mut mem_speed, mem_temp) = state.dynamic_data.global_usage.mem_details.clone()
         .unwrap_or_else(|| (unknown_str.clone(), unknown_str, "N/A".into(), "N/A".into()));
+    if !state.has_sudo {
+        if mem_gen == "N/A" {
+            mem_gen = "N/A (sudo required for SMBIOS)".to_string();
+        }
+        if mem_speed == "N/A" {
+            mem_speed = "N/A (sudo required for SMBIOS)".to_string();
+        }
+    }
 
     let mut kv_pairs = vec![
         (translator.t("memory.total_mem"), total_mem_str, theme.text),
@@ -4453,10 +4493,15 @@ fn render_memory_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &T
         kv_pairs.push((
             "PSI Memory Stall".to_string(),
             format!(
-                "some {:.1}%/{:.1}%/{:.1}% | full {:.1}%/{:.1}% (10s/60s/300s)",
-                m.some_avg10, m.some_avg60, m.some_avg300, m.full_avg10, m.full_avg60
+                "some {:.2}%/{:.2}%/{:.2}% | full {:.2}%/{:.2}% | cumulative stall: {} (10s/60s/300s)",
+                m.some_avg10,
+                m.some_avg60,
+                m.some_avg300,
+                m.full_avg10,
+                m.full_avg60,
+                format_psi_total(m.some_total_us),
             ),
-            if m.some_avg10 >= 10.0 { theme.warning } else { theme.text_secondary },
+            if m.some_avg10 >= 10.0 { theme.warning } else { theme.success },
         ));
     }
 
@@ -4509,9 +4554,8 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
 
     if let (Some(b_area), Some(bat)) = (bat_area, &state.dynamic_data.battery) {
         let is_charging = bat.status.eq_ignore_ascii_case("charging");
-        let fill_len = (((bat.capacity as f64).clamp(0.0, 100.0) / 100.0) * 16.0) as usize;
-        let empty_len = 16_usize.saturating_sub(fill_len);
-        let bar = format!("[{}{}]", "█".repeat(fill_len), "░".repeat(empty_len));
+        let fill_len = (((bat.capacity as f64).clamp(0.0, 100.0) / 100.0) * 16.0).round() as usize;
+        let bat_color = if bat.capacity <= 15 { theme.error } else if bat.capacity <= 35 { theme.warning } else { theme.success };
 
         let health_str = if let Some(h) = bat.health_percent {
             let full_wh = bat.energy_full_wh.unwrap_or(0.0);
@@ -4539,11 +4583,16 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
         };
         let ac_status = if bat.ac_online { "Connected (Online)" } else { "Disconnected (On Battery)" };
 
+        let mut bat_line_spans = vec![
+            Span::styled(" Battery: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{}  ", bat.name), Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        ];
+        bat_line_spans.extend(inline_bar_spans(fill_len, 16, bat_color));
+        bat_line_spans.push(Span::styled(format!(" {}%", bat.capacity), Style::default().fg(bat_color).add_modifier(Modifier::BOLD)));
+        bat_line_spans.push(Span::raw(format!("  Status: {}  Health: {}", bat.status, health_str)));
+
         let lines = vec![
-            Line::from(vec![
-                Span::styled(" Battery: ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
-                Span::raw(format!("{}  {} {}%  Status: {}  Health: {}", bat.name, bar, bat.capacity, bat.status, health_str)),
-            ]),
+            Line::from(bat_line_spans),
             Line::from(vec![
                 Span::styled(" Power:   ", Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)),
                 Span::raw(format!("Draw: {}  Voltage: {}  Cycles: {}  Tech: {}  Model: {}", power_str, volt_str, cycle_str, tech_str, model_str)),
@@ -4624,18 +4673,17 @@ fn render_sensors_tab(f: &mut Frame, state: &AppState, area: Rect, translator: &
                 s.value as f32 / 85.0
             };
             let color = if ratio > 0.9 { theme.error } else if ratio > 0.75 { theme.warning } else { theme.success };
-            let filled = ((ratio.min(1.0)) * 12.0) as usize;
-            let empty = 12_usize.saturating_sub(filled);
-            let bar = format!("▐{}{}▌", "█".repeat(filled), "░".repeat(empty));
+            let filled = ((ratio.clamp(0.0, 1.0)) * 12.0).round() as usize;
+            let bar_line = Line::from(inline_bar_spans(filled, 12, color));
             rows.push(Row::new(vec![
-                format!("  {}", s.label),
-                crate::utils::format_temp(s.value as f32, state.temp_unit_fahrenheit),
-                s.max.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit)).unwrap_or_else(|| "—".into()),
-                s.limit.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit))
+                Cell::from(format!("  {}", s.label)).style(Style::default().fg(theme.text)),
+                Cell::from(crate::utils::format_temp(s.value as f32, state.temp_unit_fahrenheit)).style(Style::default().fg(color).add_modifier(Modifier::BOLD)),
+                Cell::from(s.max.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit)).unwrap_or_else(|| "—".into())).style(Style::default().fg(theme.text_secondary)),
+                Cell::from(s.limit.map(|v| crate::utils::format_temp(v, state.temp_unit_fahrenheit))
                     .or_else(|| s.critical.map(|v| format!("{} (crit)", crate::utils::format_temp(v, state.temp_unit_fahrenheit))))
-                    .unwrap_or_else(|| "—".into()),
-                bar,
-            ]).style(Style::default().fg(color)));
+                    .unwrap_or_else(|| "—".into())).style(Style::default().fg(theme.text_secondary)),
+                Cell::from(bar_line),
+            ]));
         }
     }
 

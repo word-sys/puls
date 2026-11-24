@@ -1,200 +1,127 @@
-**Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
+**Языки:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
 <p align="left">
-  <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="Иконка PULS"/>
+  <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="PULS Icon"/>
 </p>
 
 # PULS
 
-**Единый инструмент мониторинга и администрирования системы для Linux**
+**Единый инструмент мониторинга и администрирования Linux без внешних зависимостей**
 
-PULS объединяет детализированный мониторинг системных ресурсов со встроенными возможностями системного администрирования Linux. Он позволяет отслеживать телеметрию оборудования, управлять службами systemd, просматривать системные журналы, анализировать иерархические деревья процессов, отправлять сигналы POSIX, безопасно редактировать параметры загрузчика и контролировать жизненный цикл контейнеров непосредственно из современного интерактивного терминального интерфейса (TUI).
+PULS объединяет высокоточную телеметрию ядра и нативное администрирование Linux в одном статическом бинарном файле (~1,6 МБ) с **нулевым числом внешних крейтов Rust** (`0` записей в `[dependencies]`). Отслеживайте оборудование, показатели давления Linux PSI, сжатие ZRAM и задержки дисков, управляйте системными и пользовательскими (`--user`) службами systemd, просматривайте структурированные журналы journald, настраивайте CPU affinity и приоритет I/O, безопасно редактируйте GRUB / `systemd-boot` / параметры ядра `sysctl`, управляйте контейнерами Docker и Podman, а также записывайте и воспроизводите сеансы телеметрии через собственный контрастный TUI.
 
 ## Скриншоты
 
-| **Панель управления и общий обзор системы** | **Иерархическое дерево процессов** |
+| **Панель мониторинга и Обзор системы** | **Иерархическое дерево процессов** |
 | :---: | :---: |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Панель управления и обзор системы" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Иерархическое дерево процессов" width="450"/></a> |
-| **Архитектура CPU и NUMA** | **Распределение оперативной памяти и Swap** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="Архитектура CPU и NUMA" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Распределение памяти и Swap" width="450"/></a> |
-| **Накопители, Inode и параметры монтирования** | **Сетевые интерфейсы и активные сокеты** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Накопители и Inode" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Сетевые интерфейсы и сокеты" width="450"/></a> |
-| **Мониторинг нескольких GPU (NVIDIA и Intel)** | **Информация о системе, сеансы и диагностика** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Мониторинг GPU" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Информация о системе и диагностика" width="450"/></a> |
-| **Службы systemd и таймеры** | **Системные журналы journald и история загрузок** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Службы systemd и таймеры" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Системные журналы journald" width="450"/></a> |
-| **Конфигурация GRUB и загрузчика** | **Аппаратные датчики, питание и вентиляторы** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="Конфигурация GRUB" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Аппаратные датчики и питание" width="450"/></a> |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Панель мониторинга" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Дерево процессов" width="450"/></a> |
+| **Архитектура CPU и NUMA** | **Распределение памяти и Swap** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="CPU и NUMA" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Память и Swap" width="450"/></a> |
+| **Хранилище, Иноды и Опции монтирования** | **Сетевые интерфейсы и Активные сокеты** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Хранилище и Иноды" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Сеть и Сокеты" width="450"/></a> |
+| **Мониторинг Multi-GPU (NVIDIA и Intel)** | **Сведения о системе, Сессии и Диагностика** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Multi-GPU" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Сведения о системе" width="450"/></a> |
+| **Службы Systemd и Таймеры** | **Системные журналы и История загрузок** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Службы и Таймеры" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Журналы" width="450"/></a> |
+| **Настройка GRUB, systemd-boot и sysctl** | **Датчики оборудования, Питание и Вентиляторы** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="Загрузчик и sysctl" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Датчики и Питание" width="450"/></a> |
 
 ---
 
-## Архитектура и Принципы Разработки
+## Архитектура и принципы проектирования
 
-PULS написан на языке Rust с использованием библиотек `ratatui` и `crossterm` для визуализации в терминале и напрямую взаимодействует с ядром Linux и системными утилитами:
+PULS v0.10.0 полностью построен на стандартной библиотеке Rust и прямых интерфейсах ядра Linux с **нулевым числом внешних зависимостей**:
 
-*   **Ноль новых внешних зависимостей**: Исключает раздувание бинарного файла за счет использования стандартной библиотеки Rust, прямых вызовов Unix FFI и виртуальных файловых систем ядра (`/proc`, `/sys`).
-*   **Глубокая телеметрия оборудования**: Встроенный анализ топологии процессора (кэши L1/L2/L3, привязка к узлам NUMA, регуляторы частоты cpufreq), детальная раскладка страниц оперативной памяти, статистика inode файловых систем (`statvfs`) и телеметрия аккумулятора (`/sys/class/power_supply/`).
-*   **Мульти-вендорная поддержка GPU**: Драйверные парсеры sysfs/DRM и hwmon для видеокарт AMD и Intel, а также интеграция с NVML/`nvidia-smi` для графических процессоров NVIDIA. Отслеживание использования видеопамяти (VRAM), поколения и ширины линий шины PCIe, оборотов вентиляторов (об/мин), энергопотребления относительно лимитов мощности и аппаратного троттлинга.
-*   **Транзакционный редактор загрузчика**: Редактирование параметров `/etc/default/grub` в оперативной памяти. Просмотр цветного сравнения (diff) перед сохранением (`u`) с автоматическим созданием резервных копий с временными метками.
-*   **Надежное управление терминалом**: Захват событий мыши (`EnableMouseCapture`) для переключения вкладок по клику и плавной прокрутки таблиц, защищенный обработчиком паники, который корректно восстанавливает исходный режим терминала при завершении программы.
+*   **Ноль зависимостей (`[dependencies]` в `Cargo.toml` пуст)**: Полностью заменены `ratatui`, `crossterm`, `sysinfo`, `bollard`, `tokio`, `futures-util`, `log` и `env_logger` (`Cargo.lock` сокращён с 230 пакетов до 1).
+*   **Собственный терминальный движок Linux (`src/term/`)**: Прямой raw-режим `termios`, изменение размера через `ioctl(TIOCGWINSZ)` + `SIGWINCH`, неблокирующий `poll(2)`, парсер UTF-8 клавиатуры и мыши SGR 1006, синхронизированный двойной буфер на чёрном серверном фоне и графики Брайля 2×4.
+*   **Прямая телеметрия ядра и железа (`src/sys/`)**: Парсеры `/proc` и `/sys`, декодер SMBIOS Type 17 DMI, чтение сессий `utmp`/logind, динамический NVML (`dlopen("libnvidia-ml.so.1")`), VRAM по PID через `/proc/[pid]/fdinfo` и прямые системные вызовы (`kill`, `setpriority`, `sethostname`, `sched_setaffinity`, `ioprio_set`).
+*   **Нативный клиент контейнеров**: Собственный HTTP/1.1 + JSON клиент через Unix-сокеты с быстрым чтением Cgroup v2 для Docker и rootless Podman.
+*   **Транзакционный редактор загрузчика и `sysctl`**: Редактирование GRUB, `systemd-boot`, `/etc/kernel/cmdline` и параметров ядра `sysctl` (`/proc/sys` -> `/etc/sysctl.d/99-puls.conf`) с проверкой diff (`u`) перед атомарной записью.
 
 ---
 
 ## Возможности
 
-### 1. Мониторинг Ресурсов и Оборудования
-*   **Процессор и архитектура NUMA**: Графики загрузки каждого ядра в реальном времени, адаптивная сетка для многоядерных систем (до 128+ ядер), показатели кэш-памяти L1/L2/L3, регуляторы частоты и распределение памяти по узлам NUMA.
-*   **Оперативная память и Swap**: Наглядная разбивка общего, используемого, свободного, доступного, кэшированного объема памяти и файла подкачки. Поддержка единиц измерения температуры в градусах Цельсия и Фаренгейта.
-*   **Накопители и Inode**: Скорости чтения и записи по каждому разделу, занятый объем, параметры монтирования и процент использования inode (`statvfs`).
-*   **Сеть и Сокеты**: Скорость входящего (`v`) и исходящего (`^`) трафика интерфейсов в реальном времени. Инспектор активных сокетов TCP/UDP с отображением локальных и удаленных IP-адресов, состояний соединения (ESTABLISHED, LISTEN и др.) и PID процессов.
-*   **Видеокарты NVIDIA, AMD и Intel**: Мониторинг нескольких видеокарт с отображением вычислительной нагрузки, занятой VRAM, частот, температур, оборотов кулеров (RPM), параметров шины PCIe, лимитов питания и флагов температурного троттлинга.
-*   **Питание и Аккумулятор**: Состояние батареи, мощность зарядки (Вт), количество циклов перезарядки, индикатор емкости и статус сетевого адаптера питания.
+### 1. Мониторинг ресурсов и оборудования
+*   **CPU, NUMA и PSI**: Индикаторы загрузки по ядрам, адаптивные сетки (128+ ядер), кэш L1/L2/L3, регуляторы частоты, топология NUMA и Linux PSI (`/proc/pressure/cpu`).
+*   **Память, ZRAM и PSI**: Параллельные индикаторы RAM и Swap, график Брайля, визуальная структура памяти (Активная, Кэш, Доступная, Swap), сжатие ZRAM, SMBIOS DIMM и PSI памяти.
+*   **Диски, Задержки и Иноды**: Многопанельный обзор дисков, карточки томов, `/proc/diskstats` `await_ms`/`busy_pct`, планировщик I/O, температуры NVMe/SMART, I/O PSI и иноды (`statvfs`).
+*   **Сеть и Инспектор сокетов**: Скорость интерфейсов, Link/MTU, сигнал Wi-Fi (`/proc/net/wireless`), очереди `TxQ/RxQ`, ретрансмиты TCP, фильтр `/` и переход к процессу по `Enter`.
+*   **GPU NVIDIA, AMD и Intel**: Загрузка, VRAM, частоты, температуры, обороты вентиляторов, PCIe, лимиты мощности, троттлинг и VRAM по PID.
+*   **Питание и Датчики**: Состояние батареи, мощность, напряжение, циклы, статус AC и сгруппированные датчики hwmon.
 
-### 2. Управление Процессами и Контейнерами
-*   **Иерархическое Дерево Процессов**: Переключение между плоским списком и деревом зависимостей процессов (`t`) со специальными символами (`├─`, `└─`).
-*   **Селектор Сигналов POSIX**: Отправка стандартных сигналов процессам через интерактивное меню (`k` или `F9`) с поддержкой `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, `SIGCONT` и `SIGINT`.
-*   **Изменение Приоритета (Renice)**: Динамическое изменение приоритета планирования (`[` для повышения приоритета / уменьшения значения nice, `]` для понижения приоритета / увеличения nice).
-*   **Инспектор Деталей Процесса**: Нажмите `Enter` на любом процессе для просмотра количества открытых дескрипторов файлов (`/proc/[pid]/fd`), активных сокетов, количества потоков и нагрузки на CPU по потокам (`/proc/[pid]/task`).
-*   **Интерактивный Поиск**: Нажмите `/` на вкладке процессов для фильтрации по имени в реальном времени; `Esc` сбрасывает фильтр.
-*   **Контейнеры Docker и Podman**: Подключение к демону Docker или сокетам Podman пользователя (`/run/user/$UID/podman/podman.sock`). Запуск (`s`), остановка (`x`), перезапуск (`r`), пауза (`p`) и просмотр логов в реальном времени (`Enter` или `l`).
-
-### 3. Подсистема Управления Службами
-Прямая интеграция с `systemd` (`systemctl`):
-*   **Управление Состоянием**: Запуск (`s`), остановка (`x`) и перезапуск (`r`) служб.
-*   **Автозагрузка**: Включение (`e`) или отключение (`d`) служб при старте операционной системы.
-*   **Анализ Конфигурации**: Просмотр полного описания юнита systemd, зависимостей и статусов валидации.
-*   **Журнал Службы**: Нажмите `g` для просмотра последних 50 записей `journald` выбранной службы.
-*   **Системные Таймеры**: Обзор активных таймеров systemd (`systemctl list-timers`) со временем следующего срабатывания.
-
-### 4. Системное Администрирование и Диагностика
-*   **Диагностика Системы**: Панель выявления аномалий на главной вкладке сообщает о перегреве процессора, нехватке оперативной памяти и критическом заполнении дисков.
-*   **Сеансы Пользователей и Перезагрузка**: Активные сессии пользователей (`who` / `/var/run/utmp`) и индикатор требования перезагрузки после обновлений (`/var/run/reboot-required`).
-*   **Централизованные Журналы Journald**: Фильтрация логов по уровню важности (Ошибки/Предупреждения), службам или сессиям загрузки. Оптимизированные быстрые запросы с параметром `--boot=0`.
-
-### 5. Персонализация и Локализация
-*   **Поддержка 7 Языков**: Полная локализация на русский, английский (по умолчанию), турецкий, французский, немецкий, испанский и итальянский языки. Автоопределение через переменные `LANG`/`LC_ALL` или переключение горячими клавишами (`L` / `l`).
-*   **Окно Настроек (`F2` / `Shift+S`)**: Интерактивная настройка языка интерфейса, цветовой темы, вкладки по умолчанию при запуске, единиц измерения температуры (Цельсий / Фаренгейт), интервала обновления (от 500мс до 5000мс) и режима дерева процессов. Сохраняется в `~/.config/puls/config.ini`.
-*   **6 Цветовых Тем**: Стандартная, Темно-синяя, Светлая, Дракула (Dracula), Solarized Dark и Высококонтрастная.
-*   **Управление Мышью**: Переключение вкладок кликом, открытие меню настроек и удобная прокрутка таблиц колесом мыши.
+### 2. Процессы, Службы, Журналы и Снимки
+*   **Процессы и Контейнеры**: Дерево процессов (`t`), столбец `Unit / Cgroup`, POSIX-сигналы (`k`/`F9`), renice (`[`/`]`), CPU affinity (`a`), приоритет I/O (`i`), инспектор PSS/FD/Потоков (`Enter`), управление Docker/Podman (`s`/`x`/`r`/`p`/`l`).
+*   **Службы Systemd и Журналы**: Переключение system/`--user` (`u`), просмотр unit-файла (`v`), таймеры и `Boot Blame` (`Влево`/`Вправо`), 4-колоночный структурированный журнал JSON (`EMERG..DEBUG`).
+*   **Снимки и Чёрный ящик (Flight Recorder)**: Автономный экспорт JSON/Markdown (`--snapshot [ПУТЬ]` или клавиша `E`), запись JSONL (`--record`) и офлайн-воспроизведение (`--replay` с `<`/`>`).
+*   **7 языков и 6 тем**: Сохраняемые настройки (`F2`/`Shift+S` -> `~/.config/puls/config.ini`) и полная поддержка мыши.
 
 ---
 
-## Горячие Клавиши и Управление
+## Горячие клавиши
 
-### Глобальная Навигация
 | Клавиша | Действие |
 | :--- | :--- |
-| `q` / `Esc` | Выход из PULS (или закрытие открытого окна) |
-| `Tab` / `1`..`9`, `0`, `-`, `=` | Переключение вкладок (0: Панель, 1: CPU, 2: Память, 3: Процессы, 4: Диски, 5: Сеть, 6: GPU, 7: Датчики, 8: Службы, 9: Журнал, 10: GRUB, 11: Контейнеры, 12: О системе) |
-| `Левый клик` | Клик по названию вкладки или кнопке настроек |
-| `F2` / `Shift+S` / `s` | Открыть / Закрыть окно настроек |
-| `L` / `l` | Переключить язык (RU -> EN -> TR -> FR -> DE -> ES -> IT) |
-| `t` / `T` | Переключить цветовую тему (вне вкладки процессов) |
-| `p` | Приостановить / возобновить сбор системных метрик |
-| `?` | Открыть / Закрыть справку по горячим клавишам |
-| `Вверх` / `Вниз` / `j` / `k` / `Колесо мыши` | Навигация по спискам и прокрутка модальных окон |
-
-### Вкладка Процессов (Вкладка 3)
-| Клавиша | Действие |
-| :--- | :--- |
-| `t` | Переключение между плоским списком и иерархическим деревом процессов |
-| `k` / `F9` | Меню выбора сигналов POSIX (`SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, `SIGCONT`, `SIGINT`) |
-| `[` | Повысить приоритет процесса (renice -1, выше приоритет) |
-| `]` | Понизить приоритет процесса (renice +1, ниже приоритет) |
-| `Enter` | Открыть детальный инспектор процесса (дескрипторы, сокеты, потоки) |
-| `/` | Фильтрация процессов по имени |
-
-### Вкладка Служб (Вкладка 8)
-| Клавиша | Действие |
-| :--- | :--- |
-| `s` | Запустить выбранную службу |
-| `x` | Остановить выбранную службу |
-| `r` | Перезапустить выбранную службу |
-| `e` | Включить службу в автозагрузку |
-| `d` | Отключить службу из автозагрузки |
-| `g` | Показать последние 50 строк журнала journald для службы |
-
-### Вкладка Контейнеров (Вкладка 11)
-| Клавиша | Действие |
-| :--- | :--- |
-| `s` | Запустить контейнер |
-| `x` | Остановить контейнер |
-| `r` | Перезапустить контейнер |
-| `p` | Приостановить / возобновить контейнер |
-| `Enter` / `l` | Открыть окно потокового просмотра логов контейнера |
-
-### Вкладка Конфигурации GRUB (Вкладка 10)
-| Клавиша | Действие |
-| :--- | :--- |
-| `Enter` | Редактировать выбранный параметр конфигурации |
-| `u` | Открыть окно сравнения изменений (diff) перед сохранением |
+| `q` / `Esc` | Выход из PULS (или закрытие модального окна) |
+| `Tab` / `1`..`9`, `0`, `-`, `=`, `+` | Переключение вкладок (`1`: Обзор, `2`: Процессы, `3`: CPU, `4`: Память, `5`: Диски, `6`: Сеть, `7`: GPU, `8`: Система, `9`: Службы, `0`: Журналы, `-`: Конфиг, `=`: Контейнеры, `+`: Датчики) |
+| `F2` / `Shift+S` / `s` | Открыть / закрыть Настройки |
+| `E` | Экспортировать JSON-снимок (`puls_snapshot_<дата>.json`) |
+| `<` / `>` | Прокрутка шкалы времени в `--replay` (или смена загрузки в Журналах) |
+| `L` / `t` / `p` | Смена языка / темы / пауза |
+| Процессы `t` / `k` / `a` / `i` / `[` `]` / `Enter` | Дерево / Сигналы / CPU Affinity / Приоритет I/O / Renice / Инспектор |
+| Сеть `/` / `Enter` | Фильтр сокетов / Переход к PID процесса |
+| Службы `u` / `v` / `g` / `Left` `Right` | Режим `--user` / Unit-файл / Логи / Подвкладки (Службы, Таймеры, Boot Blame) |
+| Конфиг `Left` `Right` / `Enter` / `u` | Загрузчик vs `sysctl` / Изменить / Просмотр diff и сохранение |
 
 ---
 
 ## Установка
 
-### Статический Бинарный Файл (Портативный)
-Рекомендуемый способ запуска на любом дистрибутиве Linux — статический бинарный файл, скомпилированный с MUSL, который не требует внешних зависимостей и версий glibc. Доступен для AMD64 (`x86_64`) и ARM64 (`aarch64`):
-
+### Статический бинарный файл (Портативный)
 ```bash
-# Для архитектуры x86_64 (AMD64)
-wget https://github.com/word-sys/puls/releases/latest/download/puls-0.9.4-x86_64-linux-musl.tar.gz
-tar -xzf puls-0.9.4-x86_64-linux-musl.tar.gz
+# Для x86_64 (AMD64)
+wget https://github.com/word-sys/puls/releases/latest/download/puls-0.10.0-x86_64-linux-musl.tar.gz
+tar -xzf puls-0.10.0-x86_64-linux-musl.tar.gz
 sudo mv puls /usr/local/bin/puls
 
-# Для архитектуры aarch64 (ARM64)
-wget https://github.com/word-sys/puls/releases/latest/download/puls-0.9.4-aarch64-linux-musl.tar.gz
-tar -xzf puls-0.9.4-aarch64-linux-musl.tar.gz
+# Для aarch64 (ARM64)
+wget https://github.com/word-sys/puls/releases/latest/download/puls-0.10.0-aarch64-linux-musl.tar.gz
+tar -xzf puls-0.10.0-aarch64-linux-musl.tar.gz
 sudo mv puls /usr/local/bin/puls
 ```
 
-### Пакет для Debian / Ubuntu (.deb)
-Установка официального пакета `.deb` в Debian, Ubuntu, Linux Mint или Pop!_OS:
-
+### Пакет Debian / Ubuntu (.deb)
 ```bash
-# Скачать и установить пакет для AMD64
-wget https://github.com/word-sys/puls/releases/latest/download/puls_0.9.4_amd64.deb
-sudo apt install ./puls_0.9.4_amd64.deb
+# AMD64
+wget https://github.com/word-sys/puls/releases/latest/download/puls_0.10.0_amd64.deb
+sudo apt install ./puls_0.10.0_amd64.deb
 
-# Для систем на базе ARM64
-wget https://github.com/word-sys/puls/releases/latest/download/puls_0.9.4_arm64.deb
-sudo apt install ./puls_0.9.4_arm64.deb
+# ARM64
+wget https://github.com/word-sys/puls/releases/latest/download/puls_0.10.0_arm64.deb
+sudo apt install ./puls_0.10.0_arm64.deb
 ```
 
-Если требуется исправить зависимости пакетов:
+### Сборка из исходного кода
 ```bash
-sudo apt --fix-broken install
+cargo build --release --target x86_64-unknown-linux-musl
 ```
-
-### Сборка из Исходного Кода
-Для сборки PULS на вашей машине:
-
-1. **Необходимые компоненты**:
-   * Набор инструментов Rust (1.70+): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-   * Инструменты компиляции musl: `sudo apt install musl-tools` (Debian/Ubuntu) или `sudo dnf install musl-gcc` (Fedora) или `sudo pacman -S musl` (Arch)
-   * Добавление целевой платформы musl: `rustup target add x86_64-unknown-linux-musl`
-
-2. **Компиляция**:
-   ```bash
-   cargo build --release --target x86_64-unknown-linux-musl
-   ```
-   Готовый бинарный файл находится в `target/x86_64-unknown-linux-musl/release/puls`.
 
 ---
 
-## Режимы Запуска
+## Использование
 
-PULS адаптирует доступные функции в зависимости от предоставленных прав:
-
-| Команда | Режим Работы |
+| Команда | Режим |
 | :--- | :--- |
-| `puls` | **Пользовательский режим**: Полный мониторинг процессов пользователя, CPU, памяти, дисков, сети, GPU и контейнеров. |
-| `sudo puls` | **Режим Администратора**: Неограниченный доступ к управлению службами systemd, системным журналам и настройкам GRUB. |
-| `puls --safe` | **Безопасный режим**: Блокирует любые операции записи (управление службами, сигналы, сохранение GRUB) для защиты от случайных изменений. |
-| `puls --telemetry` | **Режим Телеметрии**: Выводит детальные замеры времени инициализации подсистем при запуске в стандартный вывод. |
+| `puls` | **Стандартный режим**: Полный мониторинг системы, процессов, контейнеров и пользовательских служб. |
+| `sudo puls` | **Режим администратора**: Полное управление systemd, журналами, загрузчиком и `sysctl`. |
+| `puls --safe` | **Безопасный режим**: Только чтение, отключает любые изменения. |
+| `puls --snapshot [ПУТЬ]` | **Автономный снимок**: Выводит JSON-диагностику в stdout (или сохраняет `.json`/`.md` в `ПУТЬ`). |
+| `puls --record <ФАЙЛ.jsonl>` | **Запись телеметрии**: Сохраняет кадры телеметрии в JSONL-файл в реальном времени. |
+| `puls --replay <ФАЙЛ.jsonl>` | **Офлайн-воспроизведение**: Открывает записанный JSONL-файл с навигацией `<`/`>`. |
+| `puls --telemetry` | **Режим телеметрии**: Выводит диагностику времени запуска при инициализации. |
 
 ---
 
 ## Лицензия
 
-PULS распространяется под лицензией [GNU General Public License v3.0](LICENSE).
+PULS распространяется по лицензии [GNU General Public License v3.0](LICENSE).

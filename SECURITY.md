@@ -6,8 +6,8 @@ Security updates are applied to the latest release track and the `main` developm
 
 | Version | Supported |
 | ------- | --------- |
-| 0.9.x (latest) | Yes |
-| < 0.9.4 | No |
+| 0.10.x (latest) | Yes |
+| < 0.10.0 | No |
 
 ## Security Scope
 

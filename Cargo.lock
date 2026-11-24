@@ -4,4 +4,4 @@ version = 4
 
 [[package]]
 name = "puls"
-version = "0.9.4"
+version = "0.10.0"

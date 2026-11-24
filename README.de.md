@@ -1,4 +1,4 @@
-**Languages:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
+**Sprachen:** [English](README.md) | [Türkçe](README.tr.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Español](README.es.md) | [Italiano](README.it.md) | [Русский](README.ru.md)
 
 <p align="left">
   <img src="https://raw.githubusercontent.com/word-sys/puls/main/puls_icon.svg" width="220" height="220" alt="PULS Icon"/>
@@ -6,195 +6,122 @@
 
 # PULS
 
-**Ein einheitliches Systemüberwachungs- und Verwaltungswerkzeug für Linux**
+**Ein abhängigkeitsfreies, vereintes Systemüberwachungs- und Verwaltungswerkzeug für Linux**
 
-PULS vereint präzise Ressourcenüberwachung mit nativen Linux-Systemadministrationsfunktionen. Es ermöglicht die Überwachung von Hardware-Telemetriedaten, die Verwaltung von systemd-Diensten, die Analyse von Systemprotokollen, die Inspektion hierarchischer Prozessbäume, das Senden von POSIX-Signalen, die sichere Bearbeitung von Boot-Konfigurationen und die Überwachung von Containern direkt über eine moderne, interaktive Terminal-Benutzeroberfläche (TUI).
+PULS kombiniert präzise Kernel-Telemetrie mit nativer Linux-Systemadministration in einer einzigen statischen Binary (~1,6 MB) mit **null externen Rust-Crates** (`0` Einträge in `[dependencies]`). Überwachen Sie Hardware-Sensoren, Linux-PSI-Druckwerte, ZRAM- und Block-I/O-Latenzen, verwalten Sie System- und Rootless-User-Systemd-Dienste, inspizieren Sie strukturierte Journal-Logs, setzen Sie CPU-Affinität und I/O-Priorität, bearbeiten Sie GRUB / `systemd-boot` / Live-Kernel-`sysctl`-Parameter transaktional, steuern Sie Docker & Podman und zeichnen Sie Telemetrie-Sessions auf oder spielen Sie diese offline ab.
 
-## Bildschirmfotos
+## Screenshots
 
 | **Dashboard & Systemübersicht** | **Hierarchischer Prozessbaum** |
 | :---: | :---: |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Dashboard & Systemübersicht" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Hierarchischer Prozessbaum" width="450"/></a> |
-| **CPU- & NUMA-Architektur** | **Speicher- & Swap-Aufteilung** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="CPU- & NUMA-Architektur" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Speicher- & Swap-Aufteilung" width="450"/></a> |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot0.png" alt="Dashboard" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot1.png" alt="Prozessbaum" width="450"/></a> |
+| **CPU- & NUMA-Architektur** | **Speicher- & Swap-Belegung** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot2.png" alt="CPU & NUMA" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot3.png" alt="Speicher & Swap" width="450"/></a> |
 | **Speicher, Inodes & Mount-Optionen** | **Netzwerkschnittstellen & Aktive Sockets** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Speicher, Inodes & Mount-Optionen" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Netzwerkschnittstellen & Sockets" width="450"/></a> |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot4.png" alt="Speicher & Inodes" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot5.png" alt="Netzwerk & Sockets" width="450"/></a> |
 | **Multi-GPU-Überwachung (NVIDIA & Intel)** | **Systeminfo, Sitzungen & Diagnose** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Multi-GPU-Überwachung" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Systeminfo & Diagnose" width="450"/></a> |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot6.png" alt="Multi-GPU" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot7.png" alt="Systeminfo" width="450"/></a> |
 | **Systemd-Dienste & Timer** | **System-Journal-Logs & Boot-Verlauf** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Systemd-Dienste & Timer" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="System-Journal-Logs" width="450"/></a> |
-| **GRUB- & Bootloader-Konfiguration** | **Hardwaresensoren, Strom & Lüfter** |
-| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="GRUB-Konfiguration" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Hardwaresensoren & Strom" width="450"/></a> |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot8.png" alt="Dienste & Timer" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot9.png" alt="Journal-Logs" width="450"/></a> |
+| **GRUB, systemd-boot & sysctl Konfiguration** | **Hardware-Sensoren, Stromversorgung & Lüfter** |
+| <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot10.png" alt="Bootloader & sysctl" width="450"/></a> | <a href="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png"><img src="https://raw.githubusercontent.com/word-sys/puls/refs/heads/main/screenshots/screenshot11.png" alt="Sensoren & Strom" width="450"/></a> |
 
 ---
 
-## Architektur und Designprinzipien
+## Architektur & Designprinzipien
 
-PULS ist in Rust geschrieben und nutzt `ratatui` sowie `crossterm` für die Darstellung im Terminal. Es interagiert direkt mit dem Linux-Kernel und nativen Systemwerkzeugen:
+PULS v0.10.0 basiert vollständig auf der Rust-Standardbibliothek und direkten Linux-Kernel-Schnittstellen mit **null externen Crate-Abhängigkeiten**:
 
-*   **Keine neuen externen Abhängigkeiten**: Vermeidet unnötige Crates durch die ausschließliche Nutzung von Rust-Standardbibliotheksfunktionen, Unix-FFI-Aufrufen und direkten Kernel-Schnittstellen (`/proc`, `/sys`).
-*   **Tiefe Hardware-Telemetrie**: Native Analyse von CPU-Topologien (L1/L2/L3-Cache, NUMA-Knoten-Affinitäten, Frequenz-Governors), Speicherseiten-Aufteilung, Dateisystem-Inodes (`statvfs`) und Batteriestatus (`/sys/class/power_supply/`).
-*   **Multi-Vendor-GPU-Unterstützung**: Native Treiber-Parser über sysfs/DRM und hwmon für AMD- und Intel-Grafikchips sowie NVML/`nvidia-smi` für NVIDIA-GPUs. Überwacht VRAM-Auslastung, PCIe-Verbindungsgeneration und -breite, Lüfterdrehzahl (U/min), Leistungsaufnahme im Vergleich zu Leistungslimits und thermische Drosselung (Throttling).
-*   **Transaktionaler Boot-Editor**: Bearbeiten Sie `/etc/default/grub` direkt im Arbeitsspeicher. Überprüfen Sie vor dem Speichern alle Änderungen in einem farblichen Diff-Dialog (`u`); automatische Backups mit Zeitstempel werden vor jedem Schreibvorgang erstellt.
-*   **Robuste Terminalsteuerung**: Erfassung von Mausereignissen (`EnableMouseCapture`) für Klicks auf Tabs und flüssiges Scrollen; geschützt durch einen Panic-Hook, der den Terminalzustand beim Beenden stets sauber wiederherstellt.
+*   **Null Abhängigkeiten (`[dependencies]` in `Cargo.toml` leer)**: `ratatui`, `crossterm`, `sysinfo`, `bollard`, `tokio`, `futures-util`, `log` und `env_logger` vollständig ersetzt (`Cargo.lock` von 230 Paketen auf 1 reduziert).
+*   **Eigene Linux-Terminal-Engine (`src/term/`)**: Direktes `termios`-Raw-Mode, `ioctl(TIOCGWINSZ)` + `SIGWINCH`, `poll(2)`, UTF-8-Tastatur- & SGR-1006-Mausparser, synchronisiertes Double-Buffered-Diff-Rendering auf tiefschwarzem Server-Canvas sowie 2×4-Unicode-Braille-Diagramme.
+*   **Direkte Kernel- & Hardware-Telemetrie (`src/sys/`)**: Native `/proc`- und `/sys`-Parser, binärer SMBIOS-Typ-17-DMI-Decoder, binäre `utmp`/logind-Sitzungsanalyse, dynamisches NVML (`dlopen("libnvidia-ml.so.1")`), `/proc/[pid]/fdinfo` DRM-VRAM-Zuordnung und direkte Syscalls (`kill`, `setpriority`, `sethostname`, `sched_setaffinity`, `ioprio_set`).
+*   **Nativer Container-Client**: Eigener HTTP/1.1- & JSON-Client über Unix-Domain-Sockets mit Cgroup-v2-Fast-Path für Docker und Rootless-Podman.
+*   **Transaktionaler Boot- & `sysctl`-Editor**: Bearbeiten Sie GRUB, `systemd-boot`, `/etc/kernel/cmdline` und Live-`sysctl`-Parameter (`/proc/sys` -> `/etc/sysctl.d/99-puls.conf`) mit Diff-Vorschau (`u`) vor dem atomaren Speichern.
 
 ---
 
 ## Funktionen
 
-### 1. Ressourcen- und Hardwareüberwachung
-*   **CPU und NUMA-Architektur**: Echtzeit-Auslastungsdiagramme pro Kern, anpassbares Rasterlayout für Prozessoren mit vielen Kernen (bis zu 128+ Kerne), L1/L2/L3-Cache-Größen, CPU-Governors sowie NUMA-Knoten-Zuordnung und Speicherverteilung.
-*   **Arbeitsspeicher und Swap**: Detaillierte visuelle Aufschlüsselung von Gesamtspeicher, belegtem, freiem, verfügbarem, zwischengespeichertem Speicher und Swap. Unterstützt Temperatureinheiten in Celsius und Fahrenheit.
-*   **Festplatten und Inodes**: Lese- und Schreibdurchsatzraten pro Partition, Speicherbelegung, Einhängeoptionen (Mount Flags) und prozentuale Inode-Belegung (`statvfs`).
-*   **Netzwerk und Sockets**: Echtzeit-Übertragungsraten für Upload (`^`) und Download (`v`). Aktiver TCP/UDP-Socket-Inspektor mit Zuordnung von lokalen/entfernten IP-Endpunkten, Verbindungsstatus (ESTABLISHED, LISTEN usw.) und zugehörigen Prozess-PIDs.
-*   **NVIDIA-, AMD- und Intel-GPUs**: Multi-GPU-Unterstützung mit Rechenauslastung, VRAM-Verbrauch, Taktraten, Temperaturen, Lüfterdrehzahlen (U/min), PCIe-Generierung/Breite, Leistungslimits und Drosselungsindikatoren.
-*   **Stromversorgung und Akku**: Akkugesundheit, Ladeleistung in Watt, Ladezyklen, Kapazitätsbalken und Netzteil-Verbindungsstatus.
+### 1. Ressourcen- & Hardware-Überwachung
+*   **CPU, NUMA & PSI**: Pro-Kern-Balken, adaptive Layouts (128+ Kerne), L1/L2/L3-Cache, Skalierungs-Governors, NUMA-Topologie und Linux-CPU-PSI (`/proc/pressure/cpu`).
+*   **Speicher, ZRAM & PSI**: Nebeneinanderliegende RAM- & Swap-Anzeigen, Live-Braille-Verlaufsdiagramm, visuelle Speicherzusammensetzung, ZRAM-Kompression, SMBIOS-DIMM-Details und Memory-PSI.
+*   **Speicher, Latenz & Inodes**: Multi-Panel-Storage-Dashboard, Volume-Kapazitätskarten, `/proc/diskstats` `await_ms`/`busy_pct`, I/O-Scheduler, NVMe/SMART-Temperaturen, I/O-PSI und Inodes (`statvfs`).
+*   **Netzwerk & Socket-Inspektor**: Bandbreite, Link-Speed/MTU, WLAN-Signal (`/proc/net/wireless`), `TxQ/RxQ`-Warteschlangen, TCP-Retransmits, Live-`/`-Filter und `Enter`-Sprung zur Prozess-PID.
+*   **NVIDIA-, AMD- & Intel-GPUs**: Auslastung, VRAM, Taktraten, Temperaturen, Lüfter-RPM, PCIe-Generation/Breite, Leistungslimits, Throttling und Pro-PID-VRAM.
+*   **Stromversorgung & Sensoren**: Akkugesundheit, Leistung (Watt), Spannung, Ladezyklen, Netzteilstatus und gruppierte hwmon-Sensoren.
 
-### 2. Prozess- und Containerverwaltung
-*   **Hierarchischer Prozessbaum**: Umschalten zwischen flacher Liste und Eltern-Kind-Baumansicht (`t`) mit sauberen Baumglyphen (`├─`, `└─`).
-*   **POSIX-Signal-Auswahl**: Senden Sie Unix-Signale direkt an Prozesse über ein modales Dialogfenster (`k` oder `F9`) mit Unterstützung für `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, `SIGCONT` und `SIGINT`.
-*   **Prozesspriorität anpassen (Renice)**: Priorität interaktiv verändern (`[` für höhere Priorität / niedrigeren Nice-Wert, `]` für niedrigere Priorität / höheren Nice-Wert).
-*   **Detaillierter Prozess-Inspektor**: Drücken Sie `Eingabe` auf einem Prozess, um offene Dateideskriptoren (`/proc/[pid]/fd`), aktive Sockets, Thread-Anzahl und CPU-Auslastung einzelner Threads (`/proc/[pid]/task`) einzusehen.
-*   **Interaktive Echtzeitsuche**: Drücken Sie `/` im Prozesse-Tab, um Prozesse sofort nach Namen zu filtern; `Esc` setzt den Filter zurück.
-*   **Docker- und Podman-Container**: Verbindung zum Docker-Daemon oder zu Podman-Benutzersockets (`/run/user/$UID/podman/podman.sock`). Starten (`s`), Stoppen (`x`), Neustarten (`r`), Pausieren (`p`) und Live-Protokollanzeige (`Eingabe` oder `l`).
-
-### 3. Systemd-Diensteverwaltung
-Direkte Anbindung an `systemd` (`systemctl`):
-*   **Statussteuerung**: Dienste Starten (`s`), Stoppen (`x`) und Neustarten (`r`).
-*   **Autostart-Verwaltung**: Dienste beim Systemstart aktivieren (`e`) oder deaktivieren (`d`).
-*   **Dienstinspektion**: Vollständige Unit-Definitionen, Abhängigkeiten und Gültigkeitsstatus einsehen.
-*   **Protokollanzeige**: Drücken Sie `g`, um die letzten 50 `journald`-Einträge des ausgewählten Dienstes anzuzeigen.
-*   **Geplante Timer**: Übersicht über aktive systemd-Timer (`systemctl list-timers`) mit nächstem und letztem Ausführungszeitpunkt.
-
-### 4. Systemadministration und Diagnose
-*   **Systemdiagnose**: Dashboard-Panel zur automatischen Erkennung von Systemanomalien wie hoher CPU-Temperatur, Speicherdruck oder kritischem Festplattenspeicher.
-*   **Sitzungen und Neustartwarnung**: Aktive Benutzersitzungen (`who` / `/var/run/utmp`) und Benachrichtigung bei erforderlichem Systemneustart (`/var/run/reboot-required`).
-*   **Zentrale Systemprotokolle**: Filtern Sie Protokolle nach Priorität (Fehler/Warnung), Dienst oder Boot-Sitzung. Schnelle Abfragen durch standardmäßige Beschränkung auf `--boot=0`.
-
-### 5. Anpassung und Mehrsprachigkeit
-*   **7 Sprachen unterstützt**: Vollständige Lokalisierung für Deutsch, Englisch (Standard), Türkisch, Französisch, Spanisch, Italienisch und Russisch. Automatische Erkennung über `LANG`/`LC_ALL` oder Umschalten zur Laufzeit (`L` / `l`).
-*   **Einstellungsdialog (`F2` / `Shift+S`)**: Interaktives Konfigurationsmenü für Sprache, Farbschema, Standard-Start-Tab, Temperatureinheit (Celsius / Fahrenheit), Bildwiederholrate (500ms bis 5000ms) und Prozessbaumansicht. Gespeichert in `~/.config/puls/config.ini`.
-*   **6 Farbthemen**: Standard, Dunkelblau, Hell, Dracula, Solarized Dark und Hoher Kontrast.
-*   **Mausunterstützung**: Tabs per Klick wechseln, Einstellungen öffnen und Tabellen bequem mit dem Mausrad durchblättern.
+### 2. Prozesse, Dienste, Logs & Snapshots
+*   **Prozesse & Container**: Baumansicht (`t`), `Unit / Cgroup`-Spalte, POSIX-Signale (`k`/`F9`), Renice (`[`/`]`), CPU-Affinität (`a`), I/O-Priorität (`i`), Prozess-Inspektor mit PSS/FD/Threads (`Enter`), Docker/Podman-Steuerung (`s`/`x`/`r`/`p`/`l`).
+*   **Systemd-Dienste & Logs**: System- vs. `--user`-Umschaltung (`u`), Unit-Datei-Ansicht (`v`), Timer & `Boot Blame` (`Links`/`Rechts`), 4-spaltiger strukturierter JSON-Journal-Viewer (`EMERG..DEBUG`).
+*   **Snapshots & Flight Recorder**: Headless-JSON/Markdown-Export (`--snapshot [PFAD]` oder `E`), JSONL-Aufzeichnung (`--record`) und Offline-Wiedergabe (`--replay` mit `<`/`>`).
+*   **7 Sprachen & 6 Themes**: Persistente Einstellungen (`F2`/`Shift+S` -> `~/.config/puls/config.ini`) und vollständige Mausunterstützung.
 
 ---
 
-## Tastenkürzel und Steuerung
+## Tastenkürzel
 
-### Globale Navigation
 | Taste | Aktion |
 | :--- | :--- |
-| `q` / `Esc` | PULS beenden (oder aktiven Dialog schließen) |
-| `Tab` / `1`..`9`, `0`, `-`, `=` | Tabs wechseln (0: Dashboard, 1: CPU, 2: Speicher, 3: Prozesse, 4: Festplatten, 5: Netzwerk, 6: GPU, 7: Sensoren, 8: Dienste, 9: Protokolle, 10: GRUB, 11: Container, 12: Systeminfo) |
-| `Linksklick` | Tab-Kopfzeile anklicken oder Einstellungen-Schaltfläche betätigen |
-| `F2` / `Shift+S` / `s` | Einstellungen-Dialog öffnen / schließen |
-| `L` / `l` | Sprache durchschalten (DE -> ES -> IT -> RU -> EN -> TR -> FR) |
-| `t` / `T` | Farbschema wechseln (außerhalb des Prozesse-Tabs) |
-| `p` | Hintergrund-Metrikerfassung anhalten / fortsetzen |
-| `?` | Hilfe- und Tastenkürzeldialog anzeigen |
-| `Auf` / `Ab` / `j` / `k` / `Mausrad` | Durch Listen navigieren und Dialoginhalte scrollen |
-
-### Prozesse-Tab (Tab 3)
-| Taste | Aktion |
-| :--- | :--- |
-| `t` | Zwischen flacher Liste und hierarchischem Prozessbaum umschalten |
-| `k` / `F9` | POSIX-Signal-Auswahl öffnen (`SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, `SIGCONT`, `SIGINT`) |
-| `[` | Prozesspriorität erhöhen (renice -1, höhere Priorität) |
-| `]` | Prozesspriorität verringern (renice +1, niedrigere Priorität) |
-| `Eingabe` | Detaillierten Prozess-Inspektor öffnen (Deskriptoren, Sockets, Threads) |
-| `/` | Prozesse nach Name filtern |
-
-### Dienste-Tab (Tab 8)
-| Taste | Aktion |
-| :--- | :--- |
-| `s` | Ausgewählten Dienst starten |
-| `x` | Ausgewählten Dienst stoppen |
-| `r` | Ausgewählten Dienst neustarten |
-| `e` | Dienst beim Systemstart aktivieren |
-| `d` | Dienst beim Systemstart deaktivieren |
-| `g` | Die letzten 50 journald-Zeilen des Dienstes anzeigen |
-
-### Container-Tab (Tab 11)
-| Taste | Aktion |
-| :--- | :--- |
-| `s` | Container starten |
-| `x` | Container stoppen |
-| `r` | Container neustarten |
-| `p` | Container anhalten / fortsetzen |
-| `Eingabe` / `l` | Live-Container-Protokolle öffnen |
-
-### GRUB-Konfigurations-Tab (Tab 10)
-| Taste | Aktion |
-| :--- | :--- |
-| `Eingabe` | Ausgewählten Konfigurationsparameter bearbeiten |
-| `u` | Transaktionalen Diff-Vergleichsdialog vor dem Speichern öffnen |
+| `q` / `Esc` | PULS beenden (oder aktives Modal schließen) |
+| `Tab` / `1`..`9`, `0`, `-`, `=`, `+` | Tabs wechseln (`1`: Dashboard, `2`: Prozesse, `3`: CPU, `4`: Speicher, `5`: Datenträger, `6`: Netzwerk, `7`: GPU, `8`: System, `9`: Dienste, `0`: Logs, `-`: Konfig, `=`: Container, `+`: Sensoren) |
+| `F2` / `Shift+S` / `s` | Einstellungen öffnen / schließen |
+| `E` | Sofortigen JSON-Snapshot exportieren (`puls_snapshot_<zeit>.json`) |
+| `<` / `>` | Im `--replay`-Modus spulen (oder Boot-Sitzung in Logs wechseln) |
+| `L` / `t` / `p` | Sprache / Theme wechseln / Pausieren |
+| Prozesse `t` / `k` / `a` / `i` / `[` `]` / `Enter` | Baum / Signale / CPU-Affinität / I/O-Priorität / Renice / Inspektor |
+| Netzwerk `/` / `Enter` | Sockets filtern / Zugehörige PID inspizieren |
+| Dienste `u` / `v` / `g` / `Left` `Right` | `--user`-Modus / Unit-Datei / Logs / Untertabs (Dienste, Timer, Boot Blame) |
+| Konfig `Left` `Right` / `Enter` / `u` | Bootloader vs. `sysctl` / Bearbeiten / Transaktionalen Diff prüfen & anwenden |
 
 ---
 
 ## Installation
 
-### Statische Binärdatei (Portabel)
-Die empfohlene portable Installation nutzt die statisch gebundene MUSL-Binärdatei, die unabhängig von Bibliotheksversionen auf jeder Linux-Distribution lauffähig ist. Verfügbar für AMD64 (`x86_64`) und ARM64 (`aarch64`):
-
+### Statische Binary (Portabel)
 ```bash
 # Für x86_64 (AMD64)
-wget https://github.com/word-sys/puls/releases/latest/download/puls-0.9.4-x86_64-linux-musl.tar.gz
-tar -xzf puls-0.9.4-x86_64-linux-musl.tar.gz
+wget https://github.com/word-sys/puls/releases/latest/download/puls-0.10.0-x86_64-linux-musl.tar.gz
+tar -xzf puls-0.10.0-x86_64-linux-musl.tar.gz
 sudo mv puls /usr/local/bin/puls
 
 # Für aarch64 (ARM64)
-wget https://github.com/word-sys/puls/releases/latest/download/puls-0.9.4-aarch64-linux-musl.tar.gz
-tar -xzf puls-0.9.4-aarch64-linux-musl.tar.gz
+wget https://github.com/word-sys/puls/releases/latest/download/puls-0.10.0-aarch64-linux-musl.tar.gz
+tar -xzf puls-0.10.0-aarch64-linux-musl.tar.gz
 sudo mv puls /usr/local/bin/puls
 ```
 
 ### Debian / Ubuntu Paket (.deb)
-Installieren Sie das offizielle `.deb`-Paket unter Debian, Ubuntu, Linux Mint oder Pop!_OS:
-
 ```bash
-# AMD64-Paket herunterladen und installieren
-wget https://github.com/word-sys/puls/releases/latest/download/puls_0.9.4_amd64.deb
-sudo apt install ./puls_0.9.4_amd64.deb
+# AMD64
+wget https://github.com/word-sys/puls/releases/latest/download/puls_0.10.0_amd64.deb
+sudo apt install ./puls_0.10.0_amd64.deb
 
-# Für ARM64-Systeme
-wget https://github.com/word-sys/puls/releases/latest/download/puls_0.9.4_arm64.deb
-sudo apt install ./puls_0.9.4_arm64.deb
+# ARM64
+wget https://github.com/word-sys/puls/releases/latest/download/puls_0.10.0_arm64.deb
+sudo apt install ./puls_0.10.0_arm64.deb
 ```
 
-Falls Paketabhängigkeiten aufgelöst werden müssen:
+### Aus dem Quellcode kompilieren
 ```bash
-sudo apt --fix-broken install
+cargo build --release --target x86_64-unknown-linux-musl
 ```
-
-### Aus dem Quellcode bauen
-So kompilieren Sie PULS lokal:
-
-1. **Voraussetzungen**:
-   * Rust-Toolchain (1.70+ empfohlen): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-   * Musl-Compilerwerkzeuge: `sudo apt install musl-tools` (Debian/Ubuntu) oder `sudo dnf install musl-gcc` (Fedora) oder `sudo pacman -S musl` (Arch)
-   * Musl-Ziel hinzufügen: `rustup target add x86_64-unknown-linux-musl`
-
-2. **Kompilierung**:
-   ```bash
-   cargo build --release --target x86_64-unknown-linux-musl
-   ```
-   Die Binärdatei wird unter `target/x86_64-unknown-linux-musl/release/puls` erstellt.
 
 ---
 
-## Nutzungsmodi
+## Verwendung
 
-PULS passt seine Berechtigungen und Funktionen an die Ausführungsumgebung an:
-
-| Befehl | Betriebsmodus |
+| Befehl | Modus |
 | :--- | :--- |
-| `puls` | **Benutzermodus**: Vollständige Überwachung von Benutzerprozessen, CPU, Speicher, Festplatten, Netzwerk, GPUs und Containern. |
-| `sudo puls` | **Administratormodus**: Uneingeschränkter Zugriff auf systemd-Dienststeuerungen, Systemprotokolle und GRUB-Bearbeitung. |
-| `puls --safe` | **Sicherer Modus**: Deaktiviert alle administrativen Schreibaktionen (Dienststeuerungen, Signalbefehle, GRUB-Speichern), um versehentliche Änderungen zu verhindern. |
-| `puls --telemetry` | **Telemetriemodus**: Gibt detaillierte Messwerte zur Initialisierungsdauer beim Start auf der Standardausgabe aus. |
+| `puls` | **Standardmodus**: Vollständige Überwachung von System, Prozessen, Containern und Benutzer-Diensten. |
+| `sudo puls` | **Administratormodus**: Uneingeschränkter Zugriff auf Systemd, Journal-Logs, Bootloader und `sysctl`. |
+| `puls --safe` | **Sicherheitsmodus**: Nur Lesezugriff, deaktiviert alle schreibenden Aktionen. |
+| `puls --snapshot [PFAD]` | **Headless-Snapshot**: Gibt einen vollständigen JSON-Snapshot auf stdout aus (oder schreibt `.json`/`.md` nach `PFAD`). |
+| `puls --record <DATEI.jsonl>` | **Flight Recorder**: Zeichnet Telemetrie-Frames live in eine JSONL-Datei auf. |
+| `puls --replay <DATEI.jsonl>` | **Offline-Wiedergabe**: Öffnet eine JSONL-Aufzeichnung offline mit `<`/`>`-Navigation. |
+| `puls --telemetry` | **Telemetriemodus**: Gibt Startzeit-Diagnosen beim Programmstart aus. |
 
 ---
 
 ## Lizenz
 
-PULS ist unter der [GNU General Public License v3.0](LICENSE) lizenziert.
+PULS steht unter der [GNU General Public License v3.0](LICENSE).

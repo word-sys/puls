@@ -85,11 +85,9 @@ impl DataCollector {
             Vec::new()
         };
         
-        let disks = if active_tab == 4 || active_tab == 0 {
-            self.system_monitor.get_disks()
-        } else {
-            Vec::new()
-        };
+        let (disks, total_disk_read, total_disk_write) = self
+            .system_monitor
+            .collect_disk_metrics(active_tab == 4 || active_tab == 0);
         
         let networks = if self.config.enable_network_monitoring {
             self.system_monitor.get_networks()
@@ -105,9 +103,6 @@ impl DataCollector {
         
         let (total_net_down, total_net_up) = self.system_monitor
             .calculate_total_network_io(&networks);
-        
-        let (total_disk_read, total_disk_write) = self.system_monitor
-            .get_global_disk_io();
 
         let (containers, docker_error) = if self.config.enable_docker && (active_tab == 11 || active_tab == 0) {
             if self.container_monitor.is_available() {

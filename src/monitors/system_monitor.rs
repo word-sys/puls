@@ -451,92 +451,113 @@ impl SystemMonitor {
         }).collect()
     }
     
-    pub fn get_disks(&mut self) -> Vec<DetailedDiskInfo> {
+    pub fn collect_disk_metrics(&mut self, include_mounts: bool) -> (Vec<DetailedDiskInfo>, u64, u64) {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_disk_update).as_secs_f64().max(0.1);
         
         let current_disk_stats = procfs::read_diskstats();
-        let mounts = procfs::read_mounts();
 
-        let result: Vec<DetailedDiskInfo> = mounts.into_iter().filter_map(|mount| {
-            let fs_usage = procfs::stat_filesystem(&mount.mount_point)?;
-            if fs_usage.total == 0 {
-                return None;
+        let mut total_read_rate = 0u64;
+        let mut total_write_rate = 0u64;
+        for (dev, curr) in &current_disk_stats {
+            if dev.starts_with("loop") || dev.starts_with("ram") {
+                continue;
             }
-            let used = fs_usage.total.saturating_sub(fs_usage.free);
-            let block_dev = mount.device.split('/').next_back().unwrap_or(&mount.device);
+            if !std::path::Path::new(&format!("/sys/block/{}", dev)).exists() {
+                continue;
+            }
+            if let Some(prev) = self.prev_disk_stats.get(dev) {
+                let read_rate = (curr.read_bytes.saturating_sub(prev.read_bytes) as f64 / elapsed) as u64;
+                let write_rate = (curr.write_bytes.saturating_sub(prev.write_bytes) as f64 / elapsed) as u64;
+                total_read_rate = total_read_rate.saturating_add(read_rate);
+                total_write_rate = total_write_rate.saturating_add(write_rate);
+            }
+        }
 
-            let base_dev = if block_dev.starts_with("nvme") {
-                if let Some(pos) = block_dev.find('p') {
-                    if block_dev[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
-                        &block_dev[..pos]
+        let result = if include_mounts {
+            let mounts = procfs::read_mounts();
+            mounts.into_iter().filter_map(|mount| {
+                let fs_usage = procfs::stat_filesystem(&mount.mount_point)?;
+                if fs_usage.total == 0 {
+                    return None;
+                }
+                let used = fs_usage.total.saturating_sub(fs_usage.free);
+                let block_dev = mount.device.split('/').next_back().unwrap_or(&mount.device);
+
+                let base_dev = if block_dev.starts_with("nvme") {
+                    if let Some(pos) = block_dev.find('p') {
+                        if block_dev[pos + 1..].chars().all(|c| c.is_ascii_digit()) {
+                            &block_dev[..pos]
+                        } else {
+                            block_dev
+                        }
                     } else {
                         block_dev
                     }
                 } else {
-                    block_dev
-                }
-            } else {
-                block_dev.trim_end_matches(|c: char| c.is_ascii_digit())
-            };
-
-            let temp = sysfs::find_disk_temp(&self.cached_sensors, block_dev);
-
-            let mut health_pct: Option<u8> = None;
-            let mut power_cycles: Option<u64> = None;
-
-            if base_dev.starts_with("nvme") {
-                if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
-                    if let Ok(pct) = val.trim().parse::<u8>() {
-                        health_pct = Some(100u8.saturating_sub(pct));
-                    }
-                }
-                if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/power_cycles", base_dev)) {
-                    power_cycles = val.trim().parse::<u64>().ok();
-                }
-            }
-
-            let is_ssd = fs::read_to_string(format!("/sys/block/{}/queue/rotational", base_dev))
-                .ok()
-                .and_then(|v| v.trim().parse::<u8>().ok())
-                .map(|v| v == 0);
-            let io_scheduler = sysfs::read_block_scheduler(base_dev);
-
-            let (read_rate, write_rate, await_ms, busy_pct) =
-                if let (Some(curr), Some(prev)) = (
-                    current_disk_stats.get(block_dev),
-                    self.prev_disk_stats.get(block_dev),
-                ) {
-                    procfs::compute_disk_io_metrics(curr, prev, elapsed)
-                } else {
-                    (0, 0, 0.0, 0.0)
+                    block_dev.trim_end_matches(|c: char| c.is_ascii_digit())
                 };
 
-            Some(DetailedDiskInfo {
-                name: mount.mount_point,
-                device: mount.device,
-                fs: mount.fs_type,
-                total: fs_usage.total,
-                free: fs_usage.free,
-                used,
-                read_rate,
-                write_rate,
-                await_ms,
-                busy_pct,
-                is_ssd,
-                temp,
-                health_pct,
-                power_cycles,
-                inodes_total: fs_usage.inodes_total,
-                inodes_used: fs_usage.inodes_used,
-                io_scheduler,
-                mount_options: Some(mount.options),
-            })
-        }).collect();
+                let temp = sysfs::find_disk_temp(&self.cached_sensors, block_dev);
+
+                let mut health_pct: Option<u8> = None;
+                let mut power_cycles: Option<u64> = None;
+
+                if base_dev.starts_with("nvme") {
+                    if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/percentage_used", base_dev)) {
+                        if let Ok(pct) = val.trim().parse::<u8>() {
+                            health_pct = Some(100u8.saturating_sub(pct));
+                        }
+                    }
+                    if let Ok(val) = fs::read_to_string(format!("/sys/block/{}/device/power_cycles", base_dev)) {
+                        power_cycles = val.trim().parse::<u64>().ok();
+                    }
+                }
+
+                let is_ssd = fs::read_to_string(format!("/sys/block/{}/queue/rotational", base_dev))
+                    .ok()
+                    .and_then(|v| v.trim().parse::<u8>().ok())
+                    .map(|v| v == 0);
+                let io_scheduler = sysfs::read_block_scheduler(base_dev);
+
+                let (read_rate, write_rate, await_ms, busy_pct) =
+                    if let (Some(curr), Some(prev)) = (
+                        current_disk_stats.get(block_dev),
+                        self.prev_disk_stats.get(block_dev),
+                    ) {
+                        procfs::compute_disk_io_metrics(curr, prev, elapsed)
+                    } else {
+                        (0, 0, 0.0, 0.0)
+                    };
+
+                Some(DetailedDiskInfo {
+                    name: mount.mount_point,
+                    device: mount.device,
+                    fs: mount.fs_type,
+                    total: fs_usage.total,
+                    free: fs_usage.free,
+                    used,
+                    read_rate,
+                    write_rate,
+                    await_ms,
+                    busy_pct,
+                    is_ssd,
+                    temp,
+                    health_pct,
+                    power_cycles,
+                    inodes_total: fs_usage.inodes_total,
+                    inodes_used: fs_usage.inodes_used,
+                    io_scheduler,
+                    mount_options: Some(mount.options),
+                })
+            }).collect()
+        } else {
+            Vec::new()
+        };
 
         self.prev_disk_stats = current_disk_stats;
         self.last_disk_update = now;
-        result
+        (result, total_read_rate, total_write_rate)
     }
     
     pub fn get_networks(&mut self) -> Vec<DetailedNetInfo> {
@@ -627,29 +648,6 @@ impl SystemMonitor {
 
     pub fn get_sensors(&self) -> Vec<SensorInfo> {
         self.cached_sensors.clone()
-    }
-
-    pub fn get_global_disk_io(&mut self) -> (u64, u64) {
-        let current_stats = procfs::read_diskstats();
-        let mut total_read_rate = 0;
-        let mut total_write_rate = 0;
-        
-        let now = Instant::now();
-        let elapsed = now.duration_since(self.last_disk_update).as_secs_f64().max(0.1);
-        
-        for (dev, curr) in &current_stats {
-            if let Some(prev) = self.prev_disk_stats.get(dev) {
-                let read_rate = (curr.read_bytes.saturating_sub(prev.read_bytes) as f64 / elapsed) as u64;
-                let write_rate = (curr.write_bytes.saturating_sub(prev.write_bytes) as f64 / elapsed) as u64;
-                total_read_rate += read_rate;
-                total_write_rate += write_rate;
-            }
-        }
-        
-        self.prev_disk_stats = current_stats;
-        self.last_disk_update = now;
-        
-        (total_read_rate, total_write_rate)
     }
     
     pub fn calculate_total_network_io(&self, networks: &[DetailedNetInfo]) -> (u64, u64) {

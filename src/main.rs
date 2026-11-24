@@ -123,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    let stop_signal = Arc::new((Mutex::new(false), Condvar::new()));
+    let stop_signal = Arc::new((Mutex::new((false, false)), Condvar::new()));
     let collector_handle = if config.replay_path.is_none() {
         let app_state_clone = app_state.clone();
         let data_collector_clone = data_collector.clone();
@@ -140,12 +140,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let result = ui_loop(&mut terminal, app_state, data_collector, &config);
+    let result = ui_loop(&mut terminal, app_state, data_collector, &config, &stop_signal);
 
     {
         let (lock, cvar) = &*stop_signal;
-        if let Ok(mut stopped) = lock.lock() {
-            *stopped = true;
+        if let Ok(mut flags) = lock.lock() {
+            flags.0 = true;
             cvar.notify_all();
         }
     }
@@ -227,11 +227,15 @@ fn ui_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
     config: &AppConfig,
+    stop_signal: &Arc<(Mutex<(bool, bool)>, Condvar)>,
 ) -> io::Result<()> {
     let frame_duration = Duration::from_millis(config.ui_refresh_rate_ms());
     let mut last_render = Instant::now();
     let mut needs_redraw = true;
-    let mut current_lang = { app_state.lock().unwrap().language };
+    let (mut current_lang, mut last_active_tab) = {
+        let s = app_state.lock().unwrap();
+        (s.language, s.active_tab)
+    };
     let mut translator = crate::language::Translator::new(current_lang);
     
     loop {
@@ -260,14 +264,26 @@ fn ui_loop(
         
         let now = Instant::now();
         if needs_redraw || now.duration_since(last_render) >= frame_duration {
+            let mut wake_collector = false;
             {
                 let mut state = app_state.lock().unwrap();
+                if state.active_tab != last_active_tab {
+                    last_active_tab = state.active_tab;
+                    wake_collector = true;
+                }
                 check_and_load_lazy_data(&mut state);
                 if state.language != current_lang {
                     current_lang = state.language;
                     translator = crate::language::Translator::new(current_lang);
                 }
                 terminal.draw(|f| render_ui(f, &mut state, config.safe_mode, &translator))?;
+            }
+            if wake_collector {
+                let (lock, cvar) = &**stop_signal;
+                if let Ok(mut flags) = lock.lock() {
+                    flags.1 = true;
+                    cvar.notify_all();
+                }
             }
             last_render = Instant::now();
             needs_redraw = false;
@@ -1722,19 +1738,28 @@ fn handle_mouse_event(
                         state.cpu_cores_scroll = state.cpu_cores_scroll.saturating_add(1);
                     }
                     5 => {
-                        let max_s = state.dynamic_data.sockets.len().saturating_sub(1);
+                        let max_s = crate::monitors::network_sockets::filter_sockets(&state.dynamic_data.sockets, &state.socket_filter).len().saturating_sub(1);
                         state.network_socket_scroll = (state.network_socket_scroll + 1).min(max_s);
                     }
                     8 => {
-                        if state.services_subtab == 0 {
-                            let cur = state.services_table_state.selected().unwrap_or(0);
-                            if cur + 1 < state.services.len() {
-                                state.services_table_state.select(Some(cur + 1));
+                        match state.services_subtab {
+                            0 => {
+                                let cur = state.services_table_state.selected().unwrap_or(0);
+                                if cur + 1 < state.services.len() {
+                                    state.services_table_state.select(Some(cur + 1));
+                                }
                             }
-                        } else {
-                            let cur = state.timers_table_state.selected().unwrap_or(0);
-                            if cur + 1 < state.timers.len() {
-                                state.timers_table_state.select(Some(cur + 1));
+                            1 => {
+                                let cur = state.timers_table_state.selected().unwrap_or(0);
+                                if cur + 1 < state.timers.len() {
+                                    state.timers_table_state.select(Some(cur + 1));
+                                }
+                            }
+                            _ => {
+                                let cur = state.boot_blame_table_state.selected().unwrap_or(0);
+                                if cur + 1 < state.boot_blame.len() {
+                                    state.boot_blame_table_state.select(Some(cur + 1));
+                                }
                             }
                         }
                     }
@@ -1745,9 +1770,16 @@ fn handle_mouse_event(
                         }
                     }
                     10 => {
-                        let cur = state.config_table_state.selected().unwrap_or(0);
-                        if cur + 1 < state.config_items.len() {
-                            state.config_table_state.select(Some(cur + 1));
+                        if state.config_subtab == 1 {
+                            let cur = state.sysctl_table_state.selected().unwrap_or(0);
+                            if cur + 1 < state.sysctl_items.len() {
+                                state.sysctl_table_state.select(Some(cur + 1));
+                            }
+                        } else {
+                            let cur = state.config_table_state.selected().unwrap_or(0);
+                            if cur + 1 < state.config_items.len() {
+                                state.config_table_state.select(Some(cur + 1));
+                            }
                         }
                     }
                     11 => {
@@ -1785,12 +1817,19 @@ fn handle_mouse_event(
                         state.network_socket_scroll = state.network_socket_scroll.saturating_sub(1);
                     }
                     8 => {
-                        if state.services_subtab == 0 {
-                            let cur = state.services_table_state.selected().unwrap_or(0);
-                            state.services_table_state.select(Some(cur.saturating_sub(1)));
-                        } else {
-                            let cur = state.timers_table_state.selected().unwrap_or(0);
-                            state.timers_table_state.select(Some(cur.saturating_sub(1)));
+                        match state.services_subtab {
+                            0 => {
+                                let cur = state.services_table_state.selected().unwrap_or(0);
+                                state.services_table_state.select(Some(cur.saturating_sub(1)));
+                            }
+                            1 => {
+                                let cur = state.timers_table_state.selected().unwrap_or(0);
+                                state.timers_table_state.select(Some(cur.saturating_sub(1)));
+                            }
+                            _ => {
+                                let cur = state.boot_blame_table_state.selected().unwrap_or(0);
+                                state.boot_blame_table_state.select(Some(cur.saturating_sub(1)));
+                            }
                         }
                     }
                     9 => {
@@ -1798,8 +1837,13 @@ fn handle_mouse_event(
                         state.logs_table_state.select(Some(cur.saturating_sub(1)));
                     }
                     10 => {
-                        let cur = state.config_table_state.selected().unwrap_or(0);
-                        state.config_table_state.select(Some(cur.saturating_sub(1)));
+                        if state.config_subtab == 1 {
+                            let cur = state.sysctl_table_state.selected().unwrap_or(0);
+                            state.sysctl_table_state.select(Some(cur.saturating_sub(1)));
+                        } else {
+                            let cur = state.config_table_state.selected().unwrap_or(0);
+                            state.config_table_state.select(Some(cur.saturating_sub(1)));
+                        }
                     }
                     11 => {
                         let cur = state.container_table_state.selected().unwrap_or(0);
@@ -1814,14 +1858,22 @@ fn handle_mouse_event(
     Ok(())
 }
 
-fn wait_or_stop(stop_signal: &(Mutex<bool>, Condvar), duration: Duration) -> bool {
+fn wait_or_stop(stop_signal: &(Mutex<(bool, bool)>, Condvar), duration: Duration) -> bool {
     let (lock, cvar) = stop_signal;
-    let guard = lock.lock().unwrap();
-    if *guard {
+    let mut guard = lock.lock().unwrap();
+    if guard.0 {
         return true;
     }
-    let (guard, _) = cvar.wait_timeout(guard, duration).unwrap();
-    *guard
+    if guard.1 {
+        guard.1 = false;
+        return false;
+    }
+    let (mut guard, _) = cvar.wait_timeout(guard, duration).unwrap();
+    if guard.0 {
+        return true;
+    }
+    guard.1 = false;
+    false
 }
 
 fn run_headless_snapshot(config: &AppConfig, target: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -1868,12 +1920,12 @@ fn data_collection_loop(
     app_state: Arc<Mutex<AppState>>,
     data_collector: SharedDataCollector,
     config: AppConfig,
-    stop_signal: Arc<(Mutex<bool>, Condvar)>,
+    stop_signal: Arc<(Mutex<(bool, bool)>, Condvar)>,
 ) {
     let mut prev_global_usage = types::GlobalUsage::default();
     
     loop {
-        if *stop_signal.0.lock().unwrap() {
+        if stop_signal.0.lock().unwrap().0 {
             break;
         }
 
@@ -2125,7 +2177,7 @@ mod tests {
 
     #[test]
     fn test_wait_or_stop_immediate_wakeup() {
-        let signal = Arc::new((Mutex::new(false), Condvar::new()));
+        let signal = Arc::new((Mutex::new((false, false)), Condvar::new()));
         let sig_clone = signal.clone();
         let start = Instant::now();
 
@@ -2136,8 +2188,8 @@ mod tests {
         thread::sleep(Duration::from_millis(20));
         {
             let (lock, cvar) = &*signal;
-            let mut stopped = lock.lock().unwrap();
-            *stopped = true;
+            let mut flags = lock.lock().unwrap();
+            flags.0 = true;
             cvar.notify_all();
         }
 

@@ -909,12 +909,14 @@ pub fn parse_psi_file(content: &str) -> PsiMetric {
         let mut avg10 = 0.0f32;
         let mut avg60 = 0.0f32;
         let mut avg300 = 0.0f32;
+        let mut total = 0u64;
         for token in parts {
             if let Some((k, v)) = token.split_once('=') {
                 match k {
                     "avg10" => avg10 = v.parse().unwrap_or(0.0),
                     "avg60" => avg60 = v.parse().unwrap_or(0.0),
                     "avg300" => avg300 = v.parse().unwrap_or(0.0),
+                    "total" => total = v.parse().unwrap_or(0),
                     _ => {}
                 }
             }
@@ -924,6 +926,7 @@ pub fn parse_psi_file(content: &str) -> PsiMetric {
                 m.some_avg10 = avg10;
                 m.some_avg60 = avg60;
                 m.some_avg300 = avg300;
+                m.some_total_us = total;
             }
             "full" => {
                 m.full_avg10 = avg10;
@@ -1216,11 +1219,13 @@ full avg10=3.45 avg60=1.12 avg300=0.45 total=123456
         assert!((m.some_avg300 - 1.23).abs() < 0.01);
         assert!((m.full_avg10 - 3.45).abs() < 0.01);
         assert!((m.full_avg60 - 1.12).abs() < 0.01);
+        assert_eq!(m.some_total_us, 987654);
 
         let cpu_psi = "some avg10=0.80 avg60=0.40 avg300=0.10 total=42000\n";
         let c = parse_psi_file(cpu_psi);
         assert!((c.some_avg10 - 0.80).abs() < 0.01);
         assert_eq!(c.full_avg10, 0.0);
+        assert_eq!(c.some_total_us, 42000);
     }
 
     #[test]

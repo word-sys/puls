@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file
 
+## [v0.10.0] - 2026-11-24
+
+### Zero-Dependency Architecture & Native Linux Engine
+- **Zero External Crates (`0` Dependencies)**: Eliminated every single external crate (`ratatui`, `crossterm`, `sysinfo`, `bollard`, `futures-util`, `tokio`, `log`, `env_logger`), shrinking `Cargo.lock` from **230 packages to 1** (just `puls` itself) and producing a **~1.6 MB** stripped static binary
+- **Native Linux Terminal Engine (`src/term/`)**: Built a custom zero-dependency terminal backend using direct `termios` (`tcgetattr`/`cfmakeraw`/`tcsetattr`), `ioctl(TIOCGWINSZ)`, `SIGWINCH`, `poll(2)`, ANSI/VT/UTF-8 keyboard + SGR 1006 mouse parsing, DEC Synchronized Output double-buffered cell diff rendering, layout constraint solver, and full widget suite (rounded blocks, high-contrast gauges, sparklines, stateful tables, and 2×4 Unicode Braille line charts)
+- **Native `/proc`, `/sys` & Container Engine (`src/sys/`)**: Replaced `sysinfo` with direct single-pass `/proc` and `/sys` parsers (`procfs.rs`, `sysfs.rs`), replaced `bollard` with a zero-dep HTTP/1.1 + JSON + multiplexed log client over Unix domain sockets (`unix_http.rs`) with Cgroup v2 fast-path stats, and replaced `tokio` with lightweight `std::thread` + `Condvar` loops and an in-memory 200-entry ring-buffer logger
+- **Direct Linux FFI & Hardware Parsers**: Eliminated runtime shell-outs via direct `kill(2)`, `setpriority(2)`, `sethostname(2)`, `sched_getaffinity`/`sched_setaffinity`, `ioprio_get`/`ioprio_set` (`x86_64` & `aarch64`), atomic file writes, binary `utmp`/`logind` session parsing, SMBIOS DSP0134 Type 17 DMI memory table decoding, runtime `dlopen("libnvidia-ml.so.1")` NVML telemetry (with clean `musl` fallback), and `/proc/[pid]/fdinfo` DRM VRAM attribution for AMD/Intel GPUs
+
+### Added
+- **Linux Pressure Stall Information (PSI)**: Native `/proc/pressure/{cpu,memory,io}` telemetry (`some`/`full` 10s/60s/300s) integrated into Dashboard diagnostics alerts, CPU, Memory, and Disks tabs
+- **Process Cgroup, PSS Accounting, CPU Affinity & I/O Priority**: Added `Unit / Cgroup` column in Processes, `/proc/[pid]/smaps_rollup` PSS/Shared/Private Dirty/Swap metrics in Process Inspector, interactive CPU Affinity bitmask modal (`a`), and `ionice` I/O scheduling priority modal (`i`)
+- **Storage Latency, Scheduler & ZRAM Telemetry**: Added `/proc/diskstats` `await_ms` and `busy_pct`, active `/sys/block/*/queue/scheduler`, and `/sys/block/zram*/mm_stat` compression ratios across Disks and Memory tabs
+- **Enhanced Network & Socket Inspector**: Added `TxQ/RxQ` socket queues and TCP retransmits, `/proc/net/wireless` Wi-Fi dBm/quality, `/sys/class/net/*/{speed,mtu}`, live `/` socket filtering, and `Enter` jump-to-Process Inspector
+- **Systemd `--user` Scope, Accurate Journal Priorities & Boot Blame**: Added rootless `systemctl --user` scope toggle (`u`), structured `journalctl --output=json` `PRIORITY` parsing (`EMERG..DEBUG`), unit file viewer (`v`), and `Boot Blame` subtab with visual startup impact bars
+- **Multi-Bootloader (`systemd-boot`) & Live Kernel `sysctl` Editor**: Auto-detects GRUB, `systemd-boot` (`/boot/efi/loader/loader.conf`), or `/etc/kernel/cmdline`, and adds a `Kernel sysctl` subtab in Tab 10 applying live `/proc/sys` changes and persisting atomically to `/etc/sysctl.d/99-puls.conf` via the transactional `u` diff modal
+- **Telemetry Snapshot Export & Flight Recorder**: Added headless `puls --snapshot [PATH]` (stdout JSON or `.json`/`.md` file) and in-UI `E` snapshot export, plus `puls --record <FILE.jsonl>` and offline `puls --replay <FILE.jsonl>` with `<`/`>` timeline scrubbing
+
+### Changed
+- **Server-Grade TUI Redesign**: Full-black server terminal canvas (`\x1b[40m`), horizontal table header dividers, active tab pill highlight, dedicated high-contrast multi-row gauges, right-aligned Braille chart axes with midpoint ticks, persistent scroll state across all tables, and redesigned multi-panel layouts for Disks, Memory, System Info, Services, and Logs
+
 ## [v0.9.4] - 2026-09-20
 
 ### Added

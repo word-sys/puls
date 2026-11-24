@@ -360,6 +360,7 @@ pub struct PsiMetric {
     pub some_avg300: f32,
     pub full_avg10: f32,
     pub full_avg60: f32,
+    pub some_total_us: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

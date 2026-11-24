@@ -1,3 +1,20 @@
+puls (0.10.0) buster; urgency=medium
+
+  * Rebuilt PULS with ZERO external Rust crate dependencies (0 entries in Cargo.toml [dependencies], Cargo.lock reduced from 230 packages to 1)
+  * Implemented custom zero-dependency Linux ANSI + termios + SIGWINCH + SGR mouse double-buffered TUI engine (src/term/) replacing ratatui and crossterm
+  * Replaced sysinfo, bollard, tokio, futures-util, log, and env_logger with native Linux /proc, /sys, Unix socket HTTP/JSON, Cgroup v2 fast-path, and std::thread Condvar loops
+  * Eliminated CLI subshells using native POSIX/Linux FFI (kill, setpriority, sethostname, sched_setaffinity, ioprio_set, binary utmp/logind, SMBIOS Type 17 DMI parser, runtime dlopen NVML, and DRM fdinfo VRAM attribution)
+  * Added Linux Pressure Stall Information (PSI) monitoring across Dashboard, CPU, Memory, and Disks tabs
+  * Added Process cgroup/unit column, smaps_rollup PSS/USS/Swap accounting, interactive CPU affinity modal (a), and I/O priority modal (i)
+  * Added Disk /proc/diskstats await_ms and busy_pct latency, I/O scheduler inspection, and ZRAM compression telemetry
+  * Added Network socket TxQ/RxQ queues, TCP retransmits, /proc/net/wireless Wi-Fi dBm/quality, link speed/MTU, live / socket filter, and Enter jump-to-PID
+  * Added systemd --user rootless toggle (u), structured journalctl JSON PRIORITY parsing, unit file viewer (v), and Boot Blame subtab
+  * Added systemd-boot (/boot/efi/loader/loader.conf + /etc/kernel/cmdline) and live Kernel sysctl transactional editor (/proc/sys + /etc/sysctl.d/99-puls.conf) in Config tab
+  * Added headless Telemetry Snapshot Export (--snapshot [PATH] & E hotkey) and Flight Recorder (--record / --replay JSONL scrubbing with </>)
+  * Redesigned TUI with full-black server terminal canvas, high-contrast gauges, Braille charts with right-aligned axes, table header dividers, and multi-panel layouts for Disks, Memory, System Info, Services, and Logs
+
+ -- word-sys <baringuzeldemir@gmail.com>  Tue, 24 Nov 2026 12:25:00 +0300
+
 puls (0.9.4) buster; urgency=medium
 
   * Added full 7-language internationalization (English, Turkish, French, German, Spanish, Italian, Russian)
